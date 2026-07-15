@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest a new capability, entity, or supported field
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Adding support for a new controller field or entity is much easier
+        with evidence. If the diagnostic log flagged a `NOVEL` line for the
+        field you want, paste it below — that's the exact data the
+        integration saw but doesn't yet expose.
+  - type: textarea
+    id: request
+    attributes:
+      label: What would you like to see
+    validations:
+      required: true
+  - type: textarea
+    id: novel
+    attributes:
+      label: NOVEL / CAPTURE log lines (if any)
+      description: From the diagnostic log — the raw field(s) this concerns
+      render: shell
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device type
+      multiple: true
+      options:
+        - Control Box
+        - Power Strip AC5
+        - Power Strip AC10
+        - Light Controller
+        - Soil probe
+        - Other
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: How you'd use it, screenshots from the SF app, etc.

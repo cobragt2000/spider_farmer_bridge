@@ -1,0 +1,424 @@
+"""Spider Farmer Bridge — v3, native HA entities (no MQTT)."""
+from __future__ import annotations
+
+import asyncio
+import logging
+import ssl
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+
+from .bus import SfBus
+from .diag import DIAG
+from . import preserve
+from .cert_manager import ensure_certs, cert_paths, upstream_ca_path
+from .const import (
+    DOMAIN, CONF_LISTEN_PORT, CONF_UPSTREAM_HOST, CONF_UPSTREAM_PORT,
+    DEFAULT_LISTEN_PORT, DEFAULT_UPSTREAM_HOST, DEFAULT_UPSTREAM_PORT,
+    CONF_ALLOW_CONTROL, CONF_DIAG_PER_BOOT, CONF_ENV_ENTITIES,
+    CONF_KEEP_OFFLINE, DATA_BUS,
+    DATA_PROXY, DATA_PROXY_TASK, PLATFORMS,
+    CONF_DIAG_LOG, CONF_DIAG_PATH, DEFAULT_DIAG_PATH,
+    CONF_DIAG_DAYS, DEFAULT_DIAG_DAYS, CONF_PRESERVE_ON_REMOVE,
+    CONF_INSTALL_CARD,
+)
+from .entity_defs import HA_STATUS_TOPIC
+from .proxy.mitm_proxy import MITMProxy
+
+_LOGGER = logging.getLogger(__name__)
+
+# Background config sync interval — not exposed in UI
+_POLL_INTERVAL_SEC = 600
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    # One-time migration: the diagnostic log default has moved twice
+    # (sf_bridge/ -> sf/logs/ -> custom_components/sf/logs/). Rewrite only
+    # stale *defaults* — never a path the user set deliberately.
+    if (entry.options or {}).get(CONF_DIAG_PATH) in (
+        "sf_bridge/diagnostic.log",
+        "sf/logs/diagnostic.log",
+    ):
+        hass.config_entries.async_update_entry(
+            entry,
+            options={**entry.options, CONF_DIAG_PATH: DEFAULT_DIAG_PATH},
+        )
+        _LOGGER.info(
+            "Migrated diagnostic log path to %s", DEFAULT_DIAG_PATH
+        )
+
+    # One-time rename to the DP / AC scheme (Display Panel + AC5/AC10):
+    # rewrites stored entity-id slots and device names on existing installs.
+    _migrate_naming_scheme(hass, entry)
+
+    # One-time repair: older builds could register a per-device soil AVERAGE as
+    # a phantom probe (e.g. sensor.sf_dp1_soil5_* instead of ..._soil_avg_*).
+    # Rename those back in place, by unique_id, so history is preserved.
+    _migrate_soil_avg_entity_ids(hass, entry)
+
+    cfg = {**entry.data, **(entry.options or {})}
+    listen_port   = int(cfg.get(CONF_LISTEN_PORT,   DEFAULT_LISTEN_PORT))
+    upstream_host =     cfg.get(CONF_UPSTREAM_HOST, DEFAULT_UPSTREAM_HOST)
+    upstream_port = int(cfg.get(CONF_UPSTREAM_PORT, DEFAULT_UPSTREAM_PORT))
+
+    # ── Bundled certs ──────────────────────────────────────────────────────
+    try:
+        cert_dir = await hass.async_add_executor_job(ensure_certs, hass.config.config_dir)
+    except Exception as exc:
+        _LOGGER.error("Spider Farmer Bridge: cert setup failed: %s", exc)
+        return False
+
+    server_cert, server_key, ca_cert = cert_paths(cert_dir)
+
+    # ── Diagnostic log (optional, options-toggled) ────────────────────────
+    await hass.async_add_executor_job(_apply_diag_options, hass, cfg)
+
+    # ── State bus (replaces the MQTT broker) ──────────────────────────────
+    bus = SfBus(hass, entry.entry_id)
+    bus.keep_offline = bool(cfg.get(CONF_KEEP_OFFLINE, True))
+    bus.env_entities = bool(cfg.get(CONF_ENV_ENTITIES, True))
+
+    # ── Proxy — publishes decoded state into the bus ─────────────────────
+    proxy_config = {
+        "proxy": {
+            "listen_host":              "0.0.0.0",
+            "listen_port":              listen_port,
+            "upstream_host":            upstream_host,
+            "upstream_port":            upstream_port,
+            "cert_file":                server_cert,
+            "upstream_ca_file":         upstream_ca_path(),
+            "key_file":                 server_key,
+            "ca_file":                  ca_cert,
+            "config_poll_interval_sec": _POLL_INTERVAL_SEC,
+        },
+    }
+    proxy = MITMProxy(config=proxy_config, mqtt_client=bus, config_path=None)
+    proxy.allow_control = bool(cfg.get(CONF_ALLOW_CONTROL, False))
+    bus.proxy = proxy
+
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        DATA_BUS:   bus,
+        DATA_PROXY: proxy,
+    }
+
+    # ── Platforms first, so entity listeners exist before any device data ──
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # v3.9.0: with keep-offline on, resurrect entity objects for everything
+    # already in the registry, so powered-off gear survives the restart
+    # with restored state instead of vanishing until it next reports.
+    bus.restore_registered_entities()
+
+    # If Environment entities are disabled, remove any that a prior run made
+    # so they vanish from the UI (and don't get restored above).
+    if not bus.env_entities:
+        from homeassistant.helpers import entity_registry as er
+        ent_reg = er.async_get(hass)
+        for e in list(er.async_entries_for_config_entry(ent_reg, entry.entry_id)):
+            uid = e.unique_id or ""
+            if uid.startswith("ggs_") and "_env_" in uid:
+                ent_reg.async_remove(e.entity_id)
+
+    # Bridge is up — retained-"online" parity
+    bus.publish(HA_STATUS_TOPIC, "online")
+
+    # Staleness guard: restored entities get a grace window to hear from
+    # their device; devices silent past it show unavailable instead of
+    # presenting months-old restored values as current.
+    bus.start_grace(120)
+
+    # ── TLS server context (blocking load in executor) ────────────────────
+    def _build_ssl_ctx():
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.load_cert_chain(certfile=server_cert, keyfile=server_key)
+        return ctx
+
+    server_ssl_ctx = await hass.async_add_executor_job(_build_ssl_ctx)
+
+    # ── Bind synchronously, then hand off the serve loop ─────────────────
+    stop_event = asyncio.Event()
+    try:
+        server = await asyncio.start_server(
+            proxy.handle_client,
+            host="0.0.0.0",
+            port=listen_port,
+            ssl=server_ssl_ctx,
+        )
+    except OSError as exc:
+        _LOGGER.error(
+            "Spider Farmer Bridge: cannot bind port %d — %s", listen_port, exc
+        )
+        await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+        hass.data[DOMAIN].pop(entry.entry_id, None)
+        return False
+
+    _LOGGER.info("Spider Farmer Bridge: listening on port %d", listen_port)
+
+    async def _run_proxy() -> None:
+        poll_task = asyncio.create_task(proxy.config_poll_loop())
+        try:
+            async with server:
+                await stop_event.wait()
+        finally:
+            poll_task.cancel()
+            try:
+                await poll_task
+            except asyncio.CancelledError:
+                pass
+        _LOGGER.info("Spider Farmer Bridge: stopped")
+
+    proxy_task = asyncio.ensure_future(_run_proxy())
+
+    hass.data[DOMAIN][entry.entry_id].update({
+        DATA_PROXY_TASK: proxy_task,
+        "stop_event":    stop_event,
+    })
+
+    # ── Optional bundled Lovelace card (opt-in in Settings) ───────────────
+    await _apply_card_option(hass, cfg)
+
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+    return True
+
+
+async def _apply_card_option(hass: HomeAssistant, cfg: dict) -> None:
+    """Install or remove the bundled dashboard cards per the current option."""
+    from . import frontend as sf_frontend
+
+    # Read the version off the event loop (manifest.json is a blocking open).
+    version = await hass.async_add_executor_job(_integration_version)
+    if cfg.get(CONF_INSTALL_CARD, False):
+        await sf_frontend.async_register_card(hass, version)
+    else:
+        await sf_frontend.async_unregister_card(hass, version)
+
+
+_NAMING_SCHEME_FLAG = "naming_scheme_dp_ac"
+
+# Old display label -> wire type, for renaming existing device entries.
+_OLD_LABELS_TO_TYPE = {
+    "Control Box": "cb", "Power Strip 5": "ps5", "Power Strip 10": "ps10",
+}
+
+
+def _remap_slot(slot: str) -> str:
+    """Old entity-id slot -> new (cb#->dp#, ps5->ac5, ps10->ac10, with the
+    strip _N suffix preserved)."""
+    import re
+    m = re.match(r"^cb(\d+)$", slot)
+    if m:
+        return f"dp{m.group(1)}"
+    m = re.match(r"^ps5(_\d+)?$", slot)
+    if m:
+        return "ac5" + (m.group(1) or "")
+    m = re.match(r"^ps10(_\d+)?$", slot)
+    if m:
+        return "ac10" + (m.group(1) or "")
+    return slot
+
+
+def _migrate_naming_scheme(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Rename to the Display Panel / AC5 / AC10 scheme on installs created
+    before it. Idempotent, guarded by a flag in options."""
+    if (entry.options or {}).get(_NAMING_SCHEME_FLAG):
+        return
+
+    from homeassistant.helpers import device_registry as dr
+    from .const import DOMAIN
+    from .entity_defs import _TYPE_LABELS
+    from .bus import reconcile_registry_to_slots
+
+    old_slots = dict((entry.options or {}).get("device_slots", {}))
+    new_slots = {mac: _remap_slot(sl) for mac, sl in old_slots.items()}
+    soil_slots = dict((entry.options or {}).get("soil_slots", {}))
+
+    # Rename existing device entries (name + model) unless the user set a
+    # custom name. Their identifier is ggs_{mac}; type comes from the old
+    # model label.
+    dev_reg = dr.async_get(hass)
+    for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+        dtype = _OLD_LABELS_TO_TYPE.get(device.model or "")
+        if not dtype:
+            continue
+        mac = None
+        for dom, ident in device.identifiers:
+            if dom == DOMAIN and str(ident).startswith("ggs_"):
+                mac = str(ident)[4:]
+        if not mac:
+            continue
+        last4 = mac[-4:].upper()
+        new_model = _TYPE_LABELS.get(dtype, device.model)
+        updates = {"model": new_model}
+        if not device.name_by_user:
+            updates["name"] = f"SF {new_model} {last4}"
+        dev_reg.async_update_device(device.id, **updates)
+
+    # Persist the remapped slots + flag, then reconcile entity ids.
+    hass.config_entries.async_update_entry(
+        entry,
+        options={**(entry.options or {}),
+                 "device_slots": new_slots,
+                 _NAMING_SCHEME_FLAG: True},
+    )
+    if new_slots != old_slots:
+        reconcile_registry_to_slots(hass, new_slots, soil_slots)
+        _LOGGER.info("Migrated entity ids to the DP/AC naming scheme")
+
+
+def _migrate_soil_avg_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Repair soil-average sensors that an older keep-offline restore bug
+    registered as a phantom probe. Those entities have the average unique_id
+    (ggs_{mac}_soil_avg_{suffix}) but an entity_id under a probe slot the
+    average was mis-handed (e.g. sensor.sf_dp1_soil5_temperature). Rename them
+    to the correct sensor.sf_{slot}_soil_avg_{suffix} by unique_id, in place,
+    so history and statistics carry over. Idempotent."""
+    import re
+    from homeassistant.helpers import entity_registry as er
+
+    ent_reg = er.async_get(hass)
+    uid_re = re.compile(r"^ggs_[0-9a-f]+_soil_avg_(temperature|moisture|ec)$")
+    fixed = 0
+    for e in list(er.async_entries_for_config_entry(ent_reg, entry.entry_id)):
+        m = uid_re.match(e.unique_id or "")
+        if not m:
+            continue
+        suffix = m.group(1)
+        # Already correctly named — nothing to do.
+        if re.match(rf"^sensor\.sf_[a-z0-9]+_soil_avg_{suffix}$", e.entity_id):
+            continue
+        # Pull the (correct) device slot from the current, wrong entity_id:
+        #   sensor.sf_{slot}_soil{N}_{suffix}  ->  slot
+        sm = re.match(rf"^sensor\.sf_([a-z0-9]+)_soil\d+_{suffix}$", e.entity_id)
+        if not sm:
+            continue
+        want = f"sensor.sf_{sm.group(1)}_soil_avg_{suffix}"
+        if ent_reg.async_get(want) is not None:
+            continue  # target id already taken — leave as-is to avoid collision
+        ent_reg.async_update_entity(e.entity_id, new_entity_id=want)
+        _LOGGER.info(
+            "Repaired mislabeled soil-average entity %s -> %s", e.entity_id, want
+        )
+        fixed += 1
+    if fixed:
+        _LOGGER.info("Repaired %d phantom soil-average entity id(s)", fixed)
+
+
+def _integration_version() -> str:
+    """Read this integration's version from its manifest."""
+    try:
+        import json as _json
+        import os as _os
+        mf = _os.path.join(_os.path.dirname(__file__), "manifest.json")
+        return _json.load(open(mf, encoding="utf-8")).get("version", "dev")
+    except Exception:
+        return "dev"
+
+
+def _apply_diag_options(hass: HomeAssistant, cfg: dict) -> None:
+    """Start/stop the dedicated diagnostic log per current options."""
+    if cfg.get(CONF_DIAG_LOG, False):
+        path = cfg.get(CONF_DIAG_PATH) or DEFAULT_DIAG_PATH
+        if not path.startswith("/"):
+            path = hass.config.path(path)
+        # v3.11.2b0: one self-identifying log file per HA boot (version + time)
+        if cfg.get(CONF_DIAG_PER_BOOT, True):
+            from .diag import per_boot_path
+            path = per_boot_path(path, _integration_version())
+        days = int(cfg.get(CONF_DIAG_DAYS, DEFAULT_DIAG_DAYS))
+        if not DIAG.enabled or DIAG.path != path or DIAG.days != days:
+            DIAG.setup(path, days)
+            _LOGGER.info(
+                "Spider Farmer diagnostic log enabled: %s (keep %d days)",
+                path, days,
+            )
+    elif DIAG.enabled:
+        DIAG.shutdown()
+        _LOGGER.info("Spider Farmer diagnostic log disabled")
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Apply option changes live without reloading the integration."""
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+    proxy: MITMProxy | None = data.get(DATA_PROXY)
+    if proxy is None:
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
+    cfg = {**entry.data, **(entry.options or {})}
+    await hass.async_add_executor_job(_apply_diag_options, hass, cfg)
+    await _apply_card_option(hass, cfg)
+    new_allow = bool(cfg.get(CONF_ALLOW_CONTROL, False))
+    if proxy.allow_control != new_allow:
+        proxy.allow_control = new_allow
+        _LOGGER.info(
+            "Spider Farmer Bridge: device control %s",
+            "enabled" if new_allow else "disabled",
+        )
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Decide the fate of customizations + recorder data on removal."""
+    cfg = {**entry.data, **(entry.options or {})}
+    preserve_on_remove = bool(cfg.get(CONF_PRESERVE_ON_REMOVE, True))
+    await preserve.handle_removal(hass, entry, preserve_on_remove)
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: ConfigEntry, device_entry
+) -> bool:
+    """Allow HA's 'delete device' button for devices with no active session.
+    The integration never auto-removes a device (a grow tent packed away for
+    months is dormant, not gone) — but the user can."""
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+    proxy = data.get(DATA_PROXY)
+    bus = data.get(DATA_BUS)
+    for domain, ident in device_entry.identifiers:
+        if domain == DOMAIN and ident.startswith("ggs_"):
+            mac = ident[4:]
+            severed = False
+            if proxy is not None:
+                severed = proxy.close_session(mac)
+            if bus is not None:
+                bus.forget_device(mac)
+            if severed:
+                _LOGGER.info(
+                    "Deleted device %s while connected — session severed; the "
+                    "device will re-register with fresh entities when it "
+                    "reconnects (power it off first for permanent removal)",
+                    mac,
+                )
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+    data = hass.data.get(DOMAIN, {}).pop(entry.entry_id, {})
+    bus = data.get(DATA_BUS)
+    if bus is not None:
+        bus.stop_grace()
+    proxy = data.get(DATA_PROXY)
+    if proxy is not None:
+        # Sever device connections so they reconnect to the reloaded
+        # instance instead of relaying into this dead one.
+        proxy.close_all_sessions()
+    stop: asyncio.Event | None = data.get("stop_event")
+    if stop:
+        stop.set()
+    task = data.get(DATA_PROXY_TASK)
+    if task and not task.done():
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+    # Refresh the preservation snapshot while entities still exist, so a
+    # subsequent removal has an up-to-date copy to keep. Skipped when the
+    # user unchecked preservation — no config/sf/ folder gets created.
+    cfg = {**entry.data, **(entry.options or {})}
+    if cfg.get(CONF_PRESERVE_ON_REMOVE, True):
+        await hass.async_add_executor_job(
+            preserve.write_snapshot, hass, entry.entry_id
+        )
+    await hass.async_add_executor_job(DIAG.shutdown)
+    return unload_ok

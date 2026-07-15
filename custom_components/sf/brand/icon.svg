@@ -1,0 +1,47 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#141414"/>
+      <stop offset="1" stop-color="#0a0a0a"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff9838"/>
+      <stop offset="1" stop-color="#f2740e"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="512" height="512" rx="96" fill="url(#bg)"/>
+
+  <!-- LEGS: 8 symmetric, jointed, orange -->
+  <g fill="none" stroke="#f2740e" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">
+    <!-- right side -->
+    <path d="M286 206 L344 96 L360 150"/>
+    <path d="M292 224 L392 150 L432 128"/>
+    <path d="M294 252 L400 244 L458 250"/>
+    <path d="M288 280 L382 306 L420 372"/>
+    <!-- left side -->
+    <path d="M226 206 L168 96 L152 150"/>
+    <path d="M220 224 L120 150 L80 128"/>
+    <path d="M218 252 L112 244 L54 250"/>
+    <path d="M224 280 L130 306 L92 372"/>
+  </g>
+
+  <!-- fangs -->
+  <g fill="#f2740e">
+    <path d="M244 176 q-6 14 -2 26" stroke="#f2740e" stroke-width="9" fill="none" stroke-linecap="round"/>
+    <path d="M268 176 q6 14 2 26" stroke="#f2740e" stroke-width="9" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <!-- head (prosoma) -->
+  <circle cx="256" cy="206" r="30" fill="url(#body)"/>
+  <!-- eyes -->
+  <circle cx="247" cy="200" r="4.5" fill="#1a1a1a"/>
+  <circle cx="265" cy="200" r="4.5" fill="#1a1a1a"/>
+
+  <!-- abdomen -->
+  <ellipse cx="256" cy="312" rx="52" ry="70" fill="url(#body)"/>
+
+  <!-- SF on abdomen -->
+  <text x="256" y="330" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif"
+        font-size="66" font-weight="bold" fill="#141414" letter-spacing="2">SF</text>
+</svg>

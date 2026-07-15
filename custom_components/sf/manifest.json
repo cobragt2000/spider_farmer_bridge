@@ -1,0 +1,19 @@
+{
+  "domain": "sf",
+  "name": "Spider Farmer Bridge",
+  "after_dependencies": [
+    "http",
+    "frontend",
+    "recorder"
+  ],
+  "codeowners": [
+    "@cobragt2000"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/cobragt2000/spider_farmer_bridge",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/cobragt2000/spider_farmer_bridge/issues",
+  "requirements": [],
+  "version": "3.16.0"
+}

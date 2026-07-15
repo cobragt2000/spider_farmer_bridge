@@ -1,0 +1,84 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Spider Farmer Bridge",
+        "description": "Intercepts Spider Farmer GGS Controller traffic and exposes devices natively in Home Assistant. TLS certificates are bundled — no manual setup needed.\n\nMake sure the proxy listen port is redirected from your GGS Controllers to this HA instance.",
+        "data": {
+          "listen_port": "Proxy listen port",
+          "upstream_host": "Spider Farmer MQTT host",
+          "upstream_port": "Spider Farmer MQTT port",
+          "allow_control": "Allow device control (enable to send commands to devices)",
+          "keep_offline_entities": "Keep offline devices (don't remove entities for gear that stops reporting; uncheck to prune phantoms)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Spider Farmer Bridge is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Spider Farmer Bridge",
+        "menu_options": {
+          "settings": "Settings (ports, control, diagnostic log)",
+          "migrate": "Migrate device (replace hardware, keep history)",
+          "mappings": "Device mappings (logical slots for entity IDs)"
+        }
+      },
+      "settings": {
+        "title": "Settings",
+        "data": {
+          "preserve_on_remove": "Preserve customizations & history on removal (uncheck to purge on removal)",
+          "keep_offline_entities": "Keep offline devices (don't remove entities for gear that stops reporting; uncheck to prune phantoms)",
+          "diagnostic_log_per_boot": "New diagnostic log file each restart (name tagged with version + date/time)",
+          "environment_entities": "Create Environment Settings entities (per display panel: temp/humidity/CO2 targets)",
+          "install_lovelace_card": "Install Spider Farmer dashboard cards (adds custom:spider-farmer-card and custom:ppfd-3d-card; uncheck to remove them)",
+          "listen_port": "Proxy listen port (the port GGS controllers are redirected to)",
+          "upstream_host": "Spider Farmer cloud host (upstream MQTT server)",
+          "upstream_port": "Spider Farmer cloud port",
+          "allow_control": "Enable device control (send commands to devices; off = read-only monitoring)",
+          "diagnostic_log": "Enable diagnostic log (writes a detailed protocol log for troubleshooting)",
+          "diagnostic_log_path": "Diagnostic log file path",
+          "diagnostic_log_days": "Diagnostic log retention (days)"
+        }
+      },
+      "migrate": {
+        "title": "Migrate device",
+        "description": "Replace hardware while keeping entity IDs, history, and automations. Pick the OLD device being retired and the NEW device replacing it. The new device must have connected at least once. The old device is removed after a successful migration.",
+        "data": {
+          "old_device": "Old device (being replaced)",
+          "new_device": "New device (replacement)"
+        }
+      },
+      "mappings": {
+        "title": "Device slot mappings",
+        "description": "Each device and soil probe has a logical slot that drives its entity IDs (sf_dp1_temperature, sf_dp1_soil1_moisture). Soil probes are scoped to the device they're plugged into — dp1_soil1 and dp2_soil1 are different probes. Current mappings:\n\n{mappings}\n\nEdit any slot below. Soil fields accept device-prefixed (dp1_soil2) or bare (soil2) values; the device prefix is fixed by where the probe is physically attached. To REPLACE a probe, give the new serial the old slot and BLANK the old serial (blank = retire). Entity IDs re-align after the integration reloads."
+      },
+      "replace_soil": {
+        "title": "Replace soil probe",
+        "description": "The NEW probe takes the OLD probe's slot, so its entity IDs and history continue; the old probe is then removed. Both probes must be on the same device and have reported at least once.",
+        "data": {
+          "old_probe": "Old probe (being replaced)",
+          "new_probe": "New probe (replacement)"
+        }
+      }
+    },
+    "error": {
+      "same_device": "Source and target must be different devices.",
+      "migration_failed": "Migration failed — see the log for details. No devices were removed.",
+      "nothing_to_migrate": "No entities found to migrate from the selected old device.",
+      "type_mismatch": "Device types don't match — you can only migrate onto the same kind of device (Display Panel to Display Panel, Power Strip AC10 to Power Strip AC10, etc.).",
+      "bad_slot": "Slots may only contain lowercase letters, numbers, and underscores.",
+      "duplicate_slot": "Each slot must be unique.",
+      "wrong_cb_prefix": "A soil probe's device prefix is set by which device it's plugged into — you can't move a probe by editing its slot. Use the probe's own prefix or the bare soil name.",
+      "same_probe": "Old and new probe must be different.",
+      "different_cb": "Both probes must be on the same device."
+    },
+    "abort": {
+      "no_devices": "No devices have been assigned slots yet — connect a device first.",
+      "need_two_probes": "At least two soil probes are needed to perform a replacement."
+    }
+  }
+}

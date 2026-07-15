@@ -1,0 +1,70 @@
+name: Bug report
+description: Report a problem with the Spider Farmer Bridge integration
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please fill in as much as you can — the
+        diagnostic log (Configure → Settings → enable Diagnostic log) is by
+        far the most useful attachment.
+  - type: input
+    id: version
+    attributes:
+      label: Integration version
+      description: From the integration page or manifest.json
+      placeholder: "3.4.0"
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: "2026.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device(s) involved
+      multiple: true
+      options:
+        - Control Box
+        - Power Strip AC5
+        - Power Strip AC10
+        - Light Controller
+        - Soil probe
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: What you expected vs. what actually occurred
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Diagnostic log / HA log excerpt
+      description: |
+        Paste relevant lines. Look for FRAME, NOVEL, DETECT, ERROR, and any
+        Spider Farmer Bridge entries. Redact anything you consider sensitive.
+      render: shell
+  - type: checkboxes
+    id: control
+    attributes:
+      label: Confirmations
+      options:
+        - label: "Device control is enabled (only relevant for command/write issues)"
+        - label: "I can reproduce this after a Home Assistant restart"

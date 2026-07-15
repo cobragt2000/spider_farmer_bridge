@@ -267,41 +267,76 @@ def _migrate_naming_scheme(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 def _migrate_soil_avg_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Repair soil-average sensors that an older keep-offline restore bug
-    registered as a phantom probe. Those entities have the average unique_id
-    (ggs_{mac}_soil_avg_{suffix}) but an entity_id under a probe slot the
-    average was mis-handed (e.g. sensor.sf_dp1_soil5_temperature). Rename them
-    to the correct sensor.sf_{slot}_soil_avg_{suffix} by unique_id, in place,
-    so history and statistics carry over. Idempotent."""
+    """Place every per-device soil-average sensor at the entity_id its OWN
+    device's slot dictates, resolved by MAC — not by whatever slot the current
+    entity_id happens to carry. Fixes two older problems in one pass:
+
+      • phantom-probe ids from a keep-offline restore bug
+        (sensor.sf_{slot}_soil5_{suffix}), and
+      • cross-assigned / swapped ids (dp1's average sitting under
+        sensor.sf_dp2_soil_avg_* and vice versa) — earlier code derived the
+        target slot from the wrong entity_id, so a dp1<->dp2 swap persisted.
+
+    Targets sensor.sf_{device_slot}_soil_avg_{suffix} using device_slots
+    (mac -> slot). Uses a two-phase, collision-safe rename so a straight
+    dp1<->dp2 swap resolves cleanly. History and statistics carry over.
+    Idempotent."""
     import re
+    import time
     from homeassistant.helpers import entity_registry as er
 
+    device_slots = dict((entry.options or {}).get("device_slots", {}))
+    if not device_slots:
+        return
+
     ent_reg = er.async_get(hass)
-    uid_re = re.compile(r"^ggs_[0-9a-f]+_soil_avg_(temperature|moisture|ec)$")
-    fixed = 0
+    uid_re = re.compile(r"^ggs_([0-9a-f]+)_soil_avg_(temperature|moisture|ec)$")
+
+    planned: list[tuple[str, str]] = []  # (current_entity_id, want)
     for e in list(er.async_entries_for_config_entry(ent_reg, entry.entry_id)):
         m = uid_re.match(e.unique_id or "")
         if not m:
             continue
-        suffix = m.group(1)
-        # Already correctly named — nothing to do.
-        if re.match(rf"^sensor\.sf_[a-z0-9]+_soil_avg_{suffix}$", e.entity_id):
-            continue
-        # Pull the (correct) device slot from the current, wrong entity_id:
-        #   sensor.sf_{slot}_soil{N}_{suffix}  ->  slot
-        sm = re.match(rf"^sensor\.sf_([a-z0-9]+)_soil\d+_{suffix}$", e.entity_id)
-        if not sm:
-            continue
-        want = f"sensor.sf_{sm.group(1)}_soil_avg_{suffix}"
+        mac, suffix = m.group(1), m.group(2)
+        slot = device_slots.get(mac)
+        if not slot:
+            continue  # unknown device slot — leave as-is
+        want = f"sensor.sf_{slot}_soil_avg_{suffix}"
+        if e.entity_id != want:
+            planned.append((e.entity_id, want))
+
+    if not planned:
+        return
+
+    # Phase 1: park every mover on a unique temp id, freeing all target ids so
+    # a dp1<->dp2 swap can't collide.
+    stamp = int(time.time())
+    temp_map: list[tuple[str, str, str]] = []  # (temp, want, original)
+    for i, (cur, want) in enumerate(planned):
+        temp = f"sensor.sf_soilavgtmp_{stamp}_{i}"
+        try:
+            ent_reg.async_update_entity(cur, new_entity_id=temp)
+            temp_map.append((temp, want, cur))
+        except (ValueError, KeyError) as exc:
+            _LOGGER.warning("soil-avg park failed %s: %s", cur, exc)
+
+    # Phase 2: land each on its correct id.
+    fixed = 0
+    for temp, want, cur in temp_map:
         if ent_reg.async_get(want) is not None:
-            continue  # target id already taken — leave as-is to avoid collision
-        ent_reg.async_update_entity(e.entity_id, new_entity_id=want)
-        _LOGGER.info(
-            "Repaired mislabeled soil-average entity %s -> %s", e.entity_id, want
-        )
-        fixed += 1
+            _LOGGER.error(
+                "soil-avg target %s already occupied; %s left on %s",
+                want, cur, temp,
+            )
+            continue
+        try:
+            ent_reg.async_update_entity(temp, new_entity_id=want)
+            _LOGGER.info("Repaired soil-average entity %s -> %s", cur, want)
+            fixed += 1
+        except (ValueError, KeyError) as exc:
+            _LOGGER.error("soil-avg finalize failed %s -> %s: %s", cur, want, exc)
     if fixed:
-        _LOGGER.info("Repaired %d phantom soil-average entity id(s)", fixed)
+        _LOGGER.info("Repaired %d soil-average entity id(s)", fixed)
 
 
 def _integration_version() -> str:

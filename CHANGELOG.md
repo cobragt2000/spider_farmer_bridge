@@ -3,6 +3,21 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.16.4
+
+### Fixes
+- **Soil-average sensors could be cross-assigned between panels** — dp1's card
+  showed dp2's Soil Temp / Moisture / EC and vice versa. Two causes, both fixed:
+  the slot reconcile skipped `soil_avg` entities entirely (it misread the "avg"
+  in `ggs_{mac}_soil_avg_*` as a probe serial and found no slot for it), and the
+  startup repair derived the target slot from the *current* entity_id instead of
+  the device's MAC — so once a swap existed it stuck. Both now place each average
+  by its host device's MAC → slot, using a collision-safe two-phase rename so a
+  straight dp1↔dp2 swap resolves cleanly. History and statistics are preserved,
+  and existing installs self-correct on the next restart. (Air sensors, lights,
+  and other entities were unaffected — this was specific to the per-device soil
+  averages.)
+
 ## 3.16.3
 
 ### Dashboard card (bundled card v0.2.0)
@@ -297,15 +312,4 @@ Consolidates the 3.11.2 beta series into a stable release.
 - Fixed soil discovery consuming probe IDs during the detection window (tentatively-typed devices would permanently skip their probes' entities)
 
 ## 3.3.2
-- Mappings screen displays and accepts CB-scoped soil values (`cb1_soil1`, `cb2_soil1`); bare values (`soil1`) also accepted
-- Per-device soil duplicate validation actually shipped (a patch in 3.3.1 silently missed; global uniqueness was still enforced, blocking `soil1` on two CBs)
-- Typing a different device's prefix on a probe is rejected with a clear error (probes follow their physical port; moves aren't mapping edits)
-
-## 3.3.1
-- Soil numbering is now per-device: each Control Box (or strip) counts its own probes, so `cb1_soil1` and `cb2_soil1` coexist
-- Soil entity IDs are scoped to the host device: `sensor.sf_cb1_soil1_temperature`
-- A probe moved to a device where its number is taken auto-renumbers on that device
-
-## 3.3.0
-- Soil probes become slot citizens: `sensor.sf_soil1_temperature` / `_moisture` / `_ec` (serials leave the entity IDs; unique IDs stay serial-based so history survives)
-- Probes listed and editable in
+- Mappings screen displays and accepts CB-scoped soil values (`cb1_soil1`, `cb2_soil1`); b

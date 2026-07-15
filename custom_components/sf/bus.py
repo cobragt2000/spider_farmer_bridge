@@ -53,7 +53,18 @@ def reconcile_registry_to_slots(hass, slots: dict, soil_slots: dict | None = Non
             continue
         mac = uid[4:].split("_", 1)[0]
         field = uid[len(f"ggs_{mac}_"):]
-        if field.startswith("soil_"):
+        if field.startswith("soil_avg_"):
+            # Per-DEVICE soil average: ggs_{mac}_soil_avg_{suffix} ->
+            # sf_{device_slot}_soil_avg_{suffix}. NOT a probe — keyed by the
+            # host device's slot, so it follows dp1/dp2 slot changes (must be
+            # handled before the generic soil_ branch, which would misread
+            # "avg" as a probe serial and skip it — the dp1/dp2 swap bug).
+            suffix = field[len("soil_avg_"):]
+            cb_slot = slots.get(mac)
+            if not cb_slot or suffix not in ("temperature", "moisture", "ec"):
+                continue
+            final_eid = f"{entity.domain}.sf_{cb_slot}_soil_avg_{suffix}"
+        elif field.startswith("soil_"):
             # ggs_{mac}_soil_{serial}_{suffix} — id is CB-scoped (v3.3.1):
             # sf_{cb_slot}_{soil_slot}_{suffix}
             body = field[len("soil_"):]

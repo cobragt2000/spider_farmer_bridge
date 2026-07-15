@@ -191,3 +191,46 @@ async def test_new_install_uses_dp_ac_slots(hass: HomeAssistant):
 
     await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+async def test_soil_avg_swap_repaired_by_mac(hass: HomeAssistant):
+    """Soil-average entity_ids that got cross-assigned between two panels are
+    repaired to match each average's OWN device slot (by MAC) on setup, even
+    when that means a straight dp1<->dp2 swap (collision-safe two-phase)."""
+    from homeassistant.helpers import entity_registry as er
+
+    MAC_A, MAC_B = "0a1b2c3d4e01", "0a1b2c3d4e02"
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Spider Farmer Bridge",
+        data={"listen_port": 18931, "upstream_host": "sf.mqtt.spider-farmer.com",
+              "upstream_port": 8883, "allow_control": True},
+        options={"device_slots": {MAC_A: "dp1", MAC_B: "dp2"},
+                 "naming_scheme_dp_ac": True},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+
+    reg = er.async_get(hass)
+    # Seed swapped: A's average sitting under dp2's id, B's under dp1's.
+    eA = reg.async_get_or_create(
+        "sensor", DOMAIN, f"ggs_{MAC_A}_soil_avg_temperature", config_entry=entry)
+    reg.async_update_entity(eA.entity_id,
+                            new_entity_id="sensor.sf_dp2_soil_avg_temperature")
+    eB = reg.async_get_or_create(
+        "sensor", DOMAIN, f"ggs_{MAC_B}_soil_avg_temperature", config_entry=entry)
+    reg.async_update_entity(eB.entity_id,
+                            new_entity_id="sensor.sf_dp1_soil_avg_temperature")
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Each average now lands on its own device's slot; unique_ids (history) kept.
+    assert reg.async_get_entity_id(
+        "sensor", DOMAIN, f"ggs_{MAC_A}_soil_avg_temperature"
+    ) == "sensor.sf_dp1_soil_avg_temperature"
+    assert reg.async_get_entity_id(
+        "sensor", DOMAIN, f"ggs_{MAC_B}_soil_avg_temperature"
+    ) == "sensor.sf_dp2_soil_avg_temperature"
+
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()

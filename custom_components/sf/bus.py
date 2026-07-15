@@ -413,6 +413,11 @@ class SfBus:
             _device_name(device_cfg), _device_model(device_cfg)
         )
         self._repair_if_retyped(device_cfg)
+        # Re-evaluate power-strip nesting every discovery cycle (this runs
+        # ~every 60s via ensure_discovery), so a strip that connected before
+        # its host panel still nests once both are up — not only on the first
+        # block report.
+        self._update_strip_nesting(device_cfg)
         # Environment target device: one per display panel (CB), created once,
         # if enabled in options.
         if self.env_entities and (device_cfg.get("type", "") or "").lower() == "cb":
@@ -903,9 +908,49 @@ class SfBus:
         DIAG.bus_event(f"forget_device {mac}")
 
     @callback
+    def host_cb_mac_for_strip(self, mac: str) -> Optional[str]:
+        """Display-panel mac hosting this power strip, or None if standalone."""
+        prox = self.proxy
+        if prox is None:
+            return None
+        try:
+            return prox.host_cb_mac_for_strip(mac)
+        except Exception:  # pragma: no cover - defensive
+            return None
+
+    def _update_strip_nesting(self, device_cfg: dict) -> None:
+        """Nest a power strip under the display panel that hosts it
+        (via_device), or leave it top-level when it runs standalone. Idempotent
+        and re-evaluated each report, so plugging/unplugging a strip re-nests
+        within a discovery cycle. Only the device link changes; entity ids and
+        history are untouched."""
+        dtype = (device_cfg.get("type", "") or "").lower()
+        if dtype not in ("ps5", "ps10"):
+            return
+        from homeassistant.helpers import device_registry as dr
+        from .const import DOMAIN
+        mac = _mac(device_cfg.get("mac", ""))
+        reg = dr.async_get(self.hass)
+        strip = reg.async_get_device(identifiers={(DOMAIN, f"ggs_{mac}")})
+        if strip is None:
+            return
+        host_mac = self.host_cb_mac_for_strip(mac)
+        parent = (
+            reg.async_get_device(identifiers={(DOMAIN, f"ggs_{host_mac}")})
+            if host_mac else None
+        )
+        want = parent.id if parent else None
+        if strip.via_device_id != want:
+            reg.async_update_device(strip.id, via_device_id=want)
+            _LOGGER.info(
+                "Strip %s nesting -> %s", mac,
+                f"under panel {host_mac}" if want else "top-level (standalone)",
+            )
+
     def blocks_seen(self, mac_raw: str, seen: set, device_cfg: dict) -> None:
         """Evidence-based group creation (v3.0.12): the device reported
         these data blocks — create their entity groups if missing."""
+        self._update_strip_nesting(device_cfg)
         blocks = set(seen) & set(EVIDENCE_BLOCKS)
         if not blocks:
             return

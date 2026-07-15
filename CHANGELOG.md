@@ -3,6 +3,30 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.16.5
+
+### Devices
+- **Power strips nest under their host display panel.** When an AC5/AC10 strip is
+  connected through a panel (the panel reports the strip's `ps5`/`ps10` block — the
+  same signal that already routes the strip's outlet commands through the panel), the
+  strip's device now shows **nested under that panel** in Settings → Devices, the same
+  way the Environment sub-device nests. A strip run **standalone** (no hosting panel)
+  stays **top-level**. The link is re-evaluated every discovery cycle, so plugging or
+  unplugging a strip re-nests it within about a minute; only the device relationship
+  changes — entity IDs, history, and automations are untouched.
+  - Pairing is by strip *type* (the wire doesn't put the strip's MAC in the panel's
+    block), so nesting is unambiguous for one panel per strip type — the normal
+    single-tent setup. With multiple panels each hosting a same-type strip, the link
+    may be approximate.
+
+### Dashboard card (bundled card v0.2.1)
+- **Outlet selection follows nesting.** In the card's visual editor, the "Outlet
+  devices" picker now lists only the power strips **nested under the selected panel**
+  (using the new device nesting above), instead of every strip in the system. If the
+  panel has no nested strips, the outlet section is hidden entirely — so a standalone
+  strip, controlled from its own card, no longer clutters an unrelated panel's card.
+  New cards default their outlets to the panel's nested strips.
+
 ## 3.16.4
 
 ### Fixes
@@ -296,20 +320,4 @@ Consolidates the 3.11.2 beta series into a stable release.
 - Test suite asserts the cloud CA is bundled, public-only (no private key), and distinct from the device-facing CA
 
 ## 3.4.1
-- TLS certificates are now generated on first setup into `config/sf/certs/` (each install gets its own unique CA; no private key committed to the repo); requires the `cryptography` library
-- Ships brand icons in `custom_components/sf/brand/` (HA 2026.3+ local brand assets)
-- Added HACS `info.md`, GitHub issue templates, and CI (test suite + HACS + hassfest validation)
-
-## 3.4.0
-- **Detection rebuilt around real hardware capabilities**: AC5/AC10 power strips can host lights, fans, blowers, heaters, humidifiers, dehumidifiers, air sensors, and soil probes — so accessory blocks are no longer treated as Control-Box-exclusive
-- Outlets are now the sole type discriminator: any outlet block = power strip (>5 outlets is conclusive PS10 on sight); accessory blocks without outlets suggest CB tentatively
-- Power strips gain the full accessory entity set (air sensors, fan, blower, climate, lights, soil probes), all evidence-based — a loaded PS10 models exactly what's plugged into it
-- Control Boxes no longer get outlet entities at all (matches hardware: CBs never report outlet blocks)
-- CB detection now always uses the 3-frame window (accessory evidence is tentative), with the retype path correcting a loaded strip whose outlet block arrives late
-
-## 3.3.3
-- Soil probes on power strips now work correctly: the soil block is no longer Control-Box evidence (a probe on a PS5 previously retyped the strip as a CB)
-- Fixed soil discovery consuming probe IDs during the detection window (tentatively-typed devices would permanently skip their probes' entities)
-
-## 3.3.2
-- Mappings screen displays and accepts CB-scoped soil values (`cb1_soil1`, `cb2_soil1`); b
+- TLS certificates are now generated on first setup into `config/sf/certs/` (each install gets its own unique CA; no private key committed to the repo); requires the `crypt

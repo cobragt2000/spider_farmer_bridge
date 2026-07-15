@@ -1,4 +1,4 @@
-/*! spider-farmer-card v0.2.0 | MIT */
+/*! spider-farmer-card v0.2.1 | MIT */
 function t(t,e,s,i){var r,n=arguments.length,o=n<3?e:null===i?i=Object.getOwnPropertyDescriptor(e,s):i;if("object"==typeof Reflect&&"function"==typeof Reflect.decorate)o=Reflect.decorate(t,e,s,i);else for(var a=t.length-1;a>=0;a--)(r=t[a])&&(o=(n<3?r(o):n>3?r(e,s,o):r(e,s))||o);return n>3&&o&&Object.defineProperty(e,s,o),o}"function"==typeof SuppressedError&&SuppressedError;
 /**
  * @license
@@ -37,7 +37,7 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
  * @license
  * Copyright 2017 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
- */function ut(t){return pt({...t,state:!0,attribute:!1})}const ft=/^sf_(dp\d+|ac5|ac10)_/;function gt(t){return t.split(".")[1]??""}function $t(t){const e=new Set;for(const s of Object.keys(t.states)){const t=gt(s).match(ft);t&&e.add(t[1])}return[...e].sort()}function mt(t){return $t(t).filter(e=>Object.keys(t.states).some(t=>{const s=gt(t);return s===`sf_${e}_temperature`||s===`sf_${e}_soil_avg_temperature`||s===`sf_${e}_light_1`||s===`sf_${e}_fan`||s===`sf_${e}_blower`}))}function vt(t){return $t(t).filter(e=>!!t.states[`switch.sf_${e}_outlet_1`])}function _t(t,e){if(!t||!e)return"";const s=`sf_${e}_`,i=Object.keys(t.states).find(t=>gt(t).startsWith(s));if(!i)return"";const r=t.entities?.[i]?.device_id,n=r?t.devices?.[r]:void 0;if(n)return n.name_by_user||n.name||"";const o=(t.states[i].attributes.friendly_name||"").match(/^(SF .+? [0-9A-Fa-f]{4})\b/);return o?o[1]:""}const bt=[["temperature","Air Temp","mdi:thermometer"],["humidity","Air Humi","mdi:water-percent"],["vpd","VPD","mdi:water-opacity"],["co2","CO2","mdi:molecule-co2"],["ppfd","PPFD","mdi:white-balance-sunny"],["soil_avg_temperature","Soil Temp","mdi:thermometer"],["soil_avg_moisture","Moisture","mdi:water"],["soil_avg_ec","Soil EC","mdi:flash"]],yt=[["light_1","Light 1","mdi:lightbulb"],["light_2","Light 2","mdi:lightbulb"]],xt=[["fan","Fan","mdi:fan"],["blower","Blower","mdi:weather-windy"]],wt=[["heater","Heater","mdi:radiator"],["humidifier","Humidifier","mdi:air-humidifier"],["dehumidifier","Dehumidifier","mdi:air-humidifier-off"]],At=[["Temperature","env_temp_day","env_temp_night","env_temp_deadband","mdi:thermometer"],["Humidity","env_humi_day","env_humi_night","env_humi_deadband","mdi:water-percent"],["CO2","env_co2_day","env_co2_night","env_co2_deadband","mdi:molecule-co2"]];let St=class extends at{constructor(){super(...arguments),this.tab="overview"}setConfig(t){if(!t.panel)throw new Error('spider-farmer-card: "panel" is required (e.g. panel: dp1)');this.config=t,this.tab="config"===t.default_tab?"config":"overview"}getCardSize(){return 8}static getConfigElement(){return document.createElement("spider-farmer-card-editor")}static getStubConfig(t){const e=(t?mt(t):[])[0]||"dp1",s=t?vt(t):[];return{type:"custom:spider-farmer-card",panel:e,...s.length?{outlets:s}:{}}}eid(t,e){return`${t}.sf_${this.config.panel}_${e}`}get(t){return this.hass?.states[t]}accent(){return this.config.accent||"#ff7a1a"}shouldUpdate(t){return t.has("config")||t.has("hass")||t.has("tab")}renderParam([t,e,s]){const i=this.get(`sensor.sf_${this.config.panel}_${t}`);if(!i)return q;const r=i.attributes.unit_of_measurement||"",n=this.hass?.formatEntityState?this.hass.formatEntityState(i).replace(r,"").trim():i.state;return F`
+ */function ut(t){return pt({...t,state:!0,attribute:!1})}const ft=/^sf_(dp\d+|ac5|ac10)_/;function gt(t){return t.split(".")[1]??""}function $t(t){const e=new Set;for(const s of Object.keys(t.states)){const t=gt(s).match(ft);t&&e.add(t[1])}return[...e].sort()}function mt(t){return $t(t).filter(e=>Object.keys(t.states).some(t=>{const s=gt(t);return s===`sf_${e}_temperature`||s===`sf_${e}_soil_avg_temperature`||s===`sf_${e}_light_1`||s===`sf_${e}_fan`||s===`sf_${e}_blower`}))}function vt(t,e){const s=`sf_${e}_`,i=Object.keys(t.states).find(t=>gt(t).startsWith(s));return i?t.entities?.[i]?.device_id:void 0}function _t(t,e){if(!e)return[];const s=vt(t,e);return function(t){return $t(t).filter(e=>!!t.states[`switch.sf_${e}_outlet_1`])}(t).filter(i=>{if(i===e)return!0;if(!s)return!1;const r=vt(t,i),n=r?t.devices?.[r]:void 0;return n?.via_device_id===s})}function bt(t,e){if(!t||!e)return"";const s=`sf_${e}_`,i=Object.keys(t.states).find(t=>gt(t).startsWith(s));if(!i)return"";const r=t.entities?.[i]?.device_id,n=r?t.devices?.[r]:void 0;if(n)return n.name_by_user||n.name||"";const o=(t.states[i].attributes.friendly_name||"").match(/^(SF .+? [0-9A-Fa-f]{4})\b/);return o?o[1]:""}const yt=[["temperature","Air Temp","mdi:thermometer"],["humidity","Air Humi","mdi:water-percent"],["vpd","VPD","mdi:water-opacity"],["co2","CO2","mdi:molecule-co2"],["ppfd","PPFD","mdi:white-balance-sunny"],["soil_avg_temperature","Soil Temp","mdi:thermometer"],["soil_avg_moisture","Moisture","mdi:water"],["soil_avg_ec","Soil EC","mdi:flash"]],xt=[["light_1","Light 1","mdi:lightbulb"],["light_2","Light 2","mdi:lightbulb"]],wt=[["fan","Fan","mdi:fan"],["blower","Blower","mdi:weather-windy"]],At=[["heater","Heater","mdi:radiator"],["humidifier","Humidifier","mdi:air-humidifier"],["dehumidifier","Dehumidifier","mdi:air-humidifier-off"]],St=[["Temperature","env_temp_day","env_temp_night","env_temp_deadband","mdi:thermometer"],["Humidity","env_humi_day","env_humi_night","env_humi_deadband","mdi:water-percent"],["CO2","env_co2_day","env_co2_night","env_co2_deadband","mdi:molecule-co2"]];let Et=class extends at{constructor(){super(...arguments),this.tab="overview"}setConfig(t){if(!t.panel)throw new Error('spider-farmer-card: "panel" is required (e.g. panel: dp1)');this.config=t,this.tab="config"===t.default_tab?"config":"overview"}getCardSize(){return 8}static getConfigElement(){return document.createElement("spider-farmer-card-editor")}static getStubConfig(t){const e=(t?mt(t):[])[0]||"dp1",s=t?_t(t,e):[];return{type:"custom:spider-farmer-card",panel:e,...s.length?{outlets:s}:{}}}eid(t,e){return`${t}.sf_${this.config.panel}_${e}`}get(t){return this.hass?.states[t]}accent(){return this.config.accent||"#ff7a1a"}shouldUpdate(t){return t.has("config")||t.has("hass")||t.has("tab")}renderParam([t,e,s]){const i=this.get(`sensor.sf_${this.config.panel}_${t}`);if(!i)return q;const r=i.attributes.unit_of_measurement||"",n=this.hass?.formatEntityState?this.hass.formatEntityState(i).replace(r,"").trim():i.state;return F`
       <div class="tile">
         <div class="tile-label">${e}</div>
         <ha-icon icon="${s}" style="color:${this.accent()}"></ha-icon>
@@ -71,7 +71,7 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
         <button class="toggle ${n?"on":""}" style=${n?`background:${this.accent()}`:""}
           @click=${()=>this.hass?.callService("switch","toggle",{entity_id:i})}
           aria-label="Toggle ${e}"></button>
-      </div>`}setBrightness(t,e){const s=Number(e.target.value);s<=0?this.hass?.callService("light","turn_off",{entity_id:t}):this.hass?.callService("light","turn_on",{entity_id:t,brightness_pct:s})}setPercent(t,e){const s=Number(e.target.value);this.hass?.callService("fan","set_percentage",{entity_id:t,percentage:s})}renderOverview(){const t=bt.map(t=>this.renderParam(t)).filter(t=>t!==q),e=yt.map(t=>this.renderLight(t)).filter(t=>t!==q),s=xt.map(t=>this.renderFan(t)).filter(t=>t!==q),i=wt.map(t=>this.renderClimate(t)).filter(t=>t!==q),r=[...e,...s,...i];return F`
+      </div>`}setBrightness(t,e){const s=Number(e.target.value);s<=0?this.hass?.callService("light","turn_off",{entity_id:t}):this.hass?.callService("light","turn_on",{entity_id:t,brightness_pct:s})}setPercent(t,e){const s=Number(e.target.value);this.hass?.callService("fan","set_percentage",{entity_id:t,percentage:s})}renderOverview(){const t=yt.map(t=>this.renderParam(t)).filter(t=>t!==q),e=xt.map(t=>this.renderLight(t)).filter(t=>t!==q),s=wt.map(t=>this.renderFan(t)).filter(t=>t!==q),i=At.map(t=>this.renderClimate(t)).filter(t=>t!==q),r=[...e,...s,...i];return F`
       ${t.length?F`<div class="section-label">Parameters</div>
             <div class="grid">${t}</div>`:q}
       ${r.length?F`<div class="section-label">Devices</div>
@@ -105,7 +105,7 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
             ${this.renderControl(e,"Day Cycle Start")}
             ${this.renderControl(s,"Day Cycle Stop")}
           </div>`:q}
-      ${At.map(([e,s,i,r,n])=>this.get(`number.sf_${t}_${s}`)?F`
+      ${St.map(([e,s,i,r,n])=>this.get(`number.sf_${t}_${s}`)?F`
           <div class="env-row">
             <div class="env-row-head">
               <ha-icon icon=${n} style="color:${this.accent()}"></ha-icon>
@@ -126,7 +126,7 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
             ${this.renderControl(i,"Mode")}
             ${o.map(t=>this.renderControl(t))}
           </div>
-        </div>`)}return e}renderConfig(){return F`${this.renderEnv()}${this.renderOutlets()}`}render(){if(!this.hass||!this.config)return q;const t=this.hasConfig(),e=t?this.tab:"overview",s=_t(this.hass,this.config.panel);return F`
+        </div>`)}return e}renderConfig(){return F`${this.renderEnv()}${this.renderOutlets()}`}render(){if(!this.hass||!this.config)return q;const t=this.hasConfig(),e=t?this.tab:"overview",s=bt(this.hass,this.config.panel);return F`
       <ha-card>
         <div class="header">
           <span class="title">${this.config.title||"Spider Farmer"}</span>
@@ -141,7 +141,7 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
                 @click=${()=>this.tab="config"}>Config</button>
             </div>`:q}
         ${"config"===e?this.renderConfig():this.renderOverview()}
-      </ha-card>`}};St.styles=o`
+      </ha-card>`}};Et.styles=o`
     ha-card { padding: 12px 14px 16px; }
     .header {
       display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
@@ -231,48 +231,48 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
       width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: left 0.15s;
     }
     .toggle.on::after { left: 21px; }
-  `,t([pt({attribute:!1})],St.prototype,"hass",void 0),t([ut()],St.prototype,"config",void 0),t([ut()],St.prototype,"tab",void 0),St=t([ct("spider-farmer-card")],St);let Et=class extends at{constructor(){super(...arguments),this._config={type:"custom:spider-farmer-card"}}setConfig(t){this._config={...t}}_emit(t){this._config=t,this.dispatchEvent(new CustomEvent("config-changed",{detail:{config:t},bubbles:!0,composed:!0}))}_panelChanged(t){const e=t.target.value,s={...this._config};e?s.panel=e:delete s.panel,this._emit(s)}_titleChanged(t){const e=t.target.value.trim(),s={...this._config};e?s.title=e:delete s.title,this._emit(s)}_tabChanged(t){const e=t.target.value;this._emit({...this._config,default_tab:e})}_outletToggled(t,e){const s=e.target.checked,i=new Set(this._config.outlets??[]);s?i.add(t):i.delete(t);const r=[...i].sort(),n={...this._config};r.length?n.outlets=r:delete n.outlets,this._emit(n)}render(){if(!this.hass)return q;const t=mt(this.hass),e=vt(this.hass),s=this._config,i=t=>{const e=_t(this.hass,t);return e?`${t} — ${e}`:t};return F`
+  `,t([pt({attribute:!1})],Et.prototype,"hass",void 0),t([ut()],Et.prototype,"config",void 0),t([ut()],Et.prototype,"tab",void 0),Et=t([ct("spider-farmer-card")],Et);let Ct=class extends at{constructor(){super(...arguments),this._config={type:"custom:spider-farmer-card"}}setConfig(t){this._config={...t}}_emit(t){this._config=t,this.dispatchEvent(new CustomEvent("config-changed",{detail:{config:t},bubbles:!0,composed:!0}))}_panelChanged(t){const e=t.target.value,s={...this._config};e?s.panel=e:delete s.panel,this._emit(s)}_titleChanged(t){const e=t.target.value.trim(),s={...this._config};e?s.title=e:delete s.title,this._emit(s)}_tabChanged(t){const e=t.target.value;this._emit({...this._config,default_tab:e})}_outletToggled(t,e){const s=e.target.checked,i=new Set(this._config.outlets??[]);s?i.add(t):i.delete(t);const r=[...i].sort(),n={...this._config};r.length?n.outlets=r:delete n.outlets,this._emit(n)}render(){if(!this.hass)return q;const t=this._config,e=mt(this.hass),s=_t(this.hass,t.panel),i=t=>{const e=bt(this.hass,t);return e?`${t} — ${e}`:t};return F`
       <div class="form">
         <label class="field">
           <span class="flabel">Panel device</span>
           <select @change=${this._panelChanged}>
-            ${t.length?q:F`<option value="">(no devices found yet)</option>`}
-            ${s.panel?q:F`<option value="" selected>— choose a device —</option>`}
-            ${t.map(t=>F`<option value=${t} ?selected=${t===s.panel}>${i(t)}</option>`)}
-            ${s.panel&&!t.includes(s.panel)?F`<option value=${s.panel} selected>${s.panel} (not found)</option>`:q}
+            ${e.length?q:F`<option value="">(no devices found yet)</option>`}
+            ${t.panel?q:F`<option value="" selected>— choose a device —</option>`}
+            ${e.map(e=>F`<option value=${e} ?selected=${e===t.panel}>${i(e)}</option>`)}
+            ${t.panel&&!e.includes(t.panel)?F`<option value=${t.panel} selected>${t.panel} (not found)</option>`:q}
           </select>
           <span class="hint">Which display panel this card shows.</span>
         </label>
 
         <label class="field">
           <span class="flabel">Title</span>
-          <input type="text" .value=${s.title??""} placeholder="Spider Farmer"
+          <input type="text" .value=${t.title??""} placeholder="Spider Farmer"
             @change=${this._titleChanged} />
         </label>
 
         <label class="field">
           <span class="flabel">Default tab</span>
           <select @change=${this._tabChanged}>
-            <option value="overview" ?selected=${"config"!==s.default_tab}>Overview</option>
-            <option value="config" ?selected=${"config"===s.default_tab}>Config</option>
+            <option value="overview" ?selected=${"config"!==t.default_tab}>Overview</option>
+            <option value="config" ?selected=${"config"===t.default_tab}>Config</option>
           </select>
         </label>
 
-        ${e.length?F`
+        ${s.length?F`
               <div class="field">
                 <span class="flabel">Outlet devices (Config tab)</span>
                 <div class="checks">
-                  ${e.map(t=>F`
+                  ${s.map(e=>F`
                       <label class="check">
                         <input type="checkbox"
-                          .checked=${(s.outlets??[]).includes(t)}
-                          @change=${e=>this._outletToggled(t,e)} />
-                        <span>${i(t)}</span>
+                          .checked=${(t.outlets??[]).includes(e)}
+                          @change=${t=>this._outletToggled(e,t)} />
+                        <span>${i(e)}</span>
                       </label>`)}
                 </div>
-                <span class="hint">Show per-outlet mode controls for these devices.</span>
+                <span class="hint">Power strips nested under this panel. Standalone strips are controlled from their own card.</span>
               </div>`:q}
-      </div>`}};Et.styles=o`
+      </div>`}};Ct.styles=o`
     .form { display: flex; flex-direction: column; gap: 16px; padding: 8px 4px; }
     .field { display: flex; flex-direction: column; gap: 6px; }
     .flabel { font-size: 13px; font-weight: 500; color: var(--primary-text-color); }
@@ -288,4 +288,4 @@ const ct=t=>(e,s)=>{void 0!==s?s.addInitializer(()=>{customElements.define(t,e)}
       color: var(--primary-text-color); cursor: pointer;
     }
     .check input { width: 18px; height: 18px; }
-  `,t([pt({attribute:!1})],Et.prototype,"hass",void 0),t([ut()],Et.prototype,"_config",void 0),Et=t([ct("spider-farmer-card-editor")],Et),window.customCards=window.customCards||[],window.customCards.push({type:"spider-farmer-card",name:"Spider Farmer Card",description:"Tent overview + config for the Spider Farmer Bridge integration",preview:!0,documentationURL:"https://github.com/cobragt2000/spider_farmer_bridge"}),console.info("%c SPIDER-FARMER-CARD %c v0.2.0 ","color:#fff;background:#ff7a1a;border-radius:3px 0 0 3px;padding:2px 4px","color:#ff7a1a;background:#222;border-radius:0 3px 3px 0;padding:2px 4px");export{St as SpiderFarmerCard,Et as SpiderFarmerCardEditor};
+  `,t([pt({attribute:!1})],Ct.prototype,"hass",void 0),t([ut()],Ct.prototype,"_config",void 0),Ct=t([ct("spider-farmer-card-editor")],Ct),window.customCards=window.customCards||[],window.customCards.push({type:"spider-farmer-card",name:"Spider Farmer Card",description:"Tent overview + config for the Spider Farmer Bridge integration",preview:!0,documentationURL:"https://github.com/cobragt2000/spider_farmer_bridge"}),console.info("%c SPIDER-FARMER-CARD %c v0.2.1 ","color:#fff;background:#ff7a1a;border-radius:3px 0 0 3px;padding:2px 4px","color:#ff7a1a;background:#222;border-radius:0 3px 3px 0;padding:2px 4px");export{Et as SpiderFarmerCard,Ct as SpiderFarmerCardEditor};

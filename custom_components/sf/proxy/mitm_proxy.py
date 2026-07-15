@@ -399,6 +399,24 @@ class MITMProxy:
                 return s
         return None
 
+    def host_cb_mac_for_strip(self, strip_mac: str):
+        """Lowercase mac of the display panel currently hosting the power strip
+        with this mac (the panel reports the strip's ps5/ps10 block), or None
+        when the strip is standalone or unknown. Pairing is by strip type — the
+        same signal that routes outlet commands — so it is unambiguous for one
+        panel per strip type (the normal single-tent case)."""
+        sess = None
+        for s in self._sessions.values():
+            if getattr(s, "mac", None) == strip_mac:
+                sess = s
+                break
+        if sess is None:
+            return None
+        host = self._cb_host_for_strip(
+            (getattr(sess, "device_type", "") or "").lower()
+        )
+        return host.mac if host is not None else None
+
     async def handle_command(self, topic: str, value: Any) -> None:
         """Handle an HA -> device command addressed by its topic."""
         # Command topics: ggs/ha/{mac}/{field}/set

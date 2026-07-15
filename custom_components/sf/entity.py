@@ -77,12 +77,18 @@ class SfEntity(RestoreEntity):
         name, model = self.bus.device_display.get(
             self.d.mac, (self.d.device_name, self.d.device_model)
         )
-        return DeviceInfo(
+        info = DeviceInfo(
             identifiers={(DOMAIN, f"ggs_{self.d.mac}")},
             name=name,
             manufacturer="Spider Farmer",
             model=model,
         )
+        # Nest a power strip under the display panel that hosts it (the panel
+        # reports the strip's ps5/ps10 block); standalone strips stay top-level.
+        host = self.bus.host_cb_mac_for_strip(self.d.mac)
+        if host:
+            info["via_device"] = (DOMAIN, f"ggs_{host}")
+        return info
 
     def _platform_domain(self) -> str:
         return self.d.platform

@@ -3,6 +3,28 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.16.2
+
+### Fixes
+- **Missing label on the initial setup form.** The "Create Environment Settings
+  entities" checkbox showed its raw key (`environment_entities`) during first-time
+  install because the config-flow translation was missing that field's label (the
+  options flow already had it). Added the label so it reads correctly on install.
+
+## 3.16.1
+
+### Dashboard / controls
+- **Blower Speed slider.** The blower now exposes a `number.sf_{panel}_blower_speed`
+  control so its speed is adjustable inline (e.g. from the device's Controls card),
+  matching the Heater/Humidifier level sliders. `0` = Off, and any value below the
+  hardware's 25 % airflow floor snaps up to 25 %. It mirrors the existing
+  `sensor.sf_{panel}_blower_speed` reading (which shows 0 while the blower is off).
+  The blower `fan` entity's speed control is unchanged.
+- **Fan Speed slider.** The circulation fan likewise gets a
+  `number.sf_{panel}_fan_speed` control: a 0–100 % slider in 10 % steps mapped to the
+  fan's 10 gears (`0` = Off, 10 % → gear 1 … 100 % → gear 10). It reads the reported
+  gear and shows it as a percentage; the fan entity's own speed control is unchanged.
+
 ## 3.16.0
 
 Base version for repo.
@@ -287,4 +309,4 @@ Consolidates the 3.11.2 beta series into a stable release.
 - Rolls up 3.2.3 (skip that version)
 
 ## 3.2.3
-- **Field-level air sensor evidence**: temperature/humidity/
+- **Field-level air sensor evidence**: temperatur

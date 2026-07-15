@@ -9,7 +9,8 @@
           "upstream_host": "Spider Farmer MQTT host",
           "upstream_port": "Spider Farmer MQTT port",
           "allow_control": "Allow device control (enable to send commands to devices)",
-          "keep_offline_entities": "Keep offline devices (don't remove entities for gear that stops reporting; uncheck to prune phantoms)"
+          "keep_offline_entities": "Keep offline devices (don't remove entities for gear that stops reporting; uncheck to prune phantoms)",
+          "environment_entities": "Create Environment Settings entities (per display panel: temp/humidity/CO2 targets)"
         }
       }
     },

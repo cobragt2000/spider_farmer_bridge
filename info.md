@@ -45,4 +45,5 @@ scheme.
 An independent implementation, with thanks to the community projects that first
 reverse-engineered the Spider Farmer GGS protocol:
 [Schedule 4 Real](https://github.com/EddiePiazza/schedule-4-real) and
-[iceboerg/spiderfarmer-bridge](https://github.com/iceboerg00/spiderfarmer-bridg
+[iceboerg/spiderfarmer-bridge](https://github.com/iceboerg00/spiderfarmer-bridge).
+Not affiliated with Spider Farmer.

@@ -39,8 +39,8 @@ accordingly.
 | Air sensors | Temperature, Humidity, CO2, VPD, PPFD (per-field, 2-decimal display) |
 | Outlets | Switch per reported outlet (power strips only) |
 | Lights | Light 1 / Light 2 with brightness + brightness sensors |
-| Fan | Fan (10 gears, working oscillation), Fan Speed, Oscillation, Natural Wind, Mode |
-| Blower | Blower (1–100 %, 25 % floor), Blower Speed, Mode |
+| Fan | Fan (10 gears, working oscillation), **Fan Speed** slider (0–100 %, 10 % steps) + speed sensor, Oscillation slider, Natural Wind, Mode |
+| Blower | Blower (on/off + speed, 25 % floor), **Blower Speed** slider (0 = Off, 25–100 %) + speed sensor, Mode |
 | SE Lights | Standalone SE-series (SE4500 etc.): dimmable light, Manual/Automatic mode, schedule start/end, schedule brightness, sunrise/sunset fade (0-30 min, one setting drives both ends of the schedule), plus Brightness/Mode/Active sensors |
 | Climate | Humidifier / Dehumidifier / Heater: manual On/Off switch, Level control (heater 1-10, humidifier 1-4, dehumidifier Low/High), Active, Level, Mode, Tank / Status |
 | Soil probes | Temperature, Moisture, EC per probe (auto-discovered), plus per-device **Soil Avg** Temperature / Moisture / EC across a controller's probes |

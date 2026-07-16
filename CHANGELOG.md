@@ -3,7 +3,62 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.18.2
+
+### Fixes
+- **Card: nested strips were dropped from the correct panel too.** The nesting filter
+  (v0.2.2) resolved a panel's device via the first `sf_{slot}_*` entity it found, which
+  could be an **Environment sub-device** entity (`sf_{slot}_env_*`). A nested strip's
+  `via_device` points at the panel's **main** device, so the id mismatch filtered the
+  strip out of its own panel's card as well. The card now resolves the panel's core
+  device (prefers `sf_{slot}_temperature`, ignoring `_env_` sub-device entities), so a
+  strip shows on its host panel and only there. (bundled card v0.2.3)
+
+## 3.18.1
+
+### Fixes (calibration read + card)
+- **Soil/air calibration now populate on their own** — they no longer wait for a change
+  in the app. The device doesn't answer targeted `getConfigField` reads for
+  `["calibration"]` or `["device","senConfig"]`, so the integration now polls the full
+  **`getConfigFile`** for panels/strips, which reliably carries the air calibration,
+  soil calibration, substrate, and soil names. Missing calibration values default to
+  **0** (instead of "unknown").
+- **Substrate sensor is Pro-only.** Basic soil probes (firmware marker `mst_fw_ver`
+  65535) no longer get a Substrate sensor — they have no substrate type.
+- **Card:** a `custom:spider-farmer-card` bound to one panel now shows **only the power
+  strip(s) actually nested under that panel** on the Config tab. Previously a card
+  configured with multiple strips showed all of them on every panel's card. (bundled
+  card v0.2.2)
+
+## 3.18.0
+
+### Sensor calibration & substrate (diagnostic, read-only)
+- New **diagnostic sensors** surface the calibration offsets and soil substrate you
+  set in the Spider Farmer app, read straight from the device config:
+  - **Air** (per panel): Air Temp / Humidity / CO2 / PPFD Calibration offsets, from the
+    config file's top-level `calibration` block. Air-temp is shown in **°F** to match
+    the app (the wire is °C; converted on read).
+  - **Soil** (per probe): Temp / Moisture / EC Calibration offsets, from
+    `senConfig[].calibration` (soil-temp likewise °F). Plus a **Substrate** sensor
+    (Clay / Coco / Peat) from `senConfig[].soilType`.
+  - The integration now also polls `getConfigField ["calibration"]` so these stay
+    current without the app open. Values update live within a poll cycle.
+- Read-only for now — the app remains the source of truth. Making these **editable**
+  (so you can enter offsets / pick substrate from HA and push to the app) is the next
+  step; the write formats are already confirmed and locked.
+
 ## 3.17.0
+
+### Fixes
+- **Outlet "Mode" selectors disappeared after a restart** (with "Keep offline devices"
+  on — the default). The keep-offline restore rebuilds an outlet's On/Off switch but
+  not the dynamically-built Mode select, and the outlet-creation path only made the Mode
+  select alongside a *new* switch — so once the switch was restored, the Mode select
+  (and its per-mode config entities) was never recreated and HA reported it "no longer
+  provided by the sf integration." The Mode select is now created independently of the
+  switch, so it survives restarts. Affected AC5 and AC10 outlets. (Pre-existing bug,
+  unrelated to the device-nesting change; a restart simply exposed it. The workaround of
+  disabling "Keep offline devices" is no longer needed.)
 
 ### Soil probes
 - **Soil sensors adopt the name you set in the Spider Farmer app.** The integration
@@ -364,4 +419,9 @@ Consolidates the 3.11.2 beta series into a stable release.
 
 ## 3.3.0
 - Soil probes become slot citizens: `sensor.sf_soil1_temperature` / `_moisture` / `_ec` (serials leave the entity IDs; unique IDs stay serial-based so history survives)
-- Probe
+- Probes listed and editable in the Device mappings screen
+- Probe replacement in one submit: give the new serial the dead probe's slot, blank the old serial (blank = retire: removes its entities and mapping)
+
+## 3.2.6
+- Clean removal no longer strands an empty `config/sf/` folder
+- The customization snapshot is skipped entirely when "Preserve on removal" is unchecked

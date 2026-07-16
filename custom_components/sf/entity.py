@@ -41,7 +41,7 @@ _LOGGER = logging.getLogger(__name__)
 import re as _re
 # Soil-probe sensor field: soil_{serial}_{suffix} (excludes the soil_avg_* device
 # averages). Lets a probe pick up its app-set name live.
-_SOIL_FIELD_RE = _re.compile(r"^soil_(?!avg_)(.+)_(temperature|moisture|ec)$")
+_SOIL_FIELD_RE = _re.compile(r"^soil_(?!avg_)([A-Za-z0-9]+)_(temperature|moisture|ec)$")
 _SOIL_SUFFIX_WORD = {"temperature": "Temperature", "moisture": "Moisture", "ec": "EC"}
 
 
@@ -58,6 +58,12 @@ class SfEntity(RestoreEntity):
         self._attr_name = d.name
         if d.icon:
             self._attr_icon = d.icon
+        if d.entity_category:
+            from homeassistant.helpers.entity import EntityCategory
+            try:
+                self._attr_entity_category = EntityCategory(d.entity_category)
+            except ValueError:
+                pass
 
         # Force the logical-slot entity_id (v3.1.0): sensor.sf_dp1_temperature
         self.entity_id = f"{self._platform_domain()}.{d.expected_object_id}"

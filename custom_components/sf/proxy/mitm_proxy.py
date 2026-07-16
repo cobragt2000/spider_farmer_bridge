@@ -103,6 +103,20 @@ def _senconfig_from(d):
     return None
 
 
+def _calibration_from(d):
+    """Air-sensor calibration block: getConfigField ["calibration"] ->
+    data.calibration; getConfigFile -> data.configFile.calibration."""
+    if not isinstance(d, dict):
+        return None
+    c = d.get("calibration")
+    if isinstance(c, dict):
+        return c
+    cf = d.get("configFile")
+    if isinstance(cf, dict) and isinstance(cf.get("calibration"), dict):
+        return cf["calibration"]
+    return None
+
+
 class ProxySession:
     """One active GGS Controller connection."""
 
@@ -349,6 +363,19 @@ class MITMProxy:
                 })
             except Exception as exc:
                 _LOGGER.debug("env target poll failed: %s", exc)
+        # Panels/strips: pull the whole config file so senConfig (soil names,
+        # calibration, substrate) and the top-level air calibration arrive
+        # reliably. The device does NOT answer targeted getConfigField reads
+        # for ["calibration"] or ["device","senConfig"] — only the (app- or
+        # here integration-triggered) getConfigFile returns them.
+        if sess.device_type in ("cb", "ps5", "ps10"):
+            try:
+                await sess.inject({
+                    "method": "getConfigFile", "pid": sess.mac_raw,
+                    "msgId": str(int(time.time() * 1000)), "uid": sess.uid,
+                })
+            except Exception as exc:
+                _LOGGER.debug("config file poll failed: %s", exc)
         for block in outlet_blocks:
             try:
                 await sess.inject({
@@ -376,7 +403,7 @@ class MITMProxy:
             ["device", "light"],  ["device", "light2"],
             ["device", "fan"],    ["device", "blower"],
             ["device", "heater"], ["device", "humidifier"],
-            ["device", "dehumidifier"], ["device", "senConfig"],
+            ["device", "dehumidifier"],
         ):
             try:
                 await sess.inject({
@@ -1030,6 +1057,11 @@ def _process_publish(
             _apply = getattr(mqtt_client, "apply_soil_labels", None)
             if _apply is not None:
                 _apply(session.mac_raw, _sen)
+        _cal = _calibration_from(d)
+        if _cal:
+            _acal = getattr(mqtt_client, "apply_air_calibration", None)
+            if _acal is not None:
+                _acal(session.mac_raw, _cal)
 
     # ── Outlet config cache (v3.11.1a3): the whole ps5/ps10/outlet block
     # comes back from getConfigField ["device", <block>] as

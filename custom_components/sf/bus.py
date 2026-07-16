@@ -139,6 +139,9 @@ from .entity_defs import (
     build_soil_entities,
     build_soil_avg_entities,
     build_env_entities,
+    build_air_calibration_entities,
+    build_soil_calibration_entities,
+    SUBSTRATE_OPTIONS,
     _device_model,
     _device_name,
     _mac,
@@ -182,6 +185,7 @@ class SfBus:
         self._soil_type: dict[str, str] = {}         # serial -> "Pro" | "Basic"
         self._soil_label: dict[str, str] = {}        # serial -> app label (senConfig)
         self._soil_cfg_cache: dict[str, dict] = {}   # serial -> full senConfig entry
+        self._air_cal: dict[str, dict] = {}          # mac -> air calibration block
         self.keep_offline: bool = True               # v3.9.0: keep entities for
                                                      # blocks that stop reporting
         self.env_entities: bool = True               # create Environment device
@@ -710,6 +714,26 @@ class SfBus:
                 )
 
     @callback
+    def apply_air_calibration(self, mac_raw: str, cal: dict) -> None:
+        """Air-sensor calibration offsets (config file top-level ``calibration``
+        {temp,humi,co2,ppfd}). Creates the diagnostic sensors once and publishes
+        the current offsets. Air-temp is converted degC(wire) -> degF(display)."""
+        if not isinstance(cal, dict):
+            return
+        mac = _mac(mac_raw)
+        self._air_cal[mac] = dict(cal)
+        if f"ggs_{mac}_cal_air_temp" not in self._registered:
+            cfg = {"mac": mac_raw, "type": self._type_for_mac(mac_raw) or "cb"}
+            self._add_defs(build_air_calibration_entities(
+                cfg, slot=self._slot_for_cfg(cfg)))
+        t = cal.get("temp")
+        if t is not None:
+            self.publish(f"ggs/ha/{mac}/cal_air_temp/state", round(float(t) * 9 / 5, 1))
+        for wire, field in (("humi", "cal_air_humidity"), ("co2", "cal_co2"),
+                            ("ppfd", "cal_ppfd")):
+            if cal.get(wire) is not None:
+                self.publish(f"ggs/ha/{mac}/{field}/state", cal[wire])
+
     def apply_soil_labels(self, mac_raw: str, entries: list) -> None:
         """App-set soil-probe names (senConfig[].label): store per serial and
         live-rename the probe's sensors. Read-only — the app is the source of
@@ -724,6 +748,25 @@ class SfBus:
             if not serial:
                 continue
             self._soil_cfg_cache[serial] = dict(e)
+            import re as _re
+            safe = _re.sub(r"[^a-zA-Z0-9_]", "_", serial)
+            mac = _mac(mac_raw)
+            cal = e.get("calibration")
+            cal = cal if isinstance(cal, dict) else {}
+            self.publish(f"ggs/ha/{mac}/soil_{safe}_cal_temp/state",
+                         round(float(cal.get("tempSoil") or 0) * 9 / 5, 1))
+            self.publish(f"ggs/ha/{mac}/soil_{safe}_cal_moisture/state",
+                         cal.get("humiSoil") or 0)
+            self.publish(f"ggs/ha/{mac}/soil_{safe}_cal_ec/state",
+                         cal.get("ECSoil") or 0)
+            st = e.get("soilType")
+            try:
+                idx = int(st) if st is not None else 0
+            except (ValueError, TypeError):
+                idx = 0
+            if 0 <= idx < len(SUBSTRATE_OPTIONS):
+                self.publish(f"ggs/ha/{mac}/soil_{safe}_substrate/state",
+                             SUBSTRATE_OPTIONS[idx])
             raw = e.get("label")
             label = raw.strip() if isinstance(raw, str) else ""
             if not label or self._soil_label.get(serial) == label:
@@ -748,6 +791,14 @@ class SfBus:
         avg_uid = f"ggs_{_mac(mac_raw)}_soil_avg_temperature"
         if avg_uid not in self._registered:
             self._add_defs(build_soil_avg_entities(mac_raw, device_cfg, slot=slot))
+        # Per-probe calibration sensors; Substrate only on Pro probes (Basic
+        # probes report mst_fw_ver 65535 and have no substrate type).
+        is_pro = self._soil_type.get(str(sensor_id).lower()) == "Pro"
+        self._add_defs(build_soil_calibration_entities(
+            mac_raw, sensor_id, device_cfg,
+            slot=slot, soil_slot=self.get_soil_slot(sensor_id, mac_raw),
+            include_substrate=is_pro,
+        ))
 
     @callback
     def retire_soil(self, serial: str) -> int:
@@ -800,26 +851,33 @@ class SfBus:
     @callback
     def outlet_seen(self, mac_raw: str, outlet_num: int, device_cfg: dict) -> None:
         """Evidence-based outlet creation (v3.0.11): a device reported this
-        outlet number — create its entity if it doesn't exist yet."""
+        outlet number — create its entities if they don't exist yet."""
         mac = _mac(mac_raw)
         unique_id = f"ggs_{mac}_outlet_{outlet_num}"
         self._pruned.discard(unique_id)
-        if unique_id in self._registered:
-            return
-        defs = [
-            d for d in build_device_entities(
-                device_cfg, slot=self._slot_for_cfg(device_cfg)
-            )
-            if d.unique_id == unique_id
-        ]
-        if defs:
-            _LOGGER.info("Outlet reported — creating entity %s", unique_id)
-            DIAG.bus_event(f"outlet_seen {unique_id}")
-            self._add_defs(defs)
-            # v3.11.1a: per-outlet Mode selector + current mode's config
-            slot = self._slot_for_cfg(device_cfg)
-            dname = _device_name(device_cfg)
-            dmodel = _device_model(device_cfg)
+        slot = self._slot_for_cfg(device_cfg)
+        dname = _device_name(device_cfg)
+        dmodel = _device_model(device_cfg)
+
+        # Base On/Off switch — create once.
+        if unique_id not in self._registered:
+            defs = [
+                d for d in build_device_entities(device_cfg, slot=slot)
+                if d.unique_id == unique_id
+            ]
+            if defs:
+                _LOGGER.info("Outlet reported — creating entity %s", unique_id)
+                DIAG.bus_event(f"outlet_seen {unique_id}")
+                self._add_defs(defs)
+
+        # v3.11.1a: per-outlet Mode selector + current mode's config — created
+        # INDEPENDENTLY of the switch. The keep-offline restore re-registers the
+        # switch (it is in build_device_entities) but NOT these dynamically-built
+        # mode entities; gating them behind the switch's "create once" check left
+        # the Mode select "no longer provided by the integration" after any
+        # restart. Keying on the mode select's own unique_id fixes that. (3.17.1)
+        mode_uid = f"ggs_{mac}_outlet_{outlet_num}_mode"
+        if mode_uid not in self._registered:
             self._add_defs([
                 build_outlet_mode_select(mac_raw, outlet_num, slot, dname, dmodel)
             ])

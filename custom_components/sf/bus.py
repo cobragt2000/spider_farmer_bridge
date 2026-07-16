@@ -670,6 +670,13 @@ class SfBus:
                     # handed the next free probe slot, e.g. soil5).
                     if body.startswith("avg_"):
                         continue
+                    # Calibration/substrate diagnostic entities also share the
+                    # soil_ prefix (ggs_{mac}_soil_{serial}_cal_* / _substrate)
+                    # but are NOT probes. Skip them, or the restore re-reads
+                    # "{serial}_cal" as a phantom probe serial and spawns extra
+                    # soilN sensors on every reboot (BUG: 3.18.x).
+                    if "_cal_" in body or body.endswith("_substrate"):
+                        continue
                     serial, _, suffix = body.rpartition("_")
                     if serial and suffix in ("temperature", "moisture", "ec"):
                         serials.add(serial)

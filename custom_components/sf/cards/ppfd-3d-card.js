@@ -516,7 +516,7 @@ class PPFD3DCard extends HTMLElement {
   }
 }
 
-customElements.define('ppfd-3d-card',PPFD3DCard);
+if(!customElements.get('ppfd-3d-card'))customElements.define('ppfd-3d-card',PPFD3DCard);
 window.customCards=window.customCards||[];
 if(!window.customCards.find(c=>c.type==='ppfd-3d-card')){
   window.customCards.push({type:'ppfd-3d-card',name:'PPFD 3D Grow Light Card',

@@ -56,6 +56,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Rename those back in place, by unique_id, so history is preserved.
     _migrate_soil_avg_entity_ids(hass, entry)
 
+    # One-time cleanup (3.18.3): 3.18.0-3.18.2's keep-offline restore misread
+    # soil calibration unique_ids as probe serials, spawning phantom soilN
+    # sensors and churning the real cal entity ids. Remove the phantoms and
+    # re-home the real cal ids.
+    _migrate_soil_cal_entity_ids(hass, entry)
+
     cfg = {**entry.data, **(entry.options or {})}
     listen_port   = int(cfg.get(CONF_LISTEN_PORT,   DEFAULT_LISTEN_PORT))
     upstream_host =     cfg.get(CONF_UPSTREAM_HOST, DEFAULT_UPSTREAM_HOST)
@@ -337,6 +343,73 @@ def _migrate_soil_avg_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> Non
             _LOGGER.error("soil-avg finalize failed %s -> %s: %s", cur, want, exc)
     if fixed:
         _LOGGER.info("Repaired %d soil-average entity id(s)", fixed)
+
+
+def _migrate_soil_cal_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Clean up phantom soil-probe fallout from 3.18.0-3.18.2. The keep-offline
+    restore parsed soil calibration unique_ids (ggs_{mac}_soil_{serial}_cal_*)
+    as probe serials, which spawned phantom soilN sensors on every reboot and
+    churned the real calibration entity ids. This:
+      * removes the pure-phantom cal_temperature entities (the real soil-temp
+        calibration uses ..._cal_temp, so ..._cal_temperature is always phantom);
+      * re-homes the real cal_moisture / cal_ec entities to their correct
+        sensor.sf_{cb_slot}_{soil_slot}_cal_{suffix} (two-phase, collision-safe).
+    Idempotent; history preserved for the re-homed entities."""
+    import re
+    import time
+    from homeassistant.helpers import entity_registry as er
+
+    ent_reg = er.async_get(hass)
+    device_slots = dict((entry.options or {}).get("device_slots", {}))
+    soil_slots = dict((entry.options or {}).get("soil_slots", {}))
+    phantom_re = re.compile(r"^ggs_([0-9a-f]+)_soil_(.+)_cal_temperature$")
+    cal_re = re.compile(r"^ggs_([0-9a-f]+)_soil_(.+)_cal_(moisture|ec)$")
+
+    removed = 0
+    planned: list[tuple[str, str]] = []
+    for e in list(er.async_entries_for_config_entry(ent_reg, entry.entry_id)):
+        uid = e.unique_id or ""
+        if phantom_re.match(uid):
+            try:
+                ent_reg.async_remove(e.entity_id)
+                removed += 1
+            except KeyError:
+                pass
+            continue
+        m = cal_re.match(uid)
+        if not m:
+            continue
+        mac, serial, suffix = m.group(1), m.group(2), m.group(3)
+        cb_slot = device_slots.get(mac)
+        soil_slot = soil_slots.get(serial.lower())
+        if not cb_slot or not soil_slot:
+            continue
+        want = f"sensor.sf_{cb_slot}_{soil_slot}_cal_{suffix}"
+        if e.entity_id != want:
+            planned.append((e.entity_id, want))
+
+    if planned:
+        stamp = int(time.time())
+        temp_map: list[tuple[str, str, str]] = []
+        for i, (cur, want) in enumerate(planned):
+            temp = f"sensor.sf_calmigtmp_{stamp}_{i}"
+            try:
+                ent_reg.async_update_entity(cur, new_entity_id=temp)
+                temp_map.append((temp, want, cur))
+            except (ValueError, KeyError) as exc:
+                _LOGGER.warning("soil-cal park failed %s: %s", cur, exc)
+        for temp, want, cur in temp_map:
+            if ent_reg.async_get(want) is not None:
+                _LOGGER.error("soil-cal target %s occupied; %s left on %s",
+                              want, cur, temp)
+                continue
+            try:
+                ent_reg.async_update_entity(temp, new_entity_id=want)
+                _LOGGER.info("Re-homed soil-cal %s -> %s", cur, want)
+            except (ValueError, KeyError) as exc:
+                _LOGGER.error("soil-cal finalize failed %s -> %s: %s", cur, want, exc)
+    if removed:
+        _LOGGER.info("Removed %d phantom soil-cal entity(ies)", removed)
 
 
 def _integration_version() -> str:

@@ -985,6 +985,18 @@ def _process_publish(
                     except Exception:
                         pass
                     await asyncio.sleep(0.5)
+                # Pull the full config file once at connect so air/soil
+                # calibration, substrate and soil names populate promptly
+                # instead of waiting up to config_poll_interval (~10 min).
+                if session.device_type in ("cb", "ps5", "ps10"):
+                    try:
+                        await session.inject({
+                            "method": "getConfigFile", "pid": session.mac_raw,
+                            "msgId": str(int(time.time() * 1000)),
+                            "uid": session.uid,
+                        })
+                    except Exception:
+                        pass
 
             session.initial_poll_task = asyncio.create_task(_initial_poll())
 

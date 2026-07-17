@@ -16,6 +16,7 @@ documented in docs/OUTLET_MODES_WIRE.md.
 import copy
 import json
 import logging
+import re
 import time
 import uuid
 from typing import Optional
@@ -206,6 +207,8 @@ def translate_command(
     outlet_subfield: Optional[str] = None,
     outlet_cfg: Optional[dict] = None,
     env_cfg: Optional[dict] = None,
+    cal_cfg: Optional[dict] = None,
+    senconfig: Optional[list] = None,
 ) -> Optional[dict]:
     """Translate one HA command into a device message, or None if it maps to
     nothing sendable."""
@@ -231,6 +234,11 @@ def translate_command(
 
     if field.startswith("env_"):
         return _cmd_env(mac, uid, field, value, env_cfg)
+
+    if field.startswith("cal_"):
+        return _cmd_air_cal(mac, uid, field, value, cal_cfg)
+    if field.startswith("soil_") and ("_cal_" in field or field.endswith("_substrate")):
+        return _cmd_soil_cfg(mac, uid, field, value, senconfig)
 
     if field in _CLIMATE_LEVEL_RANGE and subfield == "level":
         return _cmd_climate_level(mac, uid, field, value, state)
@@ -650,5 +658,87 @@ def _cmd_env(mac, uid, field, value, env_cfg):
     return {
         "method": "setConfigField", "pid": mac,
         "params": {"keyPath": ["target"], "target": obj},
+        "msgId": _msg_id(), "uid": uid,
+    }
+
+
+# Substrate label -> device soilType index (must match entity_defs.SUBSTRATE_OPTIONS).
+_SUBSTRATE_WRITE = {"Clay soil": 0, "Coco coir": 1, "Peat soil": 2}
+_AIR_CAL_DEFAULT = {"temp": 0, "humi": 0, "co2": 0, "ppfd": 0}
+
+
+def _cmd_air_cal(mac, uid, field, value, cal_cfg):
+    """Air-sensor calibration write: read-modify-write the whole top-level
+    ["calibration"] block {temp,humi,co2,ppfd}. Air-temp is a degF offset on
+    the app, stored as degC on the wire; humi/co2/ppfd are direct."""
+    obj = copy.deepcopy(cal_cfg if isinstance(cal_cfg, dict) else _AIR_CAL_DEFAULT)
+    for k, dflt in _AIR_CAL_DEFAULT.items():
+        obj.setdefault(k, dflt)
+    try:
+        v = float(value)
+        if field == "cal_air_temp":
+            obj["temp"] = round(_fdelta_to_c(v), 4)
+        elif field == "cal_air_humidity":
+            obj["humi"] = round(v, 1)
+        elif field == "cal_ppfd":
+            obj["ppfd"] = round(v, 1)
+        elif field == "cal_co2":
+            obj["co2"] = round(v)
+        else:
+            logger.warning("Unknown air-cal field: %s", field)
+            return None
+    except (ValueError, TypeError):
+        return None
+    return {
+        "method": "setConfigField", "pid": mac,
+        "params": {"keyPath": ["calibration"], "calibration": obj},
+        "msgId": _msg_id(), "uid": uid,
+    }
+
+
+def _cmd_soil_cfg(mac, uid, field, value, senconfig):
+    """Per-probe soil calibration / substrate write: read-modify-write the
+    whole ["device","senConfig"] array so the other probes' settings are
+    preserved. Refuses to write if the array hasn't been seen yet (a partial
+    array would wipe the other probes)."""
+    m = re.match(r"^soil_(.+?)_(cal_temp|cal_moisture|cal_ec|substrate)$", field)
+    if not m:
+        logger.warning("Unrecognized soil-cfg field: %s", field)
+        return None
+    if not isinstance(senconfig, list) or not senconfig:
+        logger.warning("soil-cfg write for %s dropped: senConfig not cached yet", field)
+        return None
+    serial, kind = m.group(1), m.group(2)
+    arr = copy.deepcopy(senconfig)
+    entry = next(
+        (e for e in arr if isinstance(e, dict)
+         and str(e.get("id", "")).lower() == serial.lower()),
+        None,
+    )
+    if entry is None:
+        logger.warning("soil-cfg write: probe %s not in senConfig", serial)
+        return None
+    try:
+        if kind == "substrate":
+            idx = _SUBSTRATE_WRITE.get(str(value))
+            if idx is None:
+                logger.warning("Unknown substrate option: %r", value)
+                return None
+            entry["soilType"] = idx
+        else:
+            v = float(value)
+            cal = dict(entry.get("calibration") or {})
+            if kind == "cal_temp":
+                cal["tempSoil"] = round(_fdelta_to_c(v), 4)
+            elif kind == "cal_moisture":
+                cal["humiSoil"] = round(v, 1)
+            elif kind == "cal_ec":
+                cal["ECSoil"] = round(v, 1)
+            entry["calibration"] = cal
+    except (ValueError, TypeError):
+        return None
+    return {
+        "method": "setConfigField", "pid": mac,
+        "params": {"keyPath": ["device", "senConfig"], "senConfig": arr},
         "msgId": _msg_id(), "uid": uid,
     }

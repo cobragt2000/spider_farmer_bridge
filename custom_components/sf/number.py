@@ -35,7 +35,8 @@ async def async_setup_entry(
     @callback
     def _add(defs: list[SfDef]) -> None:
         async_add_entities(
-            SfBlowerSpeedNumber(bus, d) if d.kind == "blower"
+            SfCalNumber(bus, d) if d.kind == "cal"
+            else SfBlowerSpeedNumber(bus, d) if d.kind == "blower"
             else SfFanSpeedNumber(bus, d) if d.kind == "fan"
             else SfLevelNumber(bus, d)
             for d in defs
@@ -137,3 +138,28 @@ class SfFanSpeedNumber(SfLevelNumber):
             return
         gear = max(1, min(10, round(pct / 10)))
         await self._command(str(gear), subfield=self.d.command_subfield)
+
+
+
+class SfCalNumber(SfLevelNumber):
+    """Editable calibration offset. Unlike the level numbers these are
+    float-valued and may be negative, so the entered value is sent as a raw
+    float (not truncated to int). The write is held optimistically until the
+    device echoes the stored offset back on the next config-file poll."""
+
+    @callback
+    def _handle_payload(self, topic: str, payload: str) -> None:
+        # Offsets can legitimately be 0 or negative, so skip the level
+        # entities' "below floor means off -> unknown" handling.
+        try:
+            value = float(payload)
+        except (ValueError, TypeError):
+            return
+        lo, hi = self._attr_native_min_value, self._attr_native_max_value
+        self._attr_native_value = max(lo, min(hi, value))
+
+    async def async_set_native_value(self, value: float) -> None:
+        v = round(float(value), 1)
+        self._attr_native_value = v
+        self.async_write_ha_state()
+        await self._command("%g" % v, subfield=self.d.command_subfield)

@@ -146,6 +146,8 @@ class ProxySession:
         self.se_config: Dict[str, Any] = {}          # SE light configFile.light cache
         self.outlet_cfg: Dict[str, dict] = {}        # "{block}/O{n}" -> full outlet config
         self.env_cfg: dict = {}                      # environment "target" block cache
+        self.cal_cfg: dict = {}                      # top-level ["calibration"] block cache
+        self.senconfig: list = []                    # full ["device","senConfig"] array cache
         self.last_nonzero_level: Dict[str, int] = {}
         self.fan_state:   Dict[str, dict] = {}
         self.light_state: Dict[str, dict] = {}
@@ -535,6 +537,8 @@ class MITMProxy:
             outlet_cfg=cmd_sess.outlet_cfg.get(f"{outlet_block}/O{outlet_num}")
                        if outlet_num is not None else None,
             env_cfg=cmd_sess.env_cfg or None,
+            cal_cfg=cmd_sess.cal_cfg or None,
+            senconfig=cmd_sess.senconfig or None,
         )
         if payload:
             await cmd_sess.inject(payload)
@@ -1066,11 +1070,16 @@ def _process_publish(
     if method in ("getConfigField", "getConfigFile"):
         _sen = _senconfig_from(d)
         if _sen:
+            # Cache the full array so per-probe calibration/substrate writes
+            # are read-modify-write and never wipe the other probes.
+            session.senconfig = _sen
             _apply = getattr(mqtt_client, "apply_soil_labels", None)
             if _apply is not None:
                 _apply(session.mac_raw, _sen)
         _cal = _calibration_from(d)
         if _cal:
+            # Cache the whole calibration block for RMW air-cal writes.
+            session.cal_cfg = dict(_cal)
             _acal = getattr(mqtt_client, "apply_air_calibration", None)
             if _acal is not None:
                 _acal(session.mac_raw, _cal)

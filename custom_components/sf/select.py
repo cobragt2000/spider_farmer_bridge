@@ -99,6 +99,12 @@ class SfLevelSelect(SfEntity, SelectEntity):
             # optimistically so the selector doesn't snap back to Manual.
             self._attr_current_option = option
             self.async_write_ha_state()
+        elif self.d.field.endswith("_substrate"):
+            # Substrate soilType has no immediate echo — the change only
+            # comes back on the next config-file poll, so hold the choice
+            # optimistically to avoid snapping back.
+            self._attr_current_option = option
+            self.async_write_ha_state()
         # With a command_subfield the write goes to {field}/{subfield}/set;
         # without one (SE mode / outlet mode) it goes to the field topic.
         await self._command(option, subfield=self.d.command_subfield)

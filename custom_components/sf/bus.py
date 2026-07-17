@@ -686,6 +686,34 @@ class SfBus:
                     soil_slot=self.get_soil_slot(serial, mac),
                 )
 
+            # Editable calibration/substrate entities (number/select). Rebuild
+            # so they persist for offline devices, restored to their last
+            # value; the live config poll refreshes them when the device
+            # reconnects.
+            import re as _re2
+            covered = {d.unique_id for d in defs}
+            cal_defs = []
+            if any(u.startswith(f"ggs_{mac}_cal_") for u in existing):
+                cal_defs += build_air_calibration_entities(cfg, slot=slot)
+            soil_cal: dict = {}
+            cal_uid_re = _re2.compile(
+                rf"^ggs_{mac}_soil_(.+?)_(cal_temp|cal_moisture|cal_ec|substrate)$"
+            )
+            for uid in existing:
+                m = cal_uid_re.match(uid)
+                if m:
+                    soil_cal.setdefault(m.group(1), set()).add(m.group(2))
+            for serial, kinds in soil_cal.items():
+                cal_defs += build_soil_calibration_entities(
+                    mac, serial, cfg, slot=slot,
+                    soil_slot=self.get_soil_slot(serial, mac),
+                    include_substrate="substrate" in kinds,
+                )
+            defs += [
+                d for d in cal_defs
+                if d.unique_id in existing and d.unique_id not in covered
+            ]
+
             if defs:
                 self._add_defs(defs)
                 restored += len(defs)

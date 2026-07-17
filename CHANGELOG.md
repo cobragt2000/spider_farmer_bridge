@@ -3,6 +3,52 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.0
+
+### Added
+- **Editable sensor calibration.** The air-sensor and per-probe soil calibration
+  offsets are now editable controls instead of read-only diagnostics. Adjusting one
+  writes it straight back to the controller (no app needed):
+  - **Air** (per Display Panel): Air Temp `±18 °F`, Air Humidity `±20 %`,
+    PPFD `±20 µmol/m²/s` (box inputs, 0.1 steps) and CO2 `±200 ppm` (slider, 10-step).
+  - **Soil** (per probe): Temp `±20 °F`, Moisture `±20 %`, EC `±5 mS/cm`
+    (box inputs, 0.1 steps).
+- **Substrate type.** Pro probes get a **Substrate** selector — Clay soil / Coco coir /
+  Peat soil — that writes the probe's `soilType`.
+- **Card "Cali" tab.** `custom:spider-farmer-card` gains a third tab (shown only when a
+  panel has calibration entities) that mirrors the app's calibration screens: an Air
+  Calibration section (Air Temp / Humidity / PPFD / CO2) and a per-probe Soil Calibration
+  section (Temp / Moisture / EC + Substrate picker). Editing a value writes it straight
+  to the controller. (bundled card v0.3.0)
+
+### Notes
+- Air-temp and soil-temp offsets are entered in °F (matching the app) and converted to
+  °C on the wire. Humidity, EC, PPFD and CO2 are direct. PPFD stays in µmol/m²/s.
+- Writes are read-modify-write: a soil change re-sends the full probe array so the other
+  probes' settings are never disturbed. A soil write is held until the controller's
+  config has been read at least once (so a partial array can't wipe the other probes).
+- These entities moved from the `sensor.` domain (3.18.x, read-only) to `number.` /
+  `select.` (editable). A one-time cleanup removes the old read-only sensors; the
+  editable versions keep the same names and history.
+
+## 3.18.3
+
+### Fixes
+- **Phantom soil sensors on every reboot (recorder errors).** The keep-offline restore
+  parsed the new soil calibration unique_ids (`ggs_{mac}_soil_{serial}_cal_*`) as if
+  "{serial}_cal" were a probe, spawning phantom `soilN` sensors (e.g. Soil 5-8) on each
+  restart and churning the real calibration entity ids — which produced the recorder
+  "cannot rename statistic_id / migrate history" errors. Restore now skips calibration
+  and substrate ids, and a one-time cleanup removes the phantom entities and re-homes
+  the real `cal_moisture` / `cal_ec` entities to their correct ids (history preserved).
+- **Card `define` collision under tabbed-card.** `custom:spider-farmer-card`,
+  `-editor`, and `ppfd-3d-card` now register with a guard (`if (!customElements.get(...))`),
+  so a second load or tabbed-card's scoped registry no longer throws
+  "Failed to execute 'define' … has already been used". (bundled card v0.2.4)
+- **Calibration was "unknown" for up to ~10 min after startup.** The full `getConfigFile`
+  (which carries air/soil calibration, substrate, and soil names) is now fetched ~3 s
+  after each device connects, instead of waiting for the first periodic config poll.
+
 ## 3.18.2
 
 ### Fixes
@@ -425,3 +471,14 @@ Consolidates the 3.11.2 beta series into a stable release.
 ## 3.2.6
 - Clean removal no longer strands an empty `config/sf/` folder
 - The customization snapshot is skipped entirely when "Preserve on removal" is unchecked
+
+## 3.2.5
+- **Fixed silent data loss**: saving the Settings form replaced the entry's options wholesale, wiping `device_slots` (slots would have reassigned by connect order on the next restart)
+- Settings now merges into existing options; slot lookups self-heal a wiped stored mapping from the runtime cache
+
+## 3.2.4
+- Deleting a connected device now works as a **reset**: its session is severed, entities wiped, and it re-registers fresh on reconnect (power a device off first for permanent removal)
+- Rolls up 3.2.3 (skip that version)
+
+## 3.2.3
+- **Field-level air sensor evidence**: temperature/humidity/

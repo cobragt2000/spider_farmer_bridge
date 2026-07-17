@@ -475,39 +475,40 @@ OUTLET_TYPE_TO_MODE = {mt: name for name, mt in OUTLET_MODES}
 OUTLET_MODE_NAMES = [name for name, _ in OUTLET_MODES]
 
 # Substrate options for the 3-in-1 soil probe (senConfig.soilType index).
-SUBSTRATE_OPTIONS = ["Clay", "Coco", "Peat"]
+SUBSTRATE_OPTIONS = ["Clay soil", "Coco coir", "Peat soil"]
 
 
 def build_air_calibration_entities(device_cfg, slot=None):
-    """Read-only diagnostic sensors for a panel's air-sensor calibration
-    offsets, from the config file's top-level ``calibration`` block
-    {temp,humi,co2,ppfd}. Air-temp is shown in degF (app convention); the rest
-    are direct units."""
+    """Editable air-sensor calibration offsets (config-file top-level
+    ``calibration`` block {temp,humi,co2,ppfd}). Air-temp is entered in degF
+    (app convention; converted to degC on the wire); the rest are direct
+    units. Writes go back via setConfigField ["calibration"]."""
     mac_raw = device_cfg.get("mac", "")
     mac = _mac(mac_raw)
     dname = _device_name(device_cfg)
     dmodel = _device_model(device_cfg)
 
-    def n(field, name, unit, icon, prec=1):
+    def num(field, name, unit, icon, lo, hi, step, mode="box"):
         return SfDef(
-            platform="sensor", field=field, name=name, mac=mac, mac_raw=mac_raw,
+            platform="number", field=field, name=name, mac=mac, mac_raw=mac_raw,
             device_name=dname, device_model=dmodel, unit=unit, slot=slot,
-            state_class="measurement", precision=prec,
+            kind="cal", min_value=lo, max_value=hi, step=step, num_mode=mode,
             entity_category="diagnostic", icon=icon,
             object_id=(f"sf_{slot}_{field}" if slot else None),
         )
     return [
-        n("cal_air_temp", "Air Temp Calibration", "°F", "mdi:thermometer"),
-        n("cal_air_humidity", "Air Humidity Calibration", "%", "mdi:water-percent"),
-        n("cal_ppfd", "PPFD Calibration", "µmol/m²/s", "mdi:white-balance-sunny"),
-        n("cal_co2", "CO2 Calibration", "ppm", "mdi:molecule-co2", prec=0),
+        num("cal_air_temp", "Air Temp Calibration", "°F", "mdi:thermometer", -18, 18, 0.1),
+        num("cal_air_humidity", "Air Humidity Calibration", "%", "mdi:water-percent", -20, 20, 0.1),
+        num("cal_ppfd", "PPFD Calibration", "µmol/m²/s", "mdi:white-balance-sunny", -20, 20, 0.1),
+        num("cal_co2", "CO2 Calibration", "ppm", "mdi:molecule-co2", -200, 200, 10, mode="slider"),
     ]
 
 
 def build_soil_calibration_entities(mac_raw, sensor_id, device_cfg, slot=None, soil_slot=None, include_substrate=True):
-    """Per-probe editable diagnostic entities: 3 calibration offsets
+    """Per-probe editable calibration: 3 offset numbers
     (senConfig[].calibration tempSoil/humiSoil/ECSoil) + a Substrate select
-    (senConfig[].soilType). Soil-temp is shown in degF (app convention)."""
+    (senConfig[].soilType, Pro probes only). Soil-temp is entered in degF (app
+    convention). Writes go back via setConfigField ["device","senConfig"]."""
     mac = _mac(mac_raw)
     dname = _device_name({**(device_cfg or {}), "mac": mac_raw})
     dmodel = _TYPE_LABELS.get((device_cfg or {}).get("type", "").lower(), "Display Panel")
@@ -515,23 +516,24 @@ def build_soil_calibration_entities(mac_raw, sensor_id, device_cfg, slot=None, s
     base = soil_display_label(soil_slot) if soil_slot else f"Soil {sensor_id}"
     oid = (lambda suff: f"sf_{slot}_{soil_slot}_{suff}") if (slot and soil_slot) else (lambda suff: None)
 
-    def num(suff, label, unit, icon):
+    def num(suff, label, unit, icon, lo, hi, step):
         return SfDef(
-            platform="sensor", field=f"soil_{safe}_{suff}", name=f"{base} {label}",
+            platform="number", field=f"soil_{safe}_{suff}", name=f"{base} {label}",
             mac=mac, mac_raw=mac_raw, device_name=dname, device_model=dmodel,
-            unit=unit, slot=slot, state_class="measurement", precision=1,
-            entity_category="diagnostic", icon=icon, object_id=oid(suff),
+            unit=unit, slot=slot, kind="cal", min_value=lo, max_value=hi, step=step,
+            num_mode="box", entity_category="diagnostic", icon=icon, object_id=oid(suff),
         )
     out = [
-        num("cal_temp", "Temp Calibration", "°F", "mdi:thermometer"),
-        num("cal_moisture", "Moisture Calibration", "%", "mdi:water-percent"),
-        num("cal_ec", "EC Calibration", "mS/cm", "mdi:flash"),
+        num("cal_temp", "Temp Calibration", "°F", "mdi:thermometer", -20, 20, 0.1),
+        num("cal_moisture", "Moisture Calibration", "%", "mdi:water-percent", -20, 20, 0.1),
+        num("cal_ec", "EC Calibration", "mS/cm", "mdi:flash", -5, 5, 0.1),
     ]
     if include_substrate:  # Pro probes only — Basic probes have no substrate type
         out.append(SfDef(
-            platform="sensor", field=f"soil_{safe}_substrate", name=f"{base} Substrate",
+            platform="select", field=f"soil_{safe}_substrate", name=f"{base} Substrate",
             mac=mac, mac_raw=mac_raw, device_name=dname, device_model=dmodel, slot=slot,
-            entity_category="diagnostic", icon="mdi:layers-outline", object_id=oid("substrate"),
+            options=list(SUBSTRATE_OPTIONS), entity_category="diagnostic",
+            icon="mdi:layers-outline", object_id=oid("substrate"),
         ))
     return out
 

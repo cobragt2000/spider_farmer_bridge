@@ -62,6 +62,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # re-home the real cal ids.
     _migrate_soil_cal_entity_ids(hass, entry)
 
+    # One-time (3.19.0): calibration/substrate became editable number/select
+    # entities; drop the old read-only sensor-domain versions.
+    _migrate_cal_to_editable(hass, entry)
+
     cfg = {**entry.data, **(entry.options or {})}
     listen_port   = int(cfg.get(CONF_LISTEN_PORT,   DEFAULT_LISTEN_PORT))
     upstream_host =     cfg.get(CONF_UPSTREAM_HOST, DEFAULT_UPSTREAM_HOST)
@@ -410,6 +414,37 @@ def _migrate_soil_cal_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> Non
                 _LOGGER.error("soil-cal finalize failed %s -> %s: %s", cur, want, exc)
     if removed:
         _LOGGER.info("Removed %d phantom soil-cal entity(ies)", removed)
+
+
+def _migrate_cal_to_editable(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """3.19.0: calibration & substrate changed from read-only sensors to
+    editable number/select entities. Those live under different domains
+    (number./select.) so the old sensor-domain entities would otherwise
+    linger as 'no longer provided'. Remove them; the platforms recreate the
+    editable versions with the same unique_ids. Idempotent."""
+    import re
+    from homeassistant.helpers import entity_registry as er
+
+    ent_reg = er.async_get(hass)
+    cal_re = re.compile(
+        r"^ggs_[0-9a-f]+_("
+        r"cal_air_temp|cal_air_humidity|cal_ppfd|cal_co2|"
+        r"soil_.+_cal_(temp|moisture|ec)|soil_.+_substrate)$"
+    )
+    removed = 0
+    for e in list(er.async_entries_for_config_entry(ent_reg, entry.entry_id)):
+        if e.domain != "sensor":
+            continue
+        if cal_re.match(e.unique_id or ""):
+            try:
+                ent_reg.async_remove(e.entity_id)
+                removed += 1
+            except KeyError:
+                pass
+    if removed:
+        _LOGGER.info(
+            "Removed %d read-only calibration sensor(s) now replaced by "
+            "editable number/select entities", removed)
 
 
 def _integration_version() -> str:

@@ -1,4 +1,5 @@
-"""Read-only diagnostic sensors: air + soil calibration offsets + substrate."""
+"""Editable diagnostic entities: air + soil calibration offsets + substrate
+(number/select), plus their reported values from senConfig/calibration."""
 import json
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -57,26 +58,26 @@ async def test_calibration_and_substrate_read(hass: HomeAssistant):
         "soilType": 1, "label": "Front Left",
     }])
     await hass.async_block_till_done()
-    assert hass.states.get("sensor.sf_dp1_soil1_cal_temp").state == "-0.5"      # -0.2778 C -> -0.5 F
-    assert hass.states.get("sensor.sf_dp1_soil1_cal_moisture").state == "-0.5"
-    assert hass.states.get("sensor.sf_dp1_soil1_cal_ec").state == "-0.5"
-    assert hass.states.get("sensor.sf_dp1_soil1_substrate").state == "Coco"     # soilType 1
+    assert hass.states.get("number.sf_dp1_soil1_cal_temp").state == "-0.5"      # -0.2778 C -> -0.5 F
+    assert hass.states.get("number.sf_dp1_soil1_cal_moisture").state == "-0.5"
+    assert hass.states.get("number.sf_dp1_soil1_cal_ec").state == "-0.5"
+    assert hass.states.get("select.sf_dp1_soil1_substrate").state == "Coco coir"  # soilType 1
 
     # Air calibration (top-level block)
     bus.apply_air_calibration(CB_MAC, {"temp": -0.0556, "humi": -0.1, "co2": -10.0, "ppfd": -0.1})
     await hass.async_block_till_done()
-    assert hass.states.get("sensor.sf_dp1_cal_air_temp").state == "-0.1"        # -0.0556 C -> -0.1 F
-    assert hass.states.get("sensor.sf_dp1_cal_air_humidity").state == "-0.1"
-    assert hass.states.get("sensor.sf_dp1_cal_co2").state == "-10.0"
-    assert hass.states.get("sensor.sf_dp1_cal_ppfd").state == "-0.1"
+    assert hass.states.get("number.sf_dp1_cal_air_temp").state == "-0.1"        # -0.0556 C -> -0.1 F
+    assert hass.states.get("number.sf_dp1_cal_air_humidity").state == "-0.1"
+    assert hass.states.get("number.sf_dp1_cal_co2").state == "-10.0"
+    assert hass.states.get("number.sf_dp1_cal_ppfd").state == "-0.1"
     # cached for the (future) write path
     assert bus._air_cal[CB_MAC_LC]["co2"] == -10.0
 
     # Absent calibration -> defaults to 0 (so it shows without an app change).
     bus.apply_soil_labels(CB_MAC, [{"id": "AA01", "type": 2, "label": "Front Left"}])
     await hass.async_block_till_done()
-    assert hass.states.get("sensor.sf_dp1_soil1_cal_temp").state == "0.0"
-    assert hass.states.get("sensor.sf_dp1_soil1_cal_ec").state == "0"
+    assert hass.states.get("number.sf_dp1_soil1_cal_temp").state == "0.0"
+    assert hass.states.get("number.sf_dp1_soil1_cal_ec").state == "0.0"
 
     await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()

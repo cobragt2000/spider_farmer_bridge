@@ -42,6 +42,12 @@ native HA entities.
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/07_outlet_controls.png" width="245" alt="Outlet controls" />
 </p>
 
+**Editable sensor calibration** — air + per-probe soil offsets and substrate type, written straight back to the controller:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/18_calibration_entities.png" width="330" alt="Calibration and substrate entities" />
+</p>
+
 **Configure → Settings, mappings, migration & probe replacement:**
 
 <p align="center">
@@ -222,12 +228,14 @@ default_tab: overview        # optional: "overview" (default) or "config"
 
 Entities render only when they exist, so partial setups display cleanly, and
 the Config tab appears only when the environment/outlet-mode entities are
-present. Enabling the card loads the element globally but has no effect until
-you add it to a dashboard.
+present, and the Cali tab appears only when a panel has calibration entities.
+Enabling the card loads the element globally but has no effect until you add it
+to a dashboard.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/15_card_overview.png" width="330" alt="Spider Farmer card — Overview tab" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/16_card_config.png" width="330" alt="Spider Farmer card — Config tab" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/15_card_overview.png" width="270" alt="Spider Farmer card — Overview tab" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/16_card_config.png" width="270" alt="Spider Farmer card — Config tab" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/17_card_cali.png" width="270" alt="Spider Farmer card — Cali tab" />
 </p>
 
 The `custom:ppfd-3d-card` 3D PPFD visualizer for SE4500 / SF2000 grow lights:

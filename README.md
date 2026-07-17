@@ -2,6 +2,7 @@
 
 [![Validate](https://github.com/cobragt2000/spider_farmer_bridge/actions/workflows/validate.yml/badge.svg)](https://github.com/cobragt2000/spider_farmer_bridge/actions/workflows/validate.yml)
 [![hacs](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![Discord](https://img.shields.io/badge/Discord-Join%20our%20chat-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/YZCcdwXTCp)
 
 Local control and monitoring for **Spider Farmer GGS (Genius Grow System)**
 devices — Display Paneles, AC5/AC10 power strips, light controllers, grow
@@ -20,6 +21,38 @@ captures — a TLS proxy, MQTT codec, normalizer, and command translator feeding
 native HA entities.
 
 ---
+
+## Screenshots
+
+**Devices & entities** — everything modeled from live device evidence:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/01_integration_entries.png" width="660" alt="Integration entries" />
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/13_power_strip_device.png" width="440" alt="Power Strip device page" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/08_sensors.png" width="235" alt="Sensor list" />
+</p>
+
+**Controls** — environment targets, climate/fan, and per-outlet modes:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/05_environment_controls.png" width="270" alt="Environment controls" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/06_climate_fan_controls.png" width="250" alt="Climate & fan controls" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/07_outlet_controls.png" width="245" alt="Outlet controls" />
+</p>
+
+**Configure → Settings, mappings, migration & probe replacement:**
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/09_configure_menu.png" width="330" alt="Configure menu" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/10_settings_options.png" width="330" alt="Settings options" />
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/02_device_slot_mappings.png" width="300" alt="Device slot mappings" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/11_migrate_device.png" width="330" alt="Migrate device" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/04_replace_soil_probe.png" width="300" alt="Replace soil probe" />
+</p>
 
 ## What you get
 
@@ -202,38 +235,6 @@ The `custom:ppfd-3d-card` 3D PPFD visualizer for SE4500 / SF2000 grow lights:
 <p align="center">
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/ppfd_se4500.png" width="330" alt="PPFD 3D visualizer — SE4500" />
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/ppfd_sf2000.png" width="330" alt="PPFD 3D visualizer — SF2000" />
-</p>
-
-## Screenshots
-
-**Devices & entities** — everything modeled from live device evidence:
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/01_integration_entries.png" width="660" alt="Integration entries" />
-</p>
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/13_power_strip_device.png" width="440" alt="Power Strip device page" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/08_sensors.png" width="235" alt="Sensor list" />
-</p>
-
-**Controls** — environment targets, climate/fan, and per-outlet modes:
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/05_environment_controls.png" width="270" alt="Environment controls" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/06_climate_fan_controls.png" width="250" alt="Climate & fan controls" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/07_outlet_controls.png" width="245" alt="Outlet controls" />
-</p>
-
-**Configure → Settings, mappings, migration & probe replacement:**
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/09_configure_menu.png" width="330" alt="Configure menu" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/10_settings_options.png" width="330" alt="Settings options" />
-</p>
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/02_device_slot_mappings.png" width="300" alt="Device slot mappings" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/11_migrate_device.png" width="330" alt="Migrate device" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/04_replace_soil_probe.png" width="300" alt="Replace soil probe" />
 </p>
 
 ## Entity ID scheme

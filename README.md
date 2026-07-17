@@ -206,6 +206,8 @@ The main card (`custom:spider-farmer-card`) is a single tabbed card:
 
 - **Overview** — environment parameter tiles (Air Temp, Humidity, VPD, CO2,
   PPFD, Soil Temp/Moisture/EC) plus light / fan / blower / climate controls.
+  The Soil Temp / Moisture / EC tiles are the panel-wide averages — click one
+  to expand a per-probe breakdown of that reading.
 - **Environment** — day/night targets and dead zones for Temp, Humidity, and
   CO2, plus the day-cycle start/stop times.
 - **Outlets** — per-outlet mode configuration for the strips nested under this
@@ -237,6 +239,18 @@ globally but has no effect until you add it to a dashboard.
 <p align="center">
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/19_card_outlets.png" width="245" alt="Spider Farmer card — Outlets tab" />
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/17_card_cali.png" width="245" alt="Spider Farmer card — Calibration tab" />
+</p>
+
+When a panel has two or more soil probes, the Soil Temp / Moisture / EC tiles
+gain a dropdown arrow — click one for a per-probe breakdown of that reading, or
+open **All Soil Sensors Stats** for a full table of every probe:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/22_card_soil_tiles.png" width="245" alt="Soil tiles with per-probe dropdowns" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/20_card_soil_breakdown.png" width="245" alt="Per-probe soil breakdown" />
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/21_card_all_soil_stats.png" width="245" alt="All Soil Sensors Stats table" />
 </p>
 
 The `custom:ppfd-3d-card` 3D PPFD visualizer for SE4500 / SF2000 grow lights:

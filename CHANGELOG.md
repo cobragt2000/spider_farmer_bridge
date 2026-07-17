@@ -3,6 +3,26 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.2
+
+### Added
+- **Per-probe soil breakdown on the card.** On `custom:spider-farmer-card`'s Overview tab,
+  the Soil Temp, Moisture, and Soil EC tiles are now clickable when more than the average
+  is available — clicking one expands a mini panel listing that reading for each individual
+  probe (by its app name), so you can see per-probe values without leaving the Overview.
+  Only appears when a panel has more than one probe (with a single probe the average is
+  already that probe).
+- **"All Soil Sensors Stats" table on the card.** Also on the Overview tab (2+ probes), a
+  collapsible **All Soil Sensors Stats** section lists every probe in one table — name,
+  Temp, WC (moisture), and EC per row.
+
+### Fixes
+- **Card display issues on mobile.** The tab bar no longer clips the last tab (Calibration)
+  on narrow screens — it scrolls horizontally instead. The Environment Day/Night number
+  boxes no longer clip their values (e.g. "62" showing as "6" or the CO2 boxes appearing
+  empty): the mobile number spin buttons that stole the box width are removed. (Bundled
+  card v0.6.1.)
+
 ## 3.19.1
 
 ### Fixes

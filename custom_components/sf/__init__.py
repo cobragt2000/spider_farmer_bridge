@@ -457,44 +457,61 @@ def _migrate_cal_to_editable(hass: HomeAssistant, entry: ConfigEntry) -> None:
             "editable number/select entities", removed)
 
 
-_SET_SE_SCHEDULE_SCHEMA = vol.Schema({
+_SCHEDULE_SCHEMA = vol.Schema({
     vol.Required("entity_id"): cv.entity_ids,
     vol.Required("periods"): [dict],
 })
 
 
+def _proxy_for_entity(hass: HomeAssistant, ent) -> object | None:
+    """The proxy owning an entity's config entry, or any active proxy."""
+    data = hass.data.get(DOMAIN, {}).get(ent.config_entry_id) if ent else None
+    proxy = data.get(DATA_PROXY) if isinstance(data, dict) else None
+    if proxy is None:
+        for d in hass.data.get(DOMAIN, {}).values():
+            if isinstance(d, dict) and d.get(DATA_PROXY):
+                return d[DATA_PROXY]
+    return proxy
+
+
 def _async_register_services(hass: HomeAssistant) -> None:
-    """Register sf.set_se_schedule (once) — writes an SE light's full
-    multi-period, weekday-aware schedule from the light card."""
-    if hass.services.has_service(DOMAIN, "set_se_schedule"):
-        return
+    """Register the schedule-write services (once)."""
+    import re
+    from homeassistant.helpers import entity_registry as er
 
     async def _set_se_schedule(call: ServiceCall) -> None:
-        from homeassistant.helpers import entity_registry as er
         periods = call.data.get("periods") or []
         ent_reg = er.async_get(hass)
         for eid in call.data.get("entity_id", []):
             ent = ent_reg.async_get(eid)
             uid = ent.unique_id if ent else ""
             if not uid or not uid.startswith("ggs_"):
-                _LOGGER.warning(
-                    "set_se_schedule: %s is not a Spider Farmer entity", eid)
+                _LOGGER.warning("set_se_schedule: %s is not a Spider Farmer entity", eid)
                 continue
             mac = uid[4:].split("_", 1)[0]
-            data = hass.data.get(DOMAIN, {}).get(ent.config_entry_id)
-            proxy = data.get(DATA_PROXY) if isinstance(data, dict) else None
-            if proxy is None:  # fall back to any active proxy
-                for d in hass.data.get(DOMAIN, {}).values():
-                    if isinstance(d, dict) and d.get(DATA_PROXY):
-                        proxy = d[DATA_PROXY]
-                        break
+            proxy = _proxy_for_entity(hass, ent)
             if proxy is not None:
                 await proxy.write_se_schedule(mac, periods)
 
-    hass.services.async_register(
-        DOMAIN, "set_se_schedule", _set_se_schedule,
-        schema=_SET_SE_SCHEDULE_SCHEMA,
-    )
+    async def _set_outlet_schedule(call: ServiceCall) -> None:
+        periods = call.data.get("periods") or []
+        ent_reg = er.async_get(hass)
+        for eid in call.data.get("entity_id", []):
+            ent = ent_reg.async_get(eid)
+            m = re.match(r"^ggs_([0-9a-f]+)_outlet_(\d+)_", ent.unique_id or "" if ent else "")
+            if not m:
+                _LOGGER.warning("set_outlet_schedule: %s is not an outlet entity", eid)
+                continue
+            proxy = _proxy_for_entity(hass, ent)
+            if proxy is not None:
+                await proxy.write_outlet_schedule(m.group(1), int(m.group(2)), periods)
+
+    if not hass.services.has_service(DOMAIN, "set_se_schedule"):
+        hass.services.async_register(
+            DOMAIN, "set_se_schedule", _set_se_schedule, schema=_SCHEDULE_SCHEMA)
+    if not hass.services.has_service(DOMAIN, "set_outlet_schedule"):
+        hass.services.async_register(
+            DOMAIN, "set_outlet_schedule", _set_outlet_schedule, schema=_SCHEDULE_SCHEMA)
 
 
 def _integration_version() -> str:

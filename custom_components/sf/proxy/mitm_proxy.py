@@ -559,6 +559,32 @@ class MITMProxy:
         _LOGGER.info("set_se_schedule: wrote %d period(s) to %s", len(periods), mac)
         return True
 
+    async def write_outlet_schedule(self, mac: str, n: int, periods: list) -> bool:
+        """Write an outlet's Time Slot schedule (up to 12 weekday-aware slots),
+        read-modify-write, routed via the host CB (ps5/ps10 block) when the
+        strip is CB-hosted, else the strip's own outlet block."""
+        sess = self._sessions.get(_mac(mac))
+        if sess is None:
+            _LOGGER.warning("set_outlet_schedule: no active session for mac=%s", mac)
+            return False
+        host = self._cb_host_for_strip((sess.device_type or "").lower())
+        if host is not None:
+            cmd_sess = host
+            block = (sess.device_type or "").lower()
+        else:
+            cmd_sess = sess
+            block = "outlet"
+        outlet_cfg = cmd_sess.outlet_cfg.get(f"{block}/O{n}")
+        from .command_handler import build_outlet_schedule
+        payload = build_outlet_schedule(
+            cmd_sess.mac_raw, cmd_sess.uid, n, block, periods, outlet_cfg)
+        if not payload:
+            return False
+        await cmd_sess.inject(payload)
+        _LOGGER.info("set_outlet_schedule: wrote %d slot(s) to %s O%s (block %s)",
+                     len(periods), mac, n, block)
+        return True
+
     def close_session(self, mac: str) -> bool:
         """Sever one device's connection (used by device deletion). The
         device will reconnect and re-register unless it's powered off."""

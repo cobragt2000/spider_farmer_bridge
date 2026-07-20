@@ -37,8 +37,11 @@ Deferred items to pick up later. Not scheduled; captured so they aren't lost.
    - **Drip Irrigation advanced**: sensor -> serial bind, average target, the
      irrigation periods list, and the Emergency Protection sub-page. Wire
      formats already decoded in `docs/OUTLET_MODES_WIRE.md`.
-   - **Time Slot "Custom"**: per-day-of-week picker (weekmask bits) and the
-     full 12-slot list (currently only slot 0 + Daily).
+   - **[DONE in 3.19.6] Time Slot "Custom"**: per-day-of-week picker (weekmask
+     bits) and the full 12-slot list. Weekmask bit order confirmed from the
+     2026-07-20 log (bit0=Sun … bit6=Sat); exposed on a per-outlet
+     `..._ts_schedule` sensor + `sf.set_outlet_schedule` service; card editor on
+     the Outlets tab.
    Wire formats for BOTH now fully decoded from the 2026-07-13 captures and
    written up in `docs/OUTLET_MODES_WIRE.md` (drip bind/period/extra; multi-slot
    timePeriod + custom weekmask). Remaining work is HA entity modeling + UX for
@@ -73,3 +76,19 @@ Deferred items to pick up later. Not scheduled; captured so they aren't lost.
    Notes: derive the base name/dir from the current diag path setting; keep the
    daily rotation retention (or reconcile it with per-boot files); consider a small
    cleanup so old per-boot logs don't accumulate unbounded.
+
+## Device alarm / event history (spotted 2026-07-20 log)
+
+8. **Alarms / events feed** — the controller reports an event history the integration
+   doesn't consume yet. Seen as two top-level blocks in a getConfigFile/status frame:
+   ```
+   "count": 1
+   "list": [{"id": 386, "epoch": 1784571720, "devType": 8, "alarmType": 2}]
+   ```
+   Each entry looks like one alarm/event: `id`, `epoch` (unix time), `devType` (which
+   accessory), and `alarmType` (what happened). The alarm *thresholds* are already in the
+   config (`alarm.temp/humi/co2/tempSoil/humiSoil/ECSoil/vpd/ppfd` with enabled/vmin/vmax),
+   so this `list` is the fired-alarm log. Candidate: a per-controller sensor exposing the
+   most recent event (state = time/type, attribute = the decoded list), and/or an HA event
+   fired on new entries so automations can react. Needs `devType`/`alarmType` enum decoding
+   from more captures (only devType 8 / alarmType 2 seen so far).

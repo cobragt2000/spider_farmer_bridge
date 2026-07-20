@@ -3,6 +3,20 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.6
+
+### Added
+- **Outlet "Time Slot" schedule editor.** On the tent card's Outlets tab, an outlet in
+  **Time Slot** mode now shows a full multi-slot, weekday-aware editor: add/remove up to 12
+  slots, each with a per-day picker and start/stop times, with Save/Discard. Previously only a
+  single slot with Daily/Custom was exposed.
+- **Full outlet Time Slot parse + write.** The integration decodes the complete outlet
+  `timePeriod` array (12 slots, weekday masks) onto a per-outlet `..._ts_schedule` sensor
+  (`periods` attribute), and a new service **`sf.set_outlet_schedule`** writes it back —
+  read-modify-write (the outlet's mode and other settings are preserved) and routed via the
+  host CB (`ps5`/`ps10`) for nested strips. This completes the long-parked "Time Slot Custom"
+  backlog item now that the weekmask bit order is confirmed (bit0=Sun … bit6=Sat).
+
 ## 3.19.5
 
 ### Added

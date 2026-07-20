@@ -82,6 +82,24 @@ def _decode_se_periods(tp: Any) -> list:
     return out
 
 
+def _decode_outlet_periods(tp: Any) -> list:
+    """Decode an outlet Time Slot timePeriod array (fixed 12 slots, on/off only,
+    no brightness) into the ENABLED periods the card edits:
+    {days:[0-6], start:"HH:MM", end:"HH:MM"}."""
+    out = []
+    if not isinstance(tp, list):
+        return out
+    for p in tp:
+        if not isinstance(p, dict) or not p.get("enabled"):
+            continue
+        out.append({
+            "days": _weekmask_to_days(p.get("weekmask", 127)),
+            "start": _sec_to_hhmm(p.get("startTime", 0)),
+            "end": _sec_to_hhmm(p.get("endTime", 0)),
+        })
+    return out
+
+
 def _alarm(block: dict) -> bool:
     try:
         return bool(int(block.get("alarm", 0) or 0))
@@ -430,16 +448,19 @@ def normalize_outlet_config(mac: str, block: Dict[str, Any]) -> Dict[str, str]:
             if "times" in ct:
                 out[f"{base}_cycle_times/state"] = str(int(ct["times"]))
         tp = o.get("timePeriod")
-        if isinstance(tp, list) and tp and isinstance(tp[0], dict):
-            t0 = tp[0]
-            if "startTime" in t0:
-                out[f"{base}_ts_start/state"] = _sec_to_hhmm(t0["startTime"])
-            if "endTime" in t0:
-                out[f"{base}_ts_stop/state"] = _sec_to_hhmm(t0["endTime"])
-            if "weekmask" in t0:
-                out[f"{base}_ts_type/state"] = (
-                    "Daily" if int(t0["weekmask"]) == 127 else "Custom"
-                )
+        if isinstance(tp, list):
+            # Full multi-slot Time Slot schedule for the card editor.
+            out[f"{base}_ts_schedule/state"] = json.dumps(_decode_outlet_periods(tp))
+            if tp and isinstance(tp[0], dict):
+                t0 = tp[0]
+                if "startTime" in t0:
+                    out[f"{base}_ts_start/state"] = _sec_to_hhmm(t0["startTime"])
+                if "endTime" in t0:
+                    out[f"{base}_ts_stop/state"] = _sec_to_hhmm(t0["endTime"])
+                if "weekmask" in t0:
+                    out[f"{base}_ts_type/state"] = (
+                        "Daily" if int(t0["weekmask"]) == 127 else "Custom"
+                    )
     return out
 
 

@@ -214,7 +214,8 @@ The main card (`custom:spider-farmer-card`) is a single tabbed card:
 - **Environment** — day/night targets and dead zones for Temp, Humidity, and
   CO2, plus the day-cycle start/stop times.
 - **Outlets** — per-outlet mode configuration for the strips nested under this
-  panel.
+  panel. An outlet in **Time Slot** mode gets a full multi-slot, weekday-aware
+  schedule editor (add/remove up to 12 slots, per-day picker, start/stop times).
 - **Calibration** — editable sensor calibration mirroring the SF app: air
   offsets (Air Temp, Humidity, PPFD, CO2) and per-probe soil offsets (Temp,
   Moisture, EC) plus a substrate-type picker on Pro probes. Editing a value

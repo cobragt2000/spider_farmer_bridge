@@ -25,3 +25,29 @@ set_se_schedule:
         "end": "20:00", "brightness": 50, "fade": 15}]
       selector:
         object:
+
+set_outlet_schedule:
+  name: Set outlet Time Slot schedule
+  description: >-
+    Write an outlet's Time Slot schedule (up to 12 weekday-aware on/off slots)
+    to a Spider Farmer power strip / display panel. Used by the tent card's
+    Outlets tab; can also be called from automations.
+  fields:
+    entity_id:
+      name: Outlet
+      description: Any entity of the outlet to schedule (e.g. its switch or mode).
+      required: true
+      selector:
+        entity:
+          integration: sf
+    periods:
+      name: Slots
+      description: >-
+        List of up to 12 time slots. Each is a mapping with keys: days (list of
+        0-6, 0=Sunday), start ("HH:MM"), end ("HH:MM").
+      required: true
+      example: >-
+        [{"days": [1, 3, 5], "start": "08:00", "end": "20:00"}]
+      selector:
+        object:
+

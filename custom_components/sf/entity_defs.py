@@ -578,6 +578,10 @@ def build_outlet_mode_config(mac_raw, n, slot, device_name, device_model, mode,
               options=["Daily", "Custom"], icon="mdi:calendar-clock"),
             e("text", "ts_start", "Start", icon="mdi:clock-start"),
             e("text", "ts_stop", "Stop", icon="mdi:clock-end"),
+            # Full multi-slot, weekday-aware schedule (state = slot count,
+            # attribute "periods" = the decoded list the card edits).
+            e("sensor", "ts_schedule", "Schedule", kind="schedule",
+              icon="mdi:calendar-clock", entity_category="diagnostic"),
         ]
     if mode == "Cycle":
         return [

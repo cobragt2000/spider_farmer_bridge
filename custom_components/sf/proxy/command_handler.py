@@ -331,6 +331,35 @@ def build_se_schedule(mac, uid, periods, se_config):
     return _flat("setConfigFile", {"configFile": {"light": block}}, mac, uid)
 
 
+def build_outlet_schedule(mac, uid, n, block, periods, outlet_cfg):
+    """Build a setConfigField write for an outlet's Time Slot schedule — a
+    fixed 12-slot, weekday-aware timePeriod array (on/off only, no brightness).
+    Read-modify-write: the outlet's other settings (mode, device dropdowns,
+    cycleTime …) are preserved. ``block`` is the routing block (ps5/ps10 for a
+    CB-hosted strip, else "outlet")."""
+    ok = f"O{n}"
+    obj = copy.deepcopy(outlet_cfg) if isinstance(outlet_cfg, dict) and outlet_cfg \
+        else copy.deepcopy(_OUTLET_DEFAULT)
+    obj.pop("on", None)
+    tp = []
+    for p in (periods or [])[:12]:
+        if not isinstance(p, dict):
+            continue
+        tp.append({
+            "enabled": 1,
+            "weekmask": _days_to_weekmask(p.get("days")),
+            "startTime": _hhmm_to_seconds(p.get("start", "00:00")),
+            "endTime": _hhmm_to_seconds(p.get("end", "00:00")),
+        })
+    while len(tp) < 12:            # device keeps a fixed 12-slot array
+        tp.append({"enabled": 0, "weekmask": 127})
+    obj["timePeriod"] = tp
+    obj["modeType"] = 1           # Time Slot
+    return {"method": "setConfigField", "pid": mac,
+            "params": {"keyPath": ["device", block, ok], ok: obj},
+            "msgId": _msg_id(), "uid": uid}
+
+
 def _cmd_se_mode(mac, uid, value):
     mode = {"manual": 0, "automatic": 1, "0": 0, "1": 1}.get(
         str(value).strip().lower()

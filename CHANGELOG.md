@@ -3,6 +3,28 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.5
+
+### Added
+- **New `custom:spider-light-card`** for SE-series lights. A dedicated card that mirrors the
+  SF app's light screen: a circular brightness dial with an on/off toggle, a brightness
+  slider, a Manual / Automatic mode selector, and — in Automatic — a full **multi-period,
+  weekday-aware schedule editor**: add/remove time periods, per-period day pickers, start/stop
+  times, brightness, and sunrise/sunset fade, with Save/Discard. Add it with
+  `type: custom:spider-light-card` and `light: se1` (the SE light's slot). It's bundled in the
+  same resource as the tent card, so no extra setup.
+- **Full SE-light schedule support.** The integration now parses the controller's complete
+  `timePeriod` array (multiple periods, each with a weekday mask) and exposes it on a new
+  `sensor.sf_se1_schedule` (period count as state, decoded `periods` as an attribute). A new
+  service **`sf.set_se_schedule`** writes the whole schedule back (used by the card; also
+  callable from automations). Weekmask decoding was confirmed from device logs
+  (bit0=Sun … bit6=Sat).
+- **VPD range on the card's Environment tab.** A read-only **VPD kPa** section at the bottom
+  mirrors the SF app: Daytime and Nighttime target ranges computed from each period's
+  temperature and humidity targets and their dead zones (the range spans the hottest/driest
+  to the coolest/wettest corner of the dead band). Updates live as you edit the setpoints.
+  (Bundled card v0.10.1.)
+
 ## 3.19.4
 
 ### Added

@@ -30,7 +30,10 @@ async def async_setup_entry(
 
     @callback
     def _add(defs: list[SfDef]) -> None:
-        async_add_entities(SfSensor(bus, d) for d in defs)
+        async_add_entities(
+            SfScheduleSensor(bus, d) if d.kind == "schedule" else SfSensor(bus, d)
+            for d in defs
+        )
 
     entry.async_on_unload(
         async_dispatcher_connect(hass, SIGNAL_NEW_FMT.format(PLATFORM), _add)
@@ -113,3 +116,25 @@ class SfSensor(SfEntity, SensorEntity):
                 )
                 return
             self._attr_native_value = payload
+
+
+class SfScheduleSensor(SfSensor):
+    """SE-light schedule: state is the period count; the decoded period array
+    (days/start/end/brightness/fade) is exposed as the ``periods`` attribute
+    for the light card to read and edit."""
+
+    @callback
+    def _handle_payload(self, topic: str, payload: str) -> None:
+        import json
+        try:
+            periods = json.loads(payload) if payload else []
+        except (ValueError, TypeError):
+            periods = []
+        if not isinstance(periods, list):
+            periods = []
+        n = len(periods)
+        self._attr_native_value = f"{n} period{'' if n == 1 else 's'}"
+        self._attr_extra_state_attributes = {
+            **(self._attr_extra_state_attributes or {}),
+            "periods": periods,
+        }

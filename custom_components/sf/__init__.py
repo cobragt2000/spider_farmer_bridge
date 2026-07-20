@@ -5,8 +5,10 @@ import asyncio
 import logging
 import ssl
 
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import config_validation as cv
 
 from .bus import SfBus
 from .diag import DIAG
@@ -113,6 +115,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # ── Platforms first, so entity listeners exist before any device data ──
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    _async_register_services(hass)
 
     # v3.9.0: with keep-offline on, resurrect entity objects for everything
     # already in the registry, so powered-off gear survives the restart
@@ -451,6 +455,46 @@ def _migrate_cal_to_editable(hass: HomeAssistant, entry: ConfigEntry) -> None:
         _LOGGER.info(
             "Removed %d read-only calibration sensor(s) now replaced by "
             "editable number/select entities", removed)
+
+
+_SET_SE_SCHEDULE_SCHEMA = vol.Schema({
+    vol.Required("entity_id"): cv.entity_ids,
+    vol.Required("periods"): [dict],
+})
+
+
+def _async_register_services(hass: HomeAssistant) -> None:
+    """Register sf.set_se_schedule (once) — writes an SE light's full
+    multi-period, weekday-aware schedule from the light card."""
+    if hass.services.has_service(DOMAIN, "set_se_schedule"):
+        return
+
+    async def _set_se_schedule(call: ServiceCall) -> None:
+        from homeassistant.helpers import entity_registry as er
+        periods = call.data.get("periods") or []
+        ent_reg = er.async_get(hass)
+        for eid in call.data.get("entity_id", []):
+            ent = ent_reg.async_get(eid)
+            uid = ent.unique_id if ent else ""
+            if not uid or not uid.startswith("ggs_"):
+                _LOGGER.warning(
+                    "set_se_schedule: %s is not a Spider Farmer entity", eid)
+                continue
+            mac = uid[4:].split("_", 1)[0]
+            data = hass.data.get(DOMAIN, {}).get(ent.config_entry_id)
+            proxy = data.get(DATA_PROXY) if isinstance(data, dict) else None
+            if proxy is None:  # fall back to any active proxy
+                for d in hass.data.get(DOMAIN, {}).values():
+                    if isinstance(d, dict) and d.get(DATA_PROXY):
+                        proxy = d[DATA_PROXY]
+                        break
+            if proxy is not None:
+                await proxy.write_se_schedule(mac, periods)
+
+    hass.services.async_register(
+        DOMAIN, "set_se_schedule", _set_se_schedule,
+        schema=_SET_SE_SCHEDULE_SCHEMA,
+    )
 
 
 def _integration_version() -> str:

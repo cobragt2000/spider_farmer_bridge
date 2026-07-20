@@ -284,6 +284,53 @@ def _cmd_se_light(mac, uid, value, subfield, se_config):
     return None
 
 
+# day index (0=Sun … 6=Sat) -> weekmask bit (confirmed from app logs).
+def _days_to_weekmask(days) -> int:
+    wm = 0
+    for d in days or []:
+        try:
+            i = int(d)
+        except (ValueError, TypeError):
+            continue
+        if 0 <= i <= 6:
+            wm |= 1 << i
+    return wm or 127   # no days -> every day, so the period isn't a no-op
+
+
+def build_se_schedule(mac, uid, periods, se_config):
+    """Build a setConfigFile write for the SE light's FULL timePeriod array
+    from the card's decoded period dicts
+    ({enabled, days:[0-6], start:"HH:MM", end:"HH:MM", brightness, fade(min)}).
+    Preserves label/scroff/modeType from the cached config."""
+    if not isinstance(periods, list) or not periods:
+        return None
+    block = copy.deepcopy(se_config) if isinstance(se_config, dict) and se_config \
+        else copy.deepcopy(_SE_DEFAULT_CONFIG)
+    tp = []
+    for p in periods:
+        if not isinstance(p, dict):
+            continue
+        bri = _light_pct(p.get("brightness", 50))
+        if bri is None:
+            bri = 50
+        try:
+            fade = max(0, min(30, int(float(p.get("fade", 0))))) * 60
+        except (ValueError, TypeError):
+            fade = 0
+        tp.append({
+            "enabled": 1 if p.get("enabled", 1) else 0,
+            "weekmask": _days_to_weekmask(p.get("days")),
+            "startTime": _hhmm_to_seconds(p.get("start", "00:00")),
+            "endTime": _hhmm_to_seconds(p.get("end", "00:00")),
+            "brightness": bri,
+            "fadeTime": fade,
+        })
+    if not tp:
+        return None
+    block["timePeriod"] = tp
+    return _flat("setConfigFile", {"configFile": {"light": block}}, mac, uid)
+
+
 def _cmd_se_mode(mac, uid, value):
     mode = {"manual": 0, "automatic": 1, "0": 0, "1": 1}.get(
         str(value).strip().lower()

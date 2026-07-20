@@ -196,9 +196,11 @@ Farmer dashboard card** and the integration serves and auto-registers them — n
 HACS install and no manual Lovelace resource entry. Unchecking it removes them
 from the frontend (the change applies live; refresh the browser to pick it up).
 The served URLs carry the integration version, so browsers refetch the cards on
-each release automatically. Two cards are bundled:
+each release automatically. Three cards are bundled:
 
 - **`custom:spider-farmer-card`** — the main tent card (below).
+- **`custom:spider-light-card`** — a control card for an SE-series light
+  (below).
 - **`custom:ppfd-3d-card`** — a 3D PPFD visualizer for Spider Farmer SE4500 /
   SF2000 grow lights. Configure it per its own options (`light_model`,
   `entities`).
@@ -260,6 +262,25 @@ The `custom:ppfd-3d-card` 3D PPFD visualizer for SE4500 / SF2000 grow lights:
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/ppfd_se4500.png" width="330" alt="PPFD 3D visualizer — SE4500" />
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/ppfd_sf2000.png" width="330" alt="PPFD 3D visualizer — SF2000" />
 </p>
+
+### SE-series light card
+
+`custom:spider-light-card` mirrors the SF app's light screen for an SE-series
+light: a circular brightness dial with an on/off toggle, a brightness slider, a
+Manual / Automatic mode selector, and — in Automatic — a full multi-period,
+weekday-aware **schedule editor**. Add or remove time periods; each has a per-day
+picker, start/stop times, brightness, and sunrise/sunset fade. Changes are staged
+and written together with **Save** (or **Discard**).
+
+```yaml
+type: custom:spider-light-card
+light: se1          # the SE light's slot (sf_se1_*); defaults to the first found
+title: Grow Light   # optional
+```
+
+The schedule is exposed on `sensor.sf_se1_schedule` (period count as state, the
+decoded `periods` list as an attribute) and written back with the
+`sf.set_se_schedule` service, so you can also drive it from automations.
 
 ## Entity ID scheme
 

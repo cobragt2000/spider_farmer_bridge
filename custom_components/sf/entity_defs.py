@@ -376,6 +376,10 @@ def build_device_entities(
             d("sensor", "se_mode", "Mode", icon="mdi:cog"),
             d("binary_sensor", "se_active", "Active",
               icon="mdi:lightbulb-on"),
+            # Full multi-period schedule (state = period count, attribute
+            # "periods" = the decoded array the light card reads/edits).
+            d("sensor", "se_schedule", "Schedule", kind="schedule",
+              icon="mdi:calendar-clock", entity_category="diagnostic"),
         ]
 
     return defs

@@ -44,6 +44,44 @@ def _sec_to_hhmm(sec: Any) -> str:
     return f"{sec // 3600:02d}:{(sec % 3600) // 60:02d}"
 
 
+# weekmask bit -> day: bit0=Sun, bit1=Mon, … bit6=Sat (confirmed from app logs:
+# Mon/Wed/Fri = 42 = bits 1,3,5; Sun/Tue/Thu/Sat = 85 = bits 0,2,4,6).
+def _weekmask_to_days(wm: Any) -> list:
+    try:
+        wm = int(wm)
+    except (ValueError, TypeError):
+        wm = 127
+    return [i for i in range(7) if wm & (1 << i)]
+
+
+def _decode_se_periods(tp: Any) -> list:
+    """Decode an SE-light timePeriod array into card-friendly period dicts:
+    {enabled, days:[0-6], start:"HH:MM", end:"HH:MM", brightness, fade(min)}."""
+    out = []
+    if not isinstance(tp, list):
+        return out
+    for p in tp:
+        if not isinstance(p, dict):
+            continue
+        try:
+            bri = max(0, min(100, int(p.get("brightness", 0))))
+        except (ValueError, TypeError):
+            bri = 0
+        try:
+            fade = max(0, int(p.get("fadeTime", 0)) // 60)
+        except (ValueError, TypeError):
+            fade = 0
+        out.append({
+            "enabled": 1 if p.get("enabled", 1) else 0,
+            "days": _weekmask_to_days(p.get("weekmask", 127)),
+            "start": _sec_to_hhmm(p.get("startTime", 0)),
+            "end": _sec_to_hhmm(p.get("endTime", 0)),
+            "brightness": bri,
+            "fade": fade,
+        })
+    return out
+
+
 def _alarm(block: dict) -> bool:
     try:
         return bool(int(block.get("alarm", 0) or 0))
@@ -294,6 +332,8 @@ def normalize_se_configfile(mac: str, light_cfg: Dict[str, Any]) -> Dict[str, st
     e = _mac(mac)
     out: Dict[str, str] = {}
     tp = light_cfg.get("timePeriod") or [{}]
+    # Full multi-period schedule (weekday-aware) for the light card.
+    out[f"ggs/ha/{e}/se_schedule/state"] = json.dumps(_decode_se_periods(tp))
     tp0 = tp[0] if isinstance(tp, list) and tp else {}
     if not isinstance(tp0, dict):
         return out

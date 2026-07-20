@@ -543,6 +543,22 @@ class MITMProxy:
         if payload:
             await cmd_sess.inject(payload)
 
+    async def write_se_schedule(self, mac: str, periods: list) -> bool:
+        """Write the full SE-light schedule (multiple weekday-aware periods)
+        via setConfigFile. Returns False if the device has no live session."""
+        sess = self._sessions.get(_mac(mac))
+        if sess is None:
+            _LOGGER.warning("set_se_schedule: no active session for mac=%s", mac)
+            return False
+        from .command_handler import build_se_schedule
+        payload = build_se_schedule(sess.mac_raw, sess.uid, periods, sess.se_config)
+        if not payload:
+            _LOGGER.warning("set_se_schedule: nothing to write for mac=%s", mac)
+            return False
+        await sess.inject(payload)
+        _LOGGER.info("set_se_schedule: wrote %d period(s) to %s", len(periods), mac)
+        return True
+
     def close_session(self, mac: str) -> bool:
         """Sever one device's connection (used by device deletion). The
         device will reconnect and re-register unless it's powered off."""

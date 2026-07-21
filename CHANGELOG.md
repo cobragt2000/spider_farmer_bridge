@@ -3,6 +3,16 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.13
+
+### Fixed
+- **Duplicate control in expanded device tiles.** A Fan/Blower tile showed both the pop's
+  Speed slider and a second "Fan Speed" number (they're the same control). The de-dup check
+  was matching the wrong entity_id (`…_gear_set` vs the name-slugged `…_fan_speed`); it now
+  excludes the speed number correctly. Also strips the device-name prefix from the remaining
+  labels, so they read "Fan Oscillation" / "Heater Level" instead of
+  "SF Display Panel XXXX Fan Oscillation". (Bundled card v0.15.1.)
+
 ## 3.19.12
 
 ### Added

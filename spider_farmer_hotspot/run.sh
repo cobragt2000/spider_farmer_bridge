@@ -13,6 +13,7 @@
 #   auto    - nmcli if a running NetworkManager is reachable, else hostapd.
 set -uo pipefail
 
+ADDON_VERSION="0.3.2"
 OPTIONS=/data/options.json
 NM_CON="SF-Bridge-Hotspot"
 DNSMASQ_PID=""
@@ -23,6 +24,8 @@ CHOSEN_IFACE=""
 # Logs go to stderr so command substitution never captures them by accident.
 log() { echo "[sf-hotspot] $*" >&2; }
 get() { jq -r "$1" "$OPTIONS"; }
+
+log "Spider Farmer Hotspot add-on v${ADDON_VERSION} starting"
 
 ENABLED=$(get '.hotspot_enabled')
 AP_BACKEND=$(get '.ap_backend')

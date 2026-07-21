@@ -8,13 +8,9 @@
 # host's wired uplink, so the phone app keeps working.
 #
 # Two AP backends:
-#   nmcli   - NetworkManager creates the AP connection. Coexists cleanly with
-#             Home Assistant OS (which uses NM), so it won't fight over the
-#             radio. NM sets a static IP only; our dnsmasq still does DHCP + the
-#             DNS override. Preferred on HAOS.
-#   hostapd - raw hostapd owns the radio directly. Use when NM isn't present or
-#             isn't managing the interface.
-#   auto    - use nmcli if a running NetworkManager is reachable, else hostapd.
+#   nmcli   - NetworkManager creates the AP connection. Coexists with HAOS.
+#   hostapd - raw hostapd owns the radio directly.
+#   auto    - nmcli if a running NetworkManager is reachable, else hostapd.
 set -uo pipefail
 
 OPTIONS=/data/options.json
@@ -22,8 +18,10 @@ NM_CON="SF-Bridge-Hotspot"
 DNSMASQ_PID=""
 HOSTAPD_PID=""
 BACKEND=""
+CHOSEN_IFACE=""
 
-log() { echo "[sf-hotspot] $*"; }
+# Logs go to stderr so command substitution never captures them by accident.
+log() { echo "[sf-hotspot] $*" >&2; }
 get() { jq -r "$1" "$OPTIONS"; }
 
 ENABLED=$(get '.hotspot_enabled')
@@ -37,8 +35,6 @@ DNS_TARGET=$(get '.dns_target')
 COUNTRY=$(get '.country_code')
 UNMANAGE=$(get '.unmanage_via_nmcli')
 
-# dns_target defaults to the hotspot gateway IP (this host on the AP iface),
-# which is where the sf integration's proxy listens.
 if [ -z "${DNS_TARGET}" ] || [ "${DNS_TARGET}" = "null" ]; then
   DNS_TARGET="${HOTSPOT_IP}"
 fi
@@ -48,11 +44,67 @@ if [ "${ENABLED}" != "true" ]; then
   exec sleep infinity
 fi
 
+# --- wireless interface detection ---------------------------------------
+# Names of all wireless interfaces (from sysfs; works in host_network mode).
+list_wifi_ifaces() {
+  local p ifc
+  for p in /sys/class/net/*/wireless; do
+    [ -e "${p}" ] || continue
+    ifc=$(basename "$(dirname "${p}")")
+    echo "${ifc}"
+  done
+}
+
+# True if the interface's radio advertises AP mode.
+iface_ap_capable() {
+  local ifc="$1" phy
+  phy=$(iw dev "${ifc}" info 2>/dev/null | sed -n 's/.*wiphy \([0-9]\+\).*/\1/p')
+  [ -n "${phy}" ] || return 1
+  iw phy "phy${phy}" info 2>/dev/null \
+    | grep -A 40 "Supported interface modes" | grep -qw "AP"
+}
+
+# Sets CHOSEN_IFACE to the first AP-capable card (or first wireless card),
+# and logs every candidate so the user can pick from the dropdown if needed.
+detect_interface() {
+  CHOSEN_IFACE=""
+  local cands ifc report=""
+  cands=$(list_wifi_ifaces)
+  [ -z "${cands}" ] && return 1
+  for ifc in ${cands}; do
+    if iface_ap_capable "${ifc}"; then
+      report="${report} ${ifc}(AP-capable)"
+      [ -z "${CHOSEN_IFACE}" ] && CHOSEN_IFACE="${ifc}"
+    else
+      report="${report} ${ifc}(no-AP?)"
+    fi
+  done
+  log "detected wireless interfaces:${report}"
+  # If capability probing found nothing (some drivers hide modes), fall back
+  # to the first wireless interface.
+  [ -z "${CHOSEN_IFACE}" ] && CHOSEN_IFACE="${cands%%$'\n'*}"
+  return 0
+}
+
+if [ "${IFACE}" = "auto" ] || [ -z "${IFACE}" ] || [ "${IFACE}" = "null" ]; then
+  if ! detect_interface || [ -z "${CHOSEN_IFACE}" ]; then
+    log "ERROR: no wireless interface detected. Set 'wifi_interface' explicitly."
+    log "All interfaces:"; ip -o link show | awk -F': ' '{print "  " $2}' >&2
+    exec sleep infinity
+  fi
+  IFACE="${CHOSEN_IFACE}"
+  log "auto-selected wifi_interface=${IFACE}"
+else
+  # Log what's available anyway, so the log confirms the chosen name exists.
+  detect_interface || true
+  log "using configured wifi_interface=${IFACE}"
+fi
+
 # --- sanity checks -------------------------------------------------------
 if ! ip link show "${IFACE}" >/dev/null 2>&1; then
   log "ERROR: interface '${IFACE}' not found. Available interfaces:"
-  ip -o link show | awk -F': ' '{print "  " $2}'
-  log "Set 'wifi_interface' to the radio you want to dedicate to the AP."
+  ip -o link show | awk -F': ' '{print "  " $2}' >&2
+  log "Set 'wifi_interface' to one of the detected wireless cards above."
   exec sleep infinity
 fi
 if [ "${PASSWORD}" = "changeme123" ]; then
@@ -63,7 +115,6 @@ if [ "${#PASSWORD}" -lt 8 ]; then
   exec sleep infinity
 fi
 
-# Derive the /24 the hotspot serves from hotspot_ip (e.g. 192.168.10.1 -> 192.168.10).
 PREFIX="${HOTSPOT_IP%.*}"
 DHCP_START="${PREFIX}.10"
 DHCP_END="${PREFIX}.100"
@@ -77,11 +128,10 @@ nm_running() {
 case "${AP_BACKEND}" in
   nmcli)   BACKEND="nmcli" ;;
   hostapd) BACKEND="hostapd" ;;
-  auto|*)
-    if nm_running; then BACKEND="nmcli"; else BACKEND="hostapd"; fi ;;
+  auto|*)  if nm_running; then BACKEND="nmcli"; else BACKEND="hostapd"; fi ;;
 esac
 if [ "${BACKEND}" = "nmcli" ] && ! nm_running; then
-  log "ap_backend=nmcli but no running NetworkManager reachable - falling back to hostapd."
+  log "ap_backend=nmcli but no running NetworkManager - falling back to hostapd."
   BACKEND="hostapd"
 fi
 
@@ -91,9 +141,6 @@ log "DNS: sf.mqtt.spider-farmer.com -> ${DNS_TARGET}"
 # --- dnsmasq config (used by BOTH backends) ------------------------------
 DNSMASQ_CONF=/tmp/dnsmasq.conf
 cat > "${DNSMASQ_CONF}" <<DNSM
-# Serve DHCP/DNS ONLY on the hotspot interface so the host's own upstream
-# lookups (over the wired uplink) are never affected - this prevents a relay
-# loop where the proxy would resolve the cloud host back to itself.
 interface=${IFACE}
 bind-interfaces
 except-interface=lo
@@ -103,7 +150,6 @@ server=8.8.8.8
 dhcp-range=${DHCP_START},${DHCP_END},${NETMASK},12h
 dhcp-option=3,${HOTSPOT_IP}
 dhcp-option=6,${HOTSPOT_IP}
-# The redirect: point the GGS cloud endpoint at the local proxy.
 address=/sf.mqtt.spider-farmer.com/${DNS_TARGET}
 DNSM
 
@@ -141,31 +187,31 @@ start_nmcli() {
   nmcli con down "${NM_CON}" 2>/dev/null || true
   nmcli con delete "${NM_CON}" 2>/dev/null || true
 
-  if ! nmcli con add type wifi ifname "${IFACE}" con-name "${NM_CON}" \
-        ssid "${SSID}" 2>&1; then
-    log "ERROR: could not create NM connection."
+  # Create the whole AP connection in ONE 'con add' so 802-11-wireless.mode=ap
+  # is set at creation time. (If mode were applied by a later 'modify' that
+  # failed, NM would activate the radio in client mode and report
+  # "Wi-Fi network could not be found".) No per-connection country property -
+  # that is a system-wide regulatory setting, not an NM connection property,
+  # and including it silently poisons the whole command.
+  local out
+  if ! out=$(nmcli con add type wifi ifname "${IFACE}" con-name "${NM_CON}" \
+        autoconnect yes ssid "${SSID}" \
+        802-11-wireless.mode ap \
+        802-11-wireless.band bg \
+        802-11-wireless.channel "${CHANNEL}" \
+        wifi-sec.key-mgmt wpa-psk \
+        wifi-sec.psk "${PASSWORD}" \
+        ipv4.method manual \
+        ipv4.addresses "${HOTSPOT_IP}/24" \
+        ipv6.method ignore 2>&1); then
+    log "ERROR creating NM AP connection: ${out}"
     return 1
   fi
-  # mode ap + static IP only; DHCP/DNS handled by our dnsmasq (NOT ipv4 shared,
-  # which would start NM's own dnsmasq and clobber the DNS override).
-  nmcli con modify "${NM_CON}" \
-    802-11-wireless.mode ap \
-    802-11-wireless.band bg \
-    802-11-wireless.channel "${CHANNEL}" \
-    wifi-sec.key-mgmt wpa-psk \
-    wifi-sec.psk "${PASSWORD}" \
-    802-11-wireless.country "${COUNTRY}" 2>/dev/null || true
-  nmcli con modify "${NM_CON}" \
-    ipv4.method manual \
-    ipv4.addresses "${HOTSPOT_IP}/24" \
-    ipv6.method ignore \
-    connection.autoconnect yes
 
-  if ! nmcli con up "${NM_CON}" 2>&1; then
-    log "ERROR: failed to bring up the NM AP connection."
+  if ! out=$(nmcli con up "${NM_CON}" 2>&1); then
+    log "ERROR bringing up NM AP connection: ${out}"
     return 1
   fi
-  # give NM a moment to assign the IP before dnsmasq binds the interface
   sleep 2
   start_dnsmasq || return 1
   log "NetworkManager AP '${SSID}' is up."
@@ -178,12 +224,18 @@ start_hostapd() {
     nmcli dev set "${IFACE}" managed no 2>/dev/null || true
   fi
 
+  # Best effort: clear any rfkill soft-block and set the regulatory domain so
+  # the chosen channel is permitted (fixes "channel is disabled").
+  command -v rfkill >/dev/null 2>&1 && rfkill unblock all 2>/dev/null || true
+  iw reg set "${COUNTRY}" 2>/dev/null || true
+
   HOSTAPD_CONF=/tmp/hostapd.conf
   cat > "${HOSTAPD_CONF}" <<HAPD
 interface=${IFACE}
 driver=nl80211
 ssid=${SSID}
 country_code=${COUNTRY}
+ieee80211d=1
 hw_mode=g
 channel=${CHANNEL}
 ieee80211n=1
@@ -194,16 +246,13 @@ wpa_passphrase=${PASSWORD}
 wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
 HAPD
-
   log "Configuring ${IFACE}..."
   ip link set "${IFACE}" down || true
   pkill -f "wpa_supplicant.*${IFACE}" 2>/dev/null || true
   ip addr flush dev "${IFACE}" || true
   ip link set "${IFACE}" up
   ip addr add "${HOTSPOT_IP}/24" dev "${IFACE}"
-
   start_dnsmasq || return 1
-
   log "Starting hostapd..."
   hostapd "${HOSTAPD_CONF}" &
   HOSTAPD_PID=$!
@@ -228,8 +277,6 @@ else
 fi
 
 log "Hotspot running. Waiting on services..."
-# Block on whichever long-lived services we started; if one dies, exit so
-# Supervisor restarts the add-on (cleanup runs via trap).
 while true; do
   [ -n "${DNSMASQ_PID}" ] && ! kill -0 "${DNSMASQ_PID}" 2>/dev/null && { log "dnsmasq exited."; break; }
   [ -n "${HOSTAPD_PID}" ] && ! kill -0 "${HOSTAPD_PID}" 2>/dev/null && { log "hostapd exited."; break; }

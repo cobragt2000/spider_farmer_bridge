@@ -11,6 +11,7 @@ RUN apk add --no-cache \
     dnsmasq \
     networkmanager-cli \
     iw \
+    rfkill \
     iproute2 \
     wireless-tools \
     jq

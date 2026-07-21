@@ -60,13 +60,30 @@ On Home Assistant OS the built-in NetworkManager manages Wi-Fi, so `nmcli` (via
 `auto`) is usually the smoother choice. `host_dbus` is enabled so `nmcli` inside
 the add-on can reach the host's NetworkManager.
 
+## Choosing the Wi-Fi interface
+
+Home Assistant add-on option pages are static, so they can't show a live list of
+your Wi-Fi cards. Instead, leave `wifi_interface` on **`auto`** (the default) and
+the add-on detects wireless interfaces at startup, prefers one that advertises
+**AP mode**, and uses it. The add-on log prints every card it found, e.g.:
+
+```
+[sf-hotspot] detected wireless interfaces: wlan0(AP-capable) wlan1(AP-capable)
+[sf-hotspot] auto-selected wifi_interface=wlan0
+```
+
+If `auto` picks the wrong radio (say it grabbed your LAN Wi-Fi), read that log
+line, then set `wifi_interface` to the correct name. The dropdown offers the
+common names `wlan0`/`wlan1`/`wlan2`; USB dongles with unusual names are still
+handled by `auto` (the log shows the exact name to type if you need to override).
+
 ## Configuration
 
 | Option | Default | Notes |
 |---|---|---|
 | `hotspot_enabled` | `true` | Master switch. |
 | `ap_backend` | `auto` | `auto` / `nmcli` / `hostapd` (see above). |
-| `wifi_interface` | `wlan0` | The radio dedicated to the AP. |
+| `wifi_interface` | `auto` | Radio dedicated to the AP. `auto` detects it; or pick `wlan0`/`wlan1`/`wlan2`. See below. |
 | `ssid` | `SF-Bridge` | Hotspot network name. |
 | `password` | `changeme123` | WPA2 password, min 8 chars. **Change this.** |
 | `channel` | `6` | 2.4 GHz channel (1-13). |
@@ -96,6 +113,16 @@ the add-on can reach the host's NetworkManager.
   set `unmanage_via_nmcli: true`.
 - **nmcli backend fails** - the add-on automatically retries with hostapd; check
   the log. Ensure `host_dbus` is available (it's set in the add-on config).
+- **nmcli: "Wi-Fi network could not be found"** - NM tried client mode instead
+  of AP mode. Fixed in 0.3.1 (the AP mode is now set when the connection is
+  created). If you still see it, a version skew between the add-on's `nmcli` and
+  the host NetworkManager can be the cause - the log prints both versions; a
+  Supervisor/host reboot re-syncs them.
+- **hostapd: "channel is disabled" / rfkill** - the container couldn't set the
+  regulatory domain or was rf-blocked. 0.3.1 runs `rfkill unblock` and
+  `iw reg set <country>` first, but the reliable path on HAOS is
+  `ap_backend: nmcli` (the default via `auto`), which lets the host handle
+  regulatory rules. Also confirm `country_code` matches your region.
 - **`dnsmasq failed to start` / port 53 in use** - another DNS service holds
   port 53. dnsmasq here binds only to the hotspot interface; if a host-wide DNS
   is bound to `0.0.0.0:53` there may be a conflict - see the log.

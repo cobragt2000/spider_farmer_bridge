@@ -13,13 +13,14 @@
 #   auto    - nmcli if a running NetworkManager is reachable, else hostapd.
 set -uo pipefail
 
-ADDON_VERSION="0.5.2"
+ADDON_VERSION="0.5.4"
 OPTIONS=/data/options.json
 NM_CON="SF-Bridge-Hotspot"
 DNSMASQ_PID=""
 HOSTAPD_PID=""
 STATUS_PID=""
 PORT_RULE_ADDED=""
+INET_RULES_ADDED=""
 BACKEND=""
 CHOSEN_IFACE=""
 
@@ -43,6 +44,14 @@ SECURITY=$(get '.security')
 DNS_LOGGING=$(get '.dns_logging')
 PROXY_PORT=$(get '.proxy_port')
 [ -z "${PROXY_PORT}" ] || [ "${PROXY_PORT}" = "null" ] && PROXY_PORT=8883
+INTERNET_ACCESS=$(get '.internet_access')
+
+# Prefer the nft-backed iptables: HAOS processes nftables, so rules added with
+# the legacy backend land in a table the kernel never evaluates (they "succeed"
+# but match 0 packets). iptables-nft writes to the ruleset the kernel uses.
+IPT=iptables
+command -v iptables-nft >/dev/null 2>&1 && IPT=iptables-nft
+log "using iptables backend: ${IPT}"
 
 if [ -z "${DNS_TARGET}" ] || [ "${DNS_TARGET}" = "null" ]; then
   DNS_TARGET="${HOTSPOT_IP}"
@@ -225,8 +234,13 @@ cleanup() {
   log "Shutting down hotspot..."
   [ -n "${DNSMASQ_PID}" ] && kill "${DNSMASQ_PID}" 2>/dev/null || true
   [ -n "${STATUS_PID}" ] && kill "${STATUS_PID}" 2>/dev/null || true
-  [ -n "${PORT_RULE_ADDED}" ] && iptables -t nat -D PREROUTING -i "${IFACE}" \
+  [ -n "${PORT_RULE_ADDED}" ] && "${IPT}" -t nat -D PREROUTING -i "${IFACE}" \
     -p tcp --dport 8883 -j REDIRECT --to-ports "${PROXY_PORT}" 2>/dev/null || true
+  if [ -n "${INET_RULES_ADDED}" ]; then
+    "${IPT}" -t nat -D POSTROUTING -s "${PREFIX}.0/24" ! -o "${IFACE}" -j MASQUERADE 2>/dev/null || true
+    "${IPT}" -D FORWARD -i "${IFACE}" -s "${PREFIX}.0/24" -j ACCEPT 2>/dev/null || true
+    "${IPT}" -D FORWARD -d "${PREFIX}.0/24" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
+  fi
   [ -n "${HOSTAPD_PID}" ] && kill "${HOSTAPD_PID}" 2>/dev/null || true
   if [ "${BACKEND}" = "nmcli" ]; then
     nmcli con down "${NM_CON}" 2>/dev/null || true
@@ -369,12 +383,32 @@ else
   start_hostapd || { log "hostapd backend failed."; exec sleep infinity; }
 fi
 
+# Give the hotspot general internet (IP forward + NAT to the uplink), the same
+# as devices have on the normal LAN in the router-NAT method. Many controllers
+# won't attempt their cloud MQTT connection until they can reach the internet,
+# so an isolated hotspot leaves them "connected but offline". The :8883 redirect
+# below still intercepts the cloud connection to the local proxy regardless.
+if [ "${INTERNET_ACCESS}" = "true" ]; then
+  echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null || \
+    sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+  if command -v "${IPT}" >/dev/null 2>&1 \
+     && "${IPT}" -t nat -A POSTROUTING -s "${PREFIX}.0/24" ! -o "${IFACE}" -j MASQUERADE 2>/dev/null \
+     && "${IPT}" -A FORWARD -i "${IFACE}" -s "${PREFIX}.0/24" -j ACCEPT 2>/dev/null \
+     && "${IPT}" -A FORWARD -d "${PREFIX}.0/24" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null; then
+    INET_RULES_ADDED=1
+    log "internet access: NAT ${PREFIX}.0/24 -> uplink enabled."
+  else
+    log "WARNING: could not enable internet NAT for the hotspot. Devices that need"
+    log "internet before connecting to the cloud may stay offline."
+  fi
+fi
+
 # Devices always dial the cloud on tcp/8883. If the integration's proxy listens
 # on a different port (proxy_port), redirect the hotspot's inbound 8883 to it so
 # the device actually reaches the proxy. (Was handled by the router in the NAT
 # method; the host does it here.)
 if [ "${PROXY_PORT}" != "8883" ]; then
-  if command -v iptables >/dev/null 2>&1 && iptables -t nat -A PREROUTING \
+  if command -v "${IPT}" >/dev/null 2>&1 && "${IPT}" -t nat -A PREROUTING \
         -i "${IFACE}" -p tcp --dport 8883 -j REDIRECT --to-ports "${PROXY_PORT}" 2>/dev/null; then
     PORT_RULE_ADDED=1
     log "port redirect: ${IFACE} tcp/8883 -> local :${PROXY_PORT}"

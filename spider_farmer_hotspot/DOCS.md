@@ -90,6 +90,7 @@ handled by `auto` (the log shows the exact name to type if you need to override)
 | `channel` | `6` | 2.4 GHz channel (1-13). |
 | `hotspot_ip` | `192.168.10.1` | The host's address on the hotspot; also the gateway/DNS handed to clients. Pick a subnet that does NOT overlap your LAN. |
 | `proxy_port` | `8883` | The port the Spider Farmer Bridge integration listens on. If it's not 8883 (e.g. 8000), the add-on redirects the hotspot's inbound 8883 to it. |
+| `internet_access` | `true` | Give joined devices real internet (IP forward + NAT to the host uplink), like the LAN. Many controllers need this to come online. Turn off for an isolated hotspot. |
 | `dns_target` | *(blank)* | Where `sf.mqtt.spider-farmer.com` resolves for hotspot clients. Blank = `hotspot_ip` (the local proxy). |
 | `country_code` | `US` | Regulatory domain for the radio. |
 | `unmanage_via_nmcli` | `false` | hostapd backend only: run `nmcli dev set <iface> managed no` on start so hostapd can claim the radio. |

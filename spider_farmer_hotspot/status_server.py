@@ -7,10 +7,14 @@ is listening on :8883, and the list of connected Wi-Fi clients (DHCP leases).
 import html
 import json
 import os
+import shutil
 import socket
 import subprocess
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+# Same nft-backed backend the entrypoint uses to add the rules.
+IPT = "iptables-nft" if shutil.which("iptables-nft") else "iptables"
 
 OPTIONS = "/data/options.json"
 LEASES = "/data/dnsmasq.leases"
@@ -42,7 +46,7 @@ def redirect_hits():
     """Packet count on the 8883 -> proxy_port REDIRECT rule (None if no rule)."""
     try:
         out = subprocess.run(
-            ["iptables", "-t", "nat", "-L", "PREROUTING", "-v", "-n", "-x"],
+            [IPT, "-t", "nat", "-L", "PREROUTING", "-v", "-n", "-x"],
             capture_output=True, text=True, timeout=2,
         ).stdout
     except Exception:

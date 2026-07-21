@@ -4,6 +4,25 @@ All notable changes to the **Spider Farmer Hotspot** add-on. The Supervisor
 offers an update whenever the `version` in `config.yaml` increases; the notes
 below are shown on the add-on's Changelog tab.
 
+## 0.5.4
+
+- **Fix: iptables rules had no effect on HAOS (0 redirect hits).** The container's default
+  `iptables` is the legacy backend, but Home Assistant OS processes **nftables** — so the
+  8883->proxy redirect and the internet-NAT rules were added to a table the kernel never
+  evaluates. They reported success yet matched 0 packets, which is why the light dialed
+  192.168.99.1 but nothing reached the proxy. The add-on now uses `iptables-nft` (the
+  nft-backed backend) so the rules land in the ruleset the kernel actually uses.
+
+## 0.5.3
+
+- **Internet access for the hotspot (likely fix for "connected but offline").** The add-on
+  now enables IP forwarding + NAT (MASQUERADE) from the hotspot subnet to the host's uplink,
+  so joined devices have real internet just like they do on the LAN in the router-NAT method.
+  Many controllers won't open their cloud MQTT connection until they can reach the internet,
+  which left them joined but offline on an isolated hotspot. The `:8883` redirect still
+  intercepts the cloud connection to the local proxy. New `internet_access` option (default
+  on) to disable it if you want a fully isolated hotspot.
+
 ## 0.5.2
 
 - **Dashboard: redirect packet counter.** When `proxy_port` != 8883, the dashboard now

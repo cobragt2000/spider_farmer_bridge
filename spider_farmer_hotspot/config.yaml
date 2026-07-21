@@ -1,6 +1,6 @@
 name: Spider Farmer Hotspot
 slug: spider_farmer_hotspot
-version: "0.5.2"
+version: "0.5.4"
 description: >-
   Wi-Fi hotspot + local DNS redirect so Spider Farmer GGS controllers connect
   straight to the Spider Farmer Bridge integration - no router NAT required.
@@ -44,6 +44,7 @@ options:
   channel: 6
   hotspot_ip: "192.168.10.1"
   proxy_port: 8883
+  internet_access: true
   dns_target: ""
   country_code: "US"
   unmanage_via_nmcli: false
@@ -58,6 +59,7 @@ schema:
   channel: "int(1,13)"
   hotspot_ip: str
   proxy_port: "int(1,65535)"
+  internet_access: bool
   dns_target: "str?"
   country_code: str
   unmanage_via_nmcli: bool

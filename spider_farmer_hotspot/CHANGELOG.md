@@ -4,6 +4,16 @@ All notable changes to the **Spider Farmer Hotspot** add-on. The Supervisor
 offers an update whenever the `version` in `config.yaml` increases; the notes
 below are shown on the add-on's Changelog tab.
 
+## 0.3.7
+
+- **hostapd:** dropped `ieee80211n`/`wmm` so the AP uses a plain 20MHz channel.
+  This avoids the HT40 "(extension) channel is disabled" failure some radios hit
+  even in a valid country domain.
+- **Diagnostics:** the startup now logs the radio's driver/chipset, whether any
+  radio is self-managed, the full `iw reg get` output, and the actual 2.4GHz
+  channel flags for the chosen radio - so a channel that's `disabled`/`no IR` at
+  the radio level is visible in the log.
+
 ## 0.3.6
 
 - Version bump to ensure the Supervisor detects the update. Includes all of the

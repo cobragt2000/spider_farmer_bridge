@@ -13,7 +13,7 @@
 #   auto    - nmcli if a running NetworkManager is reachable, else hostapd.
 set -uo pipefail
 
-ADDON_VERSION="0.3.6"
+ADDON_VERSION="0.3.7"
 OPTIONS=/data/options.json
 NM_CON="SF-Bridge-Hotspot"
 DNSMASQ_PID=""
@@ -138,9 +138,27 @@ setup_regdomain() {
   log "regulatory domain (after set ${COUNTRY}): ${after:-unknown}"
 
   phy=$(iw dev "${IFACE}" info 2>/dev/null | sed -n 's/.*wiphy \([0-9]\+\).*/\1/p')
-  if [ -n "${phy}" ] && iw phy "phy${phy}" info 2>/dev/null | grep -qi "self-managed"; then
-    log "NOTE: ${IFACE} radio is self-managed for regulatory - 'iw reg set' may not"
-    log "affect it; the driver decides which channels are allowed."
+
+  # radio driver (chipset family) - the biggest predictor of AP support
+  local drv
+  drv=$(basename "$(readlink -f "/sys/class/net/${IFACE}/device/driver" 2>/dev/null)" 2>/dev/null)
+  log "radio driver: ${drv:-unknown} (phy${phy:-?})"
+
+  # self-managed radios ignore the global 'iw reg set'
+  if iw reg get 2>/dev/null | grep -qi "self-managed"; then
+    log "NOTE: a radio reports self-managed regulatory - 'iw reg set' may not apply;"
+    log "the driver itself decides which channels are allowed."
+  fi
+
+  # dump the full regulatory state and the actual 2.4GHz channel flags so a
+  # disabled/no-IR channel is visible in the log
+  log "regulatory state:"
+  iw reg get 2>/dev/null | sed 's/^/    /' >&2
+  if [ -n "${phy}" ]; then
+    log "2.4GHz channels on phy${phy} (look for 'disabled' / 'no IR'):"
+    iw phy "phy${phy}" info 2>/dev/null \
+      | awk '/Frequencies:/{f=1} /valid interface combinations|Supported commands|Band 2:/{f=0} f && /2[0-9][0-9][0-9] MHz/' \
+      | sed 's/^/    /' >&2
   fi
 
   case "${after}" in
@@ -273,8 +291,6 @@ country_code=${COUNTRY}
 ieee80211d=1
 hw_mode=g
 channel=${CHANNEL}
-ieee80211n=1
-wmm_enabled=1
 auth_algs=1
 wpa=2
 wpa_passphrase=${PASSWORD}

@@ -297,9 +297,6 @@ def build_device_entities(
               command_field="blower", command_subfield="cycle_times"),
             d("switch", "blower_close_co2", "Blower Close CO2", icon="mdi:molecule-co2",
               command_field="blower", command_subfield="close_co2", kind="toggle"),
-            d("text", "blower_apply", "Blower Apply", kind="apply",
-              icon="mdi:content-save", entity_category="config",
-              command_field="blower", command_subfield="apply_bundle"),
         ]
     if caps["hasFan"] and want("fan"):
         defs += [
@@ -362,9 +359,6 @@ def build_device_entities(
               icon="mdi:repeat", num_mode="box", min_value=1, max_value=100,
               command_field="fan", command_subfield="cycle_times"),
             # Card Save button target: one atomic write of staged fields.
-            d("text", "fan_apply", "Fan Apply", kind="apply",
-              icon="mdi:content-save", entity_category="config",
-              command_field="fan", command_subfield="apply_bundle"),
         ]
 
     # ── Light brightness sensors (tied to their light blocks) ────────────
@@ -435,9 +429,6 @@ def build_device_entities(
             d("number", f"{lf}_ppfd_max", f"{ln} Dimming Range Max", unit="%",
               icon="mdi:brightness-7", num_mode="box", min_value=11, max_value=100,
               command_field=cf, command_subfield="ppfd_max"),
-            d("text", f"{lf}_apply", f"{ln} Apply", kind="apply",
-              icon="mdi:content-save", entity_category="config",
-              command_field=cf, command_subfield="apply_bundle"),
         ]
 
     # ── Climate accessories — per block; strips too (v3.4.0) ─────────────
@@ -476,9 +467,6 @@ def build_device_entities(
             d("number", "humidifier_cycle_times", "Humidifier Cycle Times",
               icon="mdi:repeat", num_mode="box", min_value=1, max_value=100,
               command_field="humidifier", command_subfield="cycle_times"),
-            d("text", "humidifier_apply", "Humidifier Apply", kind="apply",
-              icon="mdi:content-save", entity_category="config",
-              command_field="humidifier", command_subfield="apply_bundle"),
         ]
     if dtype in _FULL_TYPES and want("dehumidifier"):
         defs += [
@@ -517,9 +505,6 @@ def build_device_entities(
             d("number", "dehumidifier_cycle_times", "Dehumidifier Cycle Times",
               icon="mdi:repeat", num_mode="box", min_value=1, max_value=100,
               command_field="dehumidifier", command_subfield="cycle_times"),
-            d("text", "dehumidifier_apply", "Dehumidifier Apply", kind="apply",
-              icon="mdi:content-save", entity_category="config",
-              command_field="dehumidifier", command_subfield="apply_bundle"),
         ]
     if dtype in _FULL_TYPES and want("heater"):
         defs += [
@@ -556,9 +541,6 @@ def build_device_entities(
             d("number", "heater_cycle_times", "Heater Cycle Times",
               icon="mdi:repeat", num_mode="box", min_value=1, max_value=100,
               command_field="heater", command_subfield="cycle_times"),
-            d("text", "heater_apply", "Heater Apply", kind="apply",
-              icon="mdi:content-save", entity_category="config",
-              command_field="heater", command_subfield="apply_bundle"),
         ]
 
     # ── Standalone SE-series light (v3.10.0) — read-only until the write

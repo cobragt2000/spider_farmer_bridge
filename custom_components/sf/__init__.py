@@ -192,29 +192,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # ── Optional bundled Lovelace card (opt-in in Settings) ───────────────
     await _apply_card_option(hass, cfg)
 
-    # Hide the card's internal "Apply" write-channel entities that older
-    # versions registered as visible (new ones are hidden by default). Users
-    # never interact with them directly.
-    _hide_apply_entities(hass)
+    # Remove the card's internal "Apply" write-channel entities left over
+    # from older versions. Saves now go through the sf.apply_bundle service,
+    # so the entities (which HA always lists on the device page, even when
+    # hidden) are gone entirely.
+    _remove_apply_entities(hass)
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
 
 
-def _hide_apply_entities(hass: HomeAssistant) -> None:
-    """Hide any ggs_*_apply write-channel entities still marked visible."""
+def _remove_apply_entities(hass: HomeAssistant) -> None:
+    """Remove any leftover ggs_*_apply write-channel entities (pre-3.19.40).
+
+    They were only ever a transport for the card's Save button; that now uses
+    the sf.apply_bundle service, and HA shows even hidden entities on the
+    device page, so the registry entries are deleted outright."""
     try:
         from homeassistant.helpers import entity_registry as er
         reg = er.async_get(hass)
         for ent in list(reg.entities.values()):
             uid = ent.unique_id or ""
             if (ent.platform == DOMAIN and uid.startswith("ggs_")
-                    and uid.endswith("_apply") and ent.hidden_by is None):
-                reg.async_update_entity(
-                    ent.entity_id, hidden_by=er.RegistryEntryHider.INTEGRATION
-                )
+                    and uid.endswith("_apply")):
+                reg.async_remove(ent.entity_id)
     except Exception as exc:  # pragma: no cover - best effort
-        _LOGGER.debug("Hide apply entities skipped: %s", exc)
+        _LOGGER.debug("Remove apply entities skipped: %s", exc)
 
 
 async def _apply_card_option(hass: HomeAssistant, cfg: dict) -> None:
@@ -486,6 +489,14 @@ _ALARM_SETTINGS_SCHEMA = vol.Schema({
     vol.Required("entity_id"): cv.entity_ids,
     vol.Required("settings"): dict,
 })
+_APPLY_BUNDLE_SCHEMA = vol.Schema({
+    vol.Required("entity_id"): cv.entity_ids,
+    vol.Required("module"): cv.string,
+    vol.Required("settings"): dict,
+})
+# Wire module names the apply-bundle command path understands.
+_APPLY_MODULES = {"fan", "blower", "heater", "humidifier", "dehumidifier",
+                  "light", "light2"}
 
 
 def _proxy_for_entity(hass: HomeAssistant, ent) -> object | None:
@@ -545,6 +556,36 @@ def _async_register_services(hass: HomeAssistant) -> None:
             if proxy is not None:
                 await proxy.write_alarm_settings(mac, settings)
 
+    async def _apply_bundle(call: ServiceCall) -> None:
+        """Commit a card Save bundle: several staged sub-settings written to
+        one device module as a single block-preserving setConfigField."""
+        import json as _json
+        module = str(call.data.get("module") or "")
+        module = {"light_1": "light", "light_2": "light2"}.get(module, module)
+        if module not in _APPLY_MODULES:
+            _LOGGER.warning("apply_bundle: unknown module %r", module)
+            return
+        payload = _json.dumps(call.data.get("settings") or {})
+        ent_reg = er.async_get(hass)
+        for eid in call.data.get("entity_id", []):
+            ent = ent_reg.async_get(eid)
+            uid = ent.unique_id if ent else ""
+            if not uid or not uid.startswith("ggs_"):
+                _LOGGER.warning(
+                    "apply_bundle: %s is not a Spider Farmer entity", eid)
+                continue
+            mac = uid[4:].split("_", 1)[0]
+            data = hass.data.get(DOMAIN, {}).get(ent.config_entry_id)
+            bus = data.get(DATA_BUS) if isinstance(data, dict) else None
+            if bus is None:
+                for d0 in hass.data.get(DOMAIN, {}).values():
+                    if isinstance(d0, dict) and d0.get(DATA_BUS):
+                        bus = d0[DATA_BUS]
+                        break
+            if bus is not None:
+                await bus.async_command(
+                    f"ggs/ha/{mac}/{module}/apply_bundle/set", payload)
+
     if not hass.services.has_service(DOMAIN, "set_se_schedule"):
         hass.services.async_register(
             DOMAIN, "set_se_schedule", _set_se_schedule, schema=_SCHEDULE_SCHEMA)
@@ -554,6 +595,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
     if not hass.services.has_service(DOMAIN, "set_alarm_settings"):
         hass.services.async_register(
             DOMAIN, "set_alarm_settings", _set_alarm_settings, schema=_ALARM_SETTINGS_SCHEMA)
+    if not hass.services.has_service(DOMAIN, "apply_bundle"):
+        hass.services.async_register(
+            DOMAIN, "apply_bundle", _apply_bundle, schema=_APPLY_BUNDLE_SCHEMA)
 
 
 def _integration_version() -> str:

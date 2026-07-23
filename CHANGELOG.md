@@ -3,6 +3,26 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.40
+
+### Fixed
+- **Environment / Calibration / Alerts dropdowns showed minimums (32°F / 0% / 300ppm) instead
+  of the controller's saved settings.** The data was arriving fine — the card set each
+  `<select>`'s value before its options existed (a Lit render-order quirk), so every dropdown
+  fell back to its first option and never recovered, because the unchanged value was
+  dirty-checked and never re-applied. Options now carry an explicit `selected` flag, so all
+  dropdowns (Environment targets/dead zones, Calibration offsets, Alerts min/max, device mode
+  and speed selects) render the real current value. (Bundled card v0.16.17.)
+
+### Changed
+- **The per-device "Apply" write-channel entities are gone.** Hiding them (3.19.35/3.19.36)
+  removed them from dashboards, but HA always lists hidden entities on the device page, which
+  is where they kept showing up. The card's Save buttons now call a proper `sf.apply_bundle`
+  service instead, the apply text entities are no longer created, and leftover registry
+  entries from older versions are removed automatically at startup. If you called
+  `text.set_value` on an `*_apply` entity from an automation, switch it to `sf.apply_bundle`
+  (see Developer Tools → Services).
+
 ## 3.19.39
 
 ### Fixed

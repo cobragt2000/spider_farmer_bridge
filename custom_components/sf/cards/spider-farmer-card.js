@@ -1,4 +1,4 @@
-/*! spider-farmer-card v0.16.16 | MIT */
+/*! spider-farmer-card v0.16.17 | MIT */
 function t(t,e,s,i){var r,n=arguments.length,a=n<3?e:null===i?i=Object.getOwnPropertyDescriptor(e,s):i;if("object"==typeof Reflect&&"function"==typeof Reflect.decorate)a=Reflect.decorate(t,e,s,i);else for(var o=t.length-1;o>=0;o--)(r=t[o])&&(a=(n<3?r(a):n>3?r(e,s,a):r(e,s))||a);return n>3&&a&&Object.defineProperty(e,s,a),a}"function"==typeof SuppressedError&&SuppressedError;
 /**
  * @license
@@ -206,7 +206,7 @@ const pt={attribute:!0,type:String,converter:_,reflect:!1,hasChanged:$},ht=(t=pt
         <span class="unit">${n}</span>
       </span>`}selectControl(t,e){const s=e.attributes.options??[];return V`
       <select .value=${e.state} @change=${e=>this.setSelect(t,e)}>
-        ${s.map(t=>V`<option value=${t}>${t}</option>`)}
+        ${s.map(t=>V`<option value=${t} ?selected=${t===e.state}>${t}</option>`)}
       </select>`}textControl(t,e){const s="unknown"===e.state||"unavailable"===e.state?"":e.state,i=/^\d{1,2}:\d{2}$/.test(s);return V`
       <input type=${i?"time":"text"} .value=${s}
         @change=${e=>this.setText(t,e)} />`}switchControl(t,e){const s="on"===e.state;return V`
@@ -217,11 +217,11 @@ const pt={attribute:!0,type:String,converter:_,reflect:!1,hasChanged:$},ht=(t=pt
         <input type="number" min=${e} max=${i} step=${n} .value=${r}
           @input=${e=>this.stage(t,e.target.value)} />
         <span class="unit">${a}</span></span>`}if(!e&&"select"===i){const e=s.attributes.options??[];return V`<select .value=${r} @change=${e=>this.stage(t,e.target.value)}>
-        ${e.map(t=>V`<option value=${t}>${t}</option>`)}
+        ${e.map(t=>V`<option value=${t} ?selected=${t===r}>${t}</option>`)}
       </select>`}const n="time"===e||"duration"===e||/^\d{1,2}:\d{2}/.test(r);return V`<input type=${n?"time":"text"}
       step=${"duration"===e?"1":q} .value=${r}
       @change=${e=>this.stage(t,e.target.value)} />`}numOpts(t,e,s=1,i=String){const r=[],n=(String(s).split(".")[1]||"").length,a=s>0?Math.round((e-t)/s):0;for(let e=0;e<=a;e++){const a=Number((t+e*s).toFixed(n));r.push({label:i(a),value:String(a)})}return r}offOpts(t,e,s=1,i){return[{label:"Off",value:"0"},...this.numOpts(t,e,s,i)]}optSelect(t,e,s=!1){if(!this.get(t))return q;const i=this.draftVal(t),r=e.find(t=>Number(t.value)===Number(i))?.value??e.find(t=>t.value===i)?.value??i;return V`<select .value=${String(r)} @change=${e=>{const i=e.target.value;s?this.hass?.callService("number","set_value",{entity_id:t,value:Number(i)}):this.stage(t,i)}}>
-      ${e.map(t=>V`<option value=${t.value}>${t.label}</option>`)}
+      ${e.map(t=>V`<option value=${t.value} ?selected=${String(t.value)===String(r)}>${t.label}</option>`)}
     </select>`}optSelectRow(t,e,s,i=!1){if(!this.get(e))return q;const r=!i&&e in this.draft?"dev-row staged":"dev-row";return V`<div class=${r}>
       <span class="dev-lbl">${t}</span>
       <div class="ctl-input">${this.optSelect(e,s,i)}</div>
@@ -239,7 +239,7 @@ const pt={attribute:!0,type:String,converter:_,reflect:!1,hasChanged:$},ht=(t=pt
       <span class="dev-lbl">${t}</span>
       <div class="ctl-input">
         <select .value=${this.modeOf(e,s.state)} @change=${t=>{const s=t.target.value;this.modePick={...this.modePick,[e]:s},"Manual"===s?(this.draft={},this.setSelect(e,t)):this.draft={[e]:s}}}>
-          ${i.map(t=>V`<option value=${t}>${t}</option>`)}
+          ${i.map(t=>V`<option value=${t} ?selected=${t===this.modeOf(e,s.state)}>${t}</option>`)}
         </select>
       </div>
     </div>`}saveBar(t,e){const s=Object.keys(this.draft).some(t=>t in e);return V`<div class="save-bar">
@@ -248,7 +248,7 @@ const pt={attribute:!0,type:String,converter:_,reflect:!1,hasChanged:$},ht=(t=pt
         @click=${()=>this.commitBundle(t,e)}>Save</button>
       <button class="discard-btn" ?disabled=${!s}
         @click=${()=>this.discardEdits()}>Discard</button>
-    </div>`}commitBundle(t,e){const s={};for(const[t,i]of Object.entries(e))if(t in this.draft){const e=this.draft[t];s[i]="number"===t.split(".")[0]?Number(e):e}if(!Object.keys(s).length)return;this.hass?.callService("text","set_value",{entity_id:t,value:JSON.stringify(s)});const i={...this.draft};for(const t of Object.keys(e))delete i[t];this.draft=i}hasEnv(){return!!this.get(`number.sf_${this.config.panel}_env_temp_day`)}outletSlots(){const t=this.config.outlets??[];if(!this.hass)return t;const e=new Set(Rt(this.hass,this.config.panel));return t.filter(t=>e.has(t))}hasOutlets(){return this.outletSlots().some(t=>{for(let e=1;e<=10;e++)if(this.get(`select.sf_${t}_outlet_${e}_mode`))return!0;return!1})}rangeSelect(t){const e=this.get(t);if(!e)return q;const s=Number(e.attributes.min??0),i=Number(e.attributes.max??100),r=Number(e.attributes.step??1)||1,n=e.attributes.unit_of_measurement??"";return this.optSelect(t,this.numOpts(s,i,r,t=>`${t}${n}`),!0)}envControl(t,e){return this.get(t)?V`
+    </div>`}commitBundle(t,e){const s={};for(const[t,i]of Object.entries(e))if(t in this.draft){const e=this.draft[t];s[i]="number"===t.split(".")[0]?Number(e):e}if(!Object.keys(s).length)return;const n=t.match(/_(light_1|light_2|fan|blower|heater|humidifier|dehumidifier)_apply$/),a=n?"light_1"===n[1]?"light":"light_2"===n[1]?"light2":n[1]:null;a&&!this.get(t)?this.hass?.callService("sf","apply_bundle",{entity_id:Object.keys(e)[0],module:a,settings:s}):this.hass?.callService("text","set_value",{entity_id:t,value:JSON.stringify(s)});const i={...this.draft};for(const t of Object.keys(e))delete i[t];this.draft=i}hasEnv(){return!!this.get(`number.sf_${this.config.panel}_env_temp_day`)}outletSlots(){const t=this.config.outlets??[];if(!this.hass)return t;const e=new Set(Rt(this.hass,this.config.panel));return t.filter(t=>e.has(t))}hasOutlets(){return this.outletSlots().some(t=>{for(let e=1;e<=10;e++)if(this.get(`select.sf_${t}_outlet_${e}_mode`))return!0;return!1})}rangeSelect(t){const e=this.get(t);if(!e)return q;const s=Number(e.attributes.min??0),i=Number(e.attributes.max??100),r=Number(e.attributes.step??1)||1,n=e.attributes.unit_of_measurement??"";return this.optSelect(t,this.numOpts(s,i,r,t=>`${t}${n}`),!0)}envControl(t,e){return this.get(t)?V`
       <div class="ctl">
         <div class="ctl-label">${e}</div>
         <div class="ctl-input">${this.rangeSelect(t)}</div>
@@ -366,7 +366,7 @@ const pt={attribute:!0,type:String,converter:_,reflect:!1,hasChanged:$},ht=(t=pt
         <span class="num-box">
           <select .value=${String(s[r]??"")}
             @change=${s=>this.editAlert(i=>{i[t][e][r]=Number(s.target.value)})}>
-            ${o.map(t=>V`<option value=${t.value}>${t.label}</option>`)}
+            ${o.map(t=>V`<option value=${t.value} ?selected=${String(t.value)===String(s[r]??"")}>${t.label}</option>`)}
           </select>
           <span class="unit">${s.unit??""}</span>
         </span>
@@ -1000,4 +1000,4 @@ const pt={attribute:!0,type:String,converter:_,reflect:!1,hasChanged:$},ht=(t=pt
     }
     .save { color: #fff; }
     .discard { background: var(--secondary-background-color); color: var(--primary-text-color); }
-  `,t([ut({attribute:!1})],jt.prototype,"hass",void 0),t([ft()],jt.prototype,"config",void 0),t([ft()],jt.prototype,"draft",void 0),customElements.get("spider-farmer-card")||customElements.define("spider-farmer-card",Tt),customElements.get("spider-farmer-card-editor")||customElements.define("spider-farmer-card-editor",zt),customElements.get("spider-light-card")||customElements.define("spider-light-card",jt),window.customCards=window.customCards||[],window.customCards.push({type:"spider-farmer-card",name:"Spider Farmer Card",description:"Tent overview + config for the Spider Farmer Bridge integration",preview:!0,documentationURL:"https://github.com/cobragt2000/spider_farmer_bridge"}),window.customCards.push({type:"spider-light-card",name:"Spider Light Card",description:"Brightness dial, mode, and schedule for a Spider Farmer SE-series light",preview:!0,documentationURL:"https://github.com/cobragt2000/spider_farmer_bridge"}),console.info("%c SPIDER-FARMER-CARD %c v0.16.16 ","color:#fff;background:#ff7a1a;border-radius:3px 0 0 3px;padding:2px 4px","color:#ff7a1a;background:#222;border-radius:0 3px 3px 0;padding:2px 4px");export{Tt as SpiderFarmerCard,zt as SpiderFarmerCardEditor,jt as SpiderLightCard};
+  `,t([ut({attribute:!1})],jt.prototype,"hass",void 0),t([ft()],jt.prototype,"config",void 0),t([ft()],jt.prototype,"draft",void 0),customElements.get("spider-farmer-card")||customElements.define("spider-farmer-card",Tt),customElements.get("spider-farmer-card-editor")||customElements.define("spider-farmer-card-editor",zt),customElements.get("spider-light-card")||customElements.define("spider-light-card",jt),window.customCards=window.customCards||[],window.customCards.push({type:"spider-farmer-card",name:"Spider Farmer Card",description:"Tent overview + config for the Spider Farmer Bridge integration",preview:!0,documentationURL:"https://github.com/cobragt2000/spider_farmer_bridge"}),window.customCards.push({type:"spider-light-card",name:"Spider Light Card",description:"Brightness dial, mode, and schedule for a Spider Farmer SE-series light",preview:!0,documentationURL:"https://github.com/cobragt2000/spider_farmer_bridge"}),console.info("%c SPIDER-FARMER-CARD %c v0.16.17 ","color:#fff;background:#ff7a1a;border-radius:3px 0 0 3px;padding:2px 4px","color:#ff7a1a;background:#222;border-radius:0 3px 3px 0;padding:2px 4px");export{Tt as SpiderFarmerCard,zt as SpiderFarmerCardEditor,jt as SpiderLightCard};

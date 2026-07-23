@@ -75,3 +75,32 @@ set_alarm_settings:
         object:
 
 
+apply_bundle:
+  name: Apply settings bundle
+  description: >-
+    Commit several staged sub-settings to one device module (fan, blower,
+    heater, humidifier, dehumidifier, light, light2) as a single
+    block-preserving write. Used by the tent card's Save buttons; can also be
+    called from automations.
+  fields:
+    entity_id:
+      name: Device entity
+      description: Any entity of the device to write to (e.g. its mode select).
+      required: true
+      selector:
+        entity:
+          integration: sf
+    module:
+      name: Module
+      description: "The device module to write: fan, blower, heater, humidifier, dehumidifier, light, light2 (light_1/light_2 accepted)."
+      required: true
+      selector:
+        text:
+    settings:
+      name: Settings
+      description: >-
+        Mapping of sub-setting keys to values, e.g. {"mode": "Cycle",
+        "cycle_start": "08:00", "cycle_times": 4}.
+      required: true
+      selector:
+        object:

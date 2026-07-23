@@ -1,4 +1,6 @@
 {
   "name": "Spider Farmer Bridge",
-  "homeassistant": "2024.1.0"
+  "homeassistant": "2024.1.0",
+  "zip_release": true,
+  "filename": "sf.zip"
 }

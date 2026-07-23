@@ -1,0 +1,26 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  release-zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # HACS extracts this zip into custom_components/sf, so the
+      # integration files must sit at the zip root (no nested folders).
+      - name: Build sf.zip
+        run: |
+          cd custom_components/sf
+          zip -r ../../sf.zip .
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: sf.zip

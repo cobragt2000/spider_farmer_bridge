@@ -1,4 +1,4 @@
-/*! spider-farmer-card v0.16.17 | MIT */
+/*! spider-farmer-card v0.17.2 | MIT */
 function t(t,e,s,i){var r,n=arguments.length,a=n<3?e:null===i?i=Object.getOwnPropertyDescriptor(e,s):i;if("object"==typeof Reflect&&"function"==typeof Reflect.decorate)a=Reflect.decorate(t,e,s,i);else for(var o=t.length-1;o>=0;o--)(r=t[o])&&(a=(n<3?r(a):n>3?r(e,s,a):r(e,s))||a);return n>3&&a&&Object.defineProperty(e,s,a),a}"function"==typeof SuppressedError&&SuppressedError;
 /**
  * @license
@@ -49,7 +49,7 @@ const pt={attribute:!0,type:String,converter:_,reflect:!1,hasChanged:$},ht=(t=pt
   }
   .sl-live > input[type="range"]:active ~ .sl-bub,
   .sl-live > input[type="range"]:focus-visible ~ .sl-bub { opacity: 1; }
-`;function St(t){const e=new Set;for(const s of Object.keys(t.states)){const t=bt(s).match(vt);t&&e.add(t[1])}return[...e].sort()}function kt(t){return St(t).filter(e=>Object.keys(t.states).some(t=>{const s=bt(t);return s===`sf_${e}_temperature`||s===`sf_${e}_soil_avg_temperature`||s===`sf_${e}_light_1`||s===`sf_${e}_fan`||s===`sf_${e}_blower`}))}function At(t,e){const s=`sf_${e}_`,i=Object.keys(t.states);return i.find(t=>bt(t)===`sf_${e}_temperature`)??i.find(t=>{const i=bt(t);return i.startsWith(s)&&!i.startsWith(`sf_${e}_env_`)})}function Ot(t,e){const s=At(t,e);return s?t.entities?.[s]?.device_id:void 0}function Rt(t,e){if(!e)return[];const s=Ot(t,e);return function(t){return St(t).filter(e=>!!t.states[`switch.sf_${e}_outlet_1`])}(t).filter(i=>{if(i===e)return!0;if(!s)return!1;const r=Ot(t,i),n=r?t.devices?.[r]:void 0;return n?.via_device_id===s})}function Ct(t,e){if(!t||!e)return"";const s=At(t,e);if(!s)return"";const i=t.entities?.[s]?.device_id,r=i?t.devices?.[i]:void 0;if(r)return r.name_by_user||r.name||"";const n=(t.states[s].attributes.friendly_name||"").match(/^(SF .+? [0-9A-Fa-f]{4})\b/);return n?n[1]:""}const Et=[["temperature","Air Temp","mdi:thermometer"],["humidity","Air Humi","mdi:water-percent"],["vpd","VPD","mdi:water-opacity"],["co2","CO2","mdi:molecule-co2"],["ppfd","PPFD","mdi:white-balance-sunny"],["soil_avg_temperature","Soil Temp","mdi:thermometer"],["soil_avg_moisture","Moisture","mdi:water"],["soil_avg_ec","Soil EC","mdi:flash"]],Pt=[["light_1","Light 1","mdi:lightbulb"],["light_2","Light 2","mdi:lightbulb"]],Nt=[["fan","Fan","mdi:fan"],["blower","Blower","mdi:weather-windy"]],Mt=[["heater","Heater","mdi:radiator"],["humidifier","Humidifier","mdi:air-humidifier"],["dehumidifier","Dehumidifier","mdi:air-humidifier-off"]],Dt=[["Temperature","env_temp_day","env_temp_night","env_temp_deadband","mdi:thermometer"],["Humidity","env_humi_day","env_humi_night","env_humi_deadband","mdi:water-percent"],["CO2","env_co2_day","env_co2_night","env_co2_deadband","mdi:molecule-co2"]];class Tt extends dt{constructor(){super(...arguments),this.tab="overview",this.alertsDraft=null,this.soilOpen=null,this.soilAllOpen=!1,this.deviceOpen=null,this.draft={},this.modePick={},this.outletDraft={}}setConfig(t){if(!t.panel)throw new Error('spider-farmer-card: "panel" is required (e.g. panel: dp1)');this.config=t;const e=t.default_tab;this.tab="environment"===e||"config"===e?"env":"outlets"===e?"outlets":"calibration"===e||"cali"===e?"cali":"overview"}getCardSize(){return 8}static getConfigElement(){return document.createElement("spider-farmer-card-editor")}static getStubConfig(t){const e=(t?kt(t):[])[0]||"dp1",s=t?Rt(t,e):[];return{type:"custom:spider-farmer-card",panel:e,...s.length?{outlets:s}:{}}}eid(t,e){return`${t}.sf_${this.config.panel}_${e}`}get(t){return this.hass?.states[t]}accent(){return this.config.accent||gt}shouldUpdate(t){return t.has("config")||t.has("hass")||t.has("tab")||t.has("soilOpen")||t.has("soilAllOpen")||t.has("outletDraft")||t.has("alertsDraft")||t.has("deviceOpen")||t.has("draft")||t.has("modePick")}willUpdate(t){if(t.has("hass")&&Object.keys(this.modePick).length){let t=null;for(const[e,s]of Object.entries(this.modePick))this.get(e)?.state===s&&(t=t??{...this.modePick},delete t[e]);t&&(this.modePick=t)}}renderParam([t,e,s]){const i=this.get(`sensor.sf_${this.config.panel}_${t}`);if(!i)return q;const r=i.attributes.unit_of_measurement||"",n=this.hass?.formatEntityState?this.hass.formatEntityState(i).replace(r,"").trim():i.state,a=t.startsWith("soil_avg_")?t.slice(9):null,o=!!a&&this.soilProbeRows(a).length>1,l=o&&this.soilOpen===a;return V`
+`;function St(t){const e=new Set;for(const s of Object.keys(t.states)){const t=bt(s).match(vt);t&&e.add(t[1])}return[...e].sort()}function kt(t){return St(t).filter(e=>Object.keys(t.states).some(t=>{const s=bt(t);return s===`sf_${e}_temperature`||s===`sf_${e}_soil_avg_temperature`||s===`sf_${e}_light_1`||s===`sf_${e}_fan`||s===`sf_${e}_blower`}))}function At(t,e){const s=`sf_${e}_`,i=Object.keys(t.states);return i.find(t=>bt(t)===`sf_${e}_temperature`)??i.find(t=>{const i=bt(t);return i.startsWith(s)&&!i.startsWith(`sf_${e}_env_`)})}function Ot(t,e){const s=At(t,e);return s?t.entities?.[s]?.device_id:void 0}function Rt(t,e){if(!e)return[];const s=Ot(t,e);return function(t){return St(t).filter(e=>!!t.states[`switch.sf_${e}_outlet_1`])}(t).filter(i=>{if(i===e)return!0;if(!s)return!1;const r=Ot(t,i),n=r?t.devices?.[r]:void 0;return n?.via_device_id===s})}function Ct(t,e){if(!t||!e)return"";const s=At(t,e);if(!s)return"";const i=t.entities?.[s]?.device_id,r=i?t.devices?.[i]:void 0;if(r)return r.name_by_user||r.name||"";const n=(t.states[s].attributes.friendly_name||"").match(/^(SF .+? [0-9A-Fa-f]{4})\b/);return n?n[1]:""}const Et=[["temperature","Air Temp","mdi:thermometer"],["humidity","Air Humi","mdi:water-percent"],["vpd","VPD","mdi:water-opacity"],["co2","CO2","mdi:molecule-co2"],["ppfd","PPFD","mdi:white-balance-sunny"],["soil_avg_temperature","Soil Temp","mdi:thermometer"],["soil_avg_moisture","Moisture","mdi:water"],["soil_avg_ec","Soil EC","mdi:flash"]],Pt=[["light_1","Light 1","mdi:lightbulb"],["light_2","Light 2","mdi:lightbulb"]],Nt=[["fan","Fan","mdi:fan"],["blower","Blower","mdi:weather-windy"]],Mt=[["heater","Heater","mdi:radiator"],["humidifier","Humidifier","mdi:air-humidifier"],["dehumidifier","Dehumidifier","mdi:air-humidifier-off"]],Dt=[["Temperature","env_temp_day","env_temp_night","env_temp_deadband","mdi:thermometer"],["Humidity","env_humi_day","env_humi_night","env_humi_deadband","mdi:water-percent"],["CO2","env_co2_day","env_co2_night","env_co2_deadband","mdi:molecule-co2"]];class Tt extends dt{constructor(){super(...arguments),this.tab="overview",this.alertsDraft=null,this.soilOpen=null,this.soilAllOpen=!1,this.deviceOpen=null,this.draft={},this.modePick={},this.outletDraft={},this.logDate=null,this.logDev="all",this.logType="all"}setConfig(t){if(!t.panel)throw new Error('spider-farmer-card: "panel" is required (e.g. panel: dp1)');this.config=t;const e=t.default_tab;this.tab="environment"===e||"config"===e?"env":"outlets"===e?"outlets":"calibration"===e||"cali"===e?"cali":"alerts"===e?"alerts":"log"===e?"log":"overview"}getCardSize(){return 8}static getConfigElement(){return document.createElement("spider-farmer-card-editor")}static getStubConfig(t){const e=(t?kt(t):[])[0]||"dp1",s=t?Rt(t,e):[];return{type:"custom:spider-farmer-card",panel:e,...s.length?{outlets:s}:{}}}eid(t,e){return`${t}.sf_${this.config.panel}_${e}`}get(t){return this.hass?.states[t]}accent(){return this.config.accent||gt}shouldUpdate(t){return t.has("config")||t.has("hass")||t.has("tab")||t.has("soilOpen")||t.has("soilAllOpen")||t.has("outletDraft")||t.has("alertsDraft")||t.has("deviceOpen")||t.has("draft")||t.has("modePick")||t.has("logDate")||t.has("logDev")||t.has("logType")}willUpdate(t){if(t.has("hass")&&Object.keys(this.modePick).length){let t=null;for(const[e,s]of Object.entries(this.modePick))this.get(e)?.state===s&&(t=t??{...this.modePick},delete t[e]);t&&(this.modePick=t)}}renderParam([t,e,s]){const i=this.get(`sensor.sf_${this.config.panel}_${t}`);if(!i)return q;const r=i.attributes.unit_of_measurement||"",n=this.hass?.formatEntityState?this.hass.formatEntityState(i).replace(r,"").trim():i.state,a=t.startsWith("soil_avg_")?t.slice(9):null,o=!!a&&this.soilProbeRows(a).length>1,l=o&&this.soilOpen===a;return V`
       <div class="tile ${o?"clickable":""} ${l?"active":""}"
         style=${l?`box-shadow:inset 0 0 0 1px ${this.accent()}`:""}
         role=${o?"button":q}
@@ -391,7 +391,27 @@ const pt={attribute:!0,type:String,converter:_,reflect:!1,hasChanged:$},ht=(t=pt
             style=${t.enabled?`background:${s}`:""}
             @click=${()=>this.editAlert(t=>{const s=t.other[e];s.enabled=s.enabled?0:1})}
             aria-label="Toggle ${t.label} alarm"></button>
-        </div>`)}`}render(){if(!this.hass||!this.config)return q;const t=this.hasEnv(),e=this.hasOutlets(),s=this.hasCali(),i=this.hasAlerts();let r=this.tab;"env"!==r||t||(r="overview"),"outlets"!==r||e||(r="overview"),"cali"!==r||s||(r="overview"),"alerts"!==r||i||(r="overview");const n=t||e||s||i,a=this.accent(),o=(t,e)=>V`<button class="tab ${r===t?"active":""}"
+        </div>`)}`}hasLog(){return this.alarmSources().length>0}alarmSources(){const t=[],e=s=>{const i=this.get(`sensor.sf_${s}_alarms`);i&&t.push({slot:s,ent:i,name:Ct(this.hass,s)||s})};e(this.config.panel);for(const s of this.outletSlots())s!==this.config.panel&&e(s);return t}logToday(){const t=new Date;return`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`}renderLog(){const t=this.alarmSources(),e=this.logDate||this.logToday(),s=this.logDev||"all",i=this.logType||"all";let r=[];for(const e of t){if("all"!==s&&s!==e.slot)continue;const t=e.ent.attributes.events;Array.isArray(t)&&t.forEach(s=>r.push({...s,_src:e.name}))}const n=[...new Set(r.map(t=>t.device).filter(Boolean))].sort(),d0=new Date(`${e}T00:00:00`).getTime()/1e3,d1=new Date(`${e}T23:59:59.999`).getTime()/1e3,o=t=>{try{return new Date(1e3*t).toLocaleString(void 0,{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"})}catch{return""}};r=r.filter(t=>(t.epoch||0)>=d0&&(t.epoch||0)<=d1&&("all"===i||t.device===i)).sort((t,e)=>(e.epoch||0)-(t.epoch||0)).slice(0,50);return V`
+      <div class="log-filters">
+        ${t.length>1?V`<div class="ctl"><div class="ctl-label">Device</div><div class="ctl-input"><select @change=${t=>{this.logDev=t.target.value}}>
+              <option value="all" ?selected=${"all"===s}>All</option>
+              ${t.map(t=>V`<option value=${t.slot} ?selected=${s===t.slot}>${t.name}</option>`)}
+            </select></div></div>`:q}
+        <div class="ctl"><div class="ctl-label">Type</div><div class="ctl-input"><select @change=${t=>{this.logType=t.target.value}}>
+              <option value="all" ?selected=${"all"===i}>All</option>
+              ${n.map(t=>V`<option value=${t} ?selected=${i===t}>${t}</option>`)}
+            </select></div></div>
+        <div class="ctl"><div class="ctl-label">Date</div><div class="ctl-input"><input type="date" .value=${e} @change=${t=>{this.logDate=t.target.value||null}} /></div></div>
+      </div>
+      ${r.length?V`
+          <div class="log-count">${r.length} ${1===r.length?"entry":"entries"}${r.length>10?" — scroll for more":""}</div>
+          <div class="log-list">
+            ${r.map(e=>V`<div class="log-row ${e.alarmType?"raise":"restore"}">
+              <div class="log-title">${t.length>1&&"all"===s?`${e._src} `:""}${e.device||`Device ${e.devType}`} ${e.alarm||""}</div>
+              <div class="log-time">${e.epoch?o(e.epoch):e.time||""}</div>
+            </div>`)}
+          </div>`:V`<div class="cali-empty">No log entries on this date.</div>`}
+    `}render(){if(!this.hass||!this.config)return q;const t=this.hasEnv(),e=this.hasOutlets(),s=this.hasCali(),i=this.hasAlerts(),lg=this.hasLog();let r=this.tab;"env"!==r||t||(r="overview"),"outlets"!==r||e||(r="overview"),"cali"!==r||s||(r="overview"),"alerts"!==r||i||(r="overview"),"log"!==r||lg||(r="overview");const n=t||e||s||i||lg,a=this.accent(),o=(t,e)=>V`<button class="tab ${r===t?"active":""}"
         style=${r===t?`color:${a};border-color:${a}`:""}
         @click=${()=>this.tab=t}>${e}</button>`,l=Ct(this.hass,this.config.panel);return V`
       <ha-card>
@@ -405,11 +425,32 @@ const pt={attribute:!0,type:String,converter:_,reflect:!1,hasChanged:$},ht=(t=pt
               ${e?o("outlets","Outlets"):q}
               ${s?o("cali","Calibration"):q}
               ${i?o("alerts","Alerts"):q}
+              ${lg?o("log","Log"):q}
             </div>`:q}
-        ${"env"===r?this.renderEnv():"outlets"===r?this.renderOutlets():"cali"===r?this.renderCali():"alerts"===r?this.renderAlerts():this.renderOverview()}
+        ${"env"===r?this.renderEnv():"outlets"===r?this.renderOutlets():"cali"===r?this.renderCali():"alerts"===r?this.renderAlerts():"log"===r?this.renderLog():this.renderOverview()}
       </ha-card>`}}Tt.styles=a`
     ${wt}
     ha-card { padding: 12px 14px 16px; }
+    .log-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 10px; }
+    .log-filters .ctl { flex: 1 1 130px; }
+    .log-row {
+      background: rgba(255,255,255,.04); border-left: 3px solid;
+      border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;
+    }
+    .log-row.raise { border-left-color: #f85149; }
+    .log-row.restore { border-left-color: #3fb950; }
+    /* Cap the list at ~10 rows and scroll the rest, so a long history can't
+       run past the bottom of the card. */
+    .log-list { max-height: 560px; overflow-y: auto; padding-right: 2px; }
+    .log-list::-webkit-scrollbar { width: 6px; }
+    .log-list::-webkit-scrollbar-thumb {
+      background: var(--divider-color, #555); border-radius: 3px;
+    }
+    .log-count {
+      font-size: 12px; color: var(--secondary-text-color); margin: 0 0 6px;
+    }
+    .log-title { font-size: 14px; }
+    .log-time { font-size: 12px; color: var(--secondary-text-color); margin-top: 2px; }
     .header {
       display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
       margin-bottom: 10px;
@@ -419,9 +460,10 @@ const pt={attribute:!0,type:String,converter:_,reflect:!1,hasChanged:$},ht=(t=pt
     .tabs {
       display: flex; gap: 4px; border-bottom: 1px solid var(--divider-color, #e0e0e0);
       margin-bottom: 6px;
-      /* Narrow screens can't fit four tabs — scroll instead of clipping the
-         last one. Scrollbar hidden; swipe to reach off-screen tabs. */
-      overflow-x: auto; scrollbar-width: none;
+      /* With six tabs a narrow card can't fit one row. Wrap to a second row
+         rather than scrolling — a half-clipped tab reads as a rendering bug
+         and hides that the tab is even there. */
+      flex-wrap: wrap; row-gap: 0;
     }
     .tabs::-webkit-scrollbar { display: none; }
     .tab {
@@ -724,7 +766,7 @@ const pt={attribute:!0,type:String,converter:_,reflect:!1,hasChanged:$},ht=(t=pt
       width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: left 0.15s;
     }
     .toggle.on::after { left: 21px; }
-  `,t([ut({attribute:!1})],Tt.prototype,"hass",void 0),t([ft()],Tt.prototype,"config",void 0),t([ft()],Tt.prototype,"tab",void 0),t([ft()],Tt.prototype,"alertsDraft",void 0),t([ft()],Tt.prototype,"soilOpen",void 0),t([ft()],Tt.prototype,"soilAllOpen",void 0),t([ft()],Tt.prototype,"deviceOpen",void 0),t([ft()],Tt.prototype,"draft",void 0),t([ft()],Tt.prototype,"modePick",void 0),t([ft()],Tt.prototype,"outletDraft",void 0);class zt extends dt{constructor(){super(...arguments),this._config={type:"custom:spider-farmer-card"}}setConfig(t){this._config={...t}}_emit(t){this._config=t,this.dispatchEvent(new CustomEvent("config-changed",{detail:{config:t},bubbles:!0,composed:!0}))}_panelChanged(t){const e=t.target.value,s={...this._config};e?s.panel=e:delete s.panel,this._emit(s)}_titleChanged(t){const e=t.target.value.trim(),s={...this._config};e?s.title=e:delete s.title,this._emit(s)}_tabChanged(t){const e=t.target.value;this._emit({...this._config,default_tab:e})}_outletToggled(t,e){const s=e.target.checked,i=new Set(this._config.outlets??[]);s?i.add(t):i.delete(t);const r=[...i].sort(),n={...this._config};r.length?n.outlets=r:delete n.outlets,this._emit(n)}render(){if(!this.hass)return q;const t=this._config,e=t.default_tab,s=kt(this.hass),i=Rt(this.hass,t.panel),r=t=>{const e=Ct(this.hass,t);return e?`${t} — ${e}`:t};return V`
+  `,t([ut({attribute:!1})],Tt.prototype,"hass",void 0),t([ft()],Tt.prototype,"config",void 0),t([ft()],Tt.prototype,"tab",void 0),t([ft()],Tt.prototype,"alertsDraft",void 0),t([ft()],Tt.prototype,"soilOpen",void 0),t([ft()],Tt.prototype,"soilAllOpen",void 0),t([ft()],Tt.prototype,"deviceOpen",void 0),t([ft()],Tt.prototype,"draft",void 0),t([ft()],Tt.prototype,"modePick",void 0),t([ft()],Tt.prototype,"outletDraft",void 0),t([ft()],Tt.prototype,"logDate",void 0),t([ft()],Tt.prototype,"logDev",void 0),t([ft()],Tt.prototype,"logType",void 0);class zt extends dt{constructor(){super(...arguments),this._config={type:"custom:spider-farmer-card"}}setConfig(t){this._config={...t}}_emit(t){this._config=t,this.dispatchEvent(new CustomEvent("config-changed",{detail:{config:t},bubbles:!0,composed:!0}))}_panelChanged(t){const e=t.target.value,s={...this._config};e?s.panel=e:delete s.panel,this._emit(s)}_titleChanged(t){const e=t.target.value.trim(),s={...this._config};e?s.title=e:delete s.title,this._emit(s)}_tabChanged(t){const e=t.target.value;this._emit({...this._config,default_tab:e})}_outletToggled(t,e){const s=e.target.checked,i=new Set(this._config.outlets??[]);s?i.add(t):i.delete(t);const r=[...i].sort(),n={...this._config};r.length?n.outlets=r:delete n.outlets,this._emit(n)}render(){if(!this.hass)return q;const t=this._config,e=t.default_tab,s=kt(this.hass),i=Rt(this.hass,t.panel),r=t=>{const e=Ct(this.hass,t);return e?`${t} — ${e}`:t};return V`
       <div class="form">
         <label class="field">
           <span class="flabel">Panel device</span>
@@ -750,6 +792,7 @@ const pt={attribute:!0,type:String,converter:_,reflect:!1,hasChanged:$},ht=(t=pt
             <option value="environment" ?selected=${"environment"===e||"config"===e}>Environment</option>
             <option value="outlets" ?selected=${"outlets"===e}>Outlets</option>
             <option value="calibration" ?selected=${"calibration"===e||"cali"===e}>Calibration</option>
+            <option value="log" ?selected=${"log"===e}>Log</option>
           </select>
         </label>
 
@@ -1000,4 +1043,4 @@ const pt={attribute:!0,type:String,converter:_,reflect:!1,hasChanged:$},ht=(t=pt
     }
     .save { color: #fff; }
     .discard { background: var(--secondary-background-color); color: var(--primary-text-color); }
-  `,t([ut({attribute:!1})],jt.prototype,"hass",void 0),t([ft()],jt.prototype,"config",void 0),t([ft()],jt.prototype,"draft",void 0),customElements.get("spider-farmer-card")||customElements.define("spider-farmer-card",Tt),customElements.get("spider-farmer-card-editor")||customElements.define("spider-farmer-card-editor",zt),customElements.get("spider-light-card")||customElements.define("spider-light-card",jt),window.customCards=window.customCards||[],window.customCards.push({type:"spider-farmer-card",name:"Spider Farmer Card",description:"Tent overview + config for the Spider Farmer Bridge integration",preview:!0,documentationURL:"https://github.com/cobragt2000/spider_farmer_bridge"}),window.customCards.push({type:"spider-light-card",name:"Spider Light Card",description:"Brightness dial, mode, and schedule for a Spider Farmer SE-series light",preview:!0,documentationURL:"https://github.com/cobragt2000/spider_farmer_bridge"}),console.info("%c SPIDER-FARMER-CARD %c v0.16.17 ","color:#fff;background:#ff7a1a;border-radius:3px 0 0 3px;padding:2px 4px","color:#ff7a1a;background:#222;border-radius:0 3px 3px 0;padding:2px 4px");export{Tt as SpiderFarmerCard,zt as SpiderFarmerCardEditor,jt as SpiderLightCard};
+  `,t([ut({attribute:!1})],jt.prototype,"hass",void 0),t([ft()],jt.prototype,"config",void 0),t([ft()],jt.prototype,"draft",void 0),customElements.get("spider-farmer-card")||customElements.define("spider-farmer-card",Tt),customElements.get("spider-farmer-card-editor")||customElements.define("spider-farmer-card-editor",zt),customElements.get("spider-light-card")||customElements.define("spider-light-card",jt),window.customCards=window.customCards||[],window.customCards.push({type:"spider-farmer-card",name:"Spider Farmer Card",description:"Tent overview + config for the Spider Farmer Bridge integration",preview:!0,documentationURL:"https://github.com/cobragt2000/spider_farmer_bridge"}),window.customCards.push({type:"spider-light-card",name:"Spider Light Card",description:"Brightness dial, mode, and schedule for a Spider Farmer SE-series light",preview:!0,documentationURL:"https://github.com/cobragt2000/spider_farmer_bridge"}),console.info("%c SPIDER-FARMER-CARD %c v0.17.2 ","color:#fff;background:#ff7a1a;border-radius:3px 0 0 3px;padding:2px 4px","color:#ff7a1a;background:#222;border-radius:0 3px 3px 0;padding:2px 4px");export{Tt as SpiderFarmerCard,zt as SpiderFarmerCardEditor,jt as SpiderLightCard};

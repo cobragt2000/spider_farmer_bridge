@@ -53,18 +53,29 @@ _LOGGER = logging.getLogger(__name__)
 # Every field the normalizer/proxy currently consumes or knowingly ignores.
 # Anything outside this table is NOVEL and gets flagged.
 _KNOWN_FIELDS: dict[str, set] = {
-    "sensor": {"temp", "humi", "co2", "vpd", "ppfd"},
+    "sensor": {"temp", "humi", "co2", "vpd", "ppfd",
+               "isDaySensor", "isDayEnvTarget"},
+    "alarmLast": {"id", "epoch", "devType", "alarmType", "env", "subidx"},
     "light":  {"mOnOff", "on", "mLevel", "level", "modeType", "lastAutoModeType",
-               "timePeriod", "alarm"},
+               "timePeriod", "alarm", "darkTemp", "offTemp", "ppfdPeriod"},
     "light2": {"mOnOff", "on", "mLevel", "level", "modeType", "lastAutoModeType",
-               "timePeriod", "alarm"},
+               "timePeriod", "alarm", "darkTemp", "offTemp", "ppfdPeriod"},
     "fan":    {"mOnOff", "on", "mLevel", "level", "modeType", "shakeLevel",
                "natural", "timePeriod", "alarm", "maxSpeed", "minSpeed"},
     "blower": {"mOnOff", "on", "mLevel", "level", "modeType", "timePeriod",
                "alarm", "maxSpeed", "minSpeed"},
-    "humidifier":   {"on", "mOnOff", "mLevel", "level", "modeType", "alarm"},
-    "dehumidifier": {"on", "mOnOff", "mLevel", "level", "modeType", "alarm"},
-    "heater":       {"on", "mOnOff", "mLevel", "level", "modeType", "alarm"},
+    "humidifier":   {"on", "mOnOff", "mLevel", "level", "modeType", "alarm",
+                     "timePeriod", "cycleTime"},
+    "dehumidifier": {"on", "mOnOff", "mLevel", "level", "modeType", "alarm",
+                     "timePeriod", "cycleTime"},
+    "heater":       {"on", "mOnOff", "mLevel", "level", "modeType", "alarm",
+                     "timePeriod", "cycleTime"},
+    "sys": {"ver", "hwcode", "hwver", "buildTime", "localtime", "timezone",
+            "TZ", "gmtoff", "upCount", "upTime", "mem", "UTC", "tzoff",
+            "verUpdateNum", "verUpdateTime", "verUpdateWho",
+            "wifi", "eth", "mqtt", "bluetooth"},
+    "oplogLast": {"id", "epoch", "opType", "modeType", "devType",
+                  "subidx", "env"},
     "_soil":  {"id", "tempSoil", "humiSoil", "ECSoil"},   # items of "sensors"
     "_outlet": {"mOnOff", "on", "modeType", "alarm"},     # values of outlet.O*
 }
@@ -76,7 +87,7 @@ _SE_TOP_LEVEL = {
     "lastManualBrightness", "lightModel",
 }
 # Alarm/event log: getAlarmLog carries count/list; getDevSta pushes alarmLast
-# (consumed since 3.19.7). oplogLast (operation log) is not consumed yet.
+# (consumed since 3.19.7) and oplogLast (consumed since 3.19.42).
 _ALARM_BLOCKS = {"count", "list", "alarmLast", "oplogLast"}
 _KNOWN_BLOCKS = (set(_KNOWN_FIELDS) | {"outlet", "sensors"}
                  | _SE_TOP_LEVEL | _ALARM_BLOCKS)

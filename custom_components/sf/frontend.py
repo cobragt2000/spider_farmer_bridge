@@ -43,10 +43,17 @@ def card_url(filename: str, version: str) -> str:
     return f"{URL_BASE}/{filename}?v={version}"
 
 
-async def _ensure_static_path(hass: HomeAssistant) -> None:
-    """Serve the cards/ dir once per HA process."""
+async def _ensure_static_path(hass: HomeAssistant) -> bool:
+    """Serve the cards/ dir once per HA process.
+
+    Returns True when the route is (or already was) registered. A failure is
+    NOT cached: the previous version set the "done" flag even when
+    registration raised, so the Lovelace resource pointed at a URL that 404s
+    for the rest of the HA run — the browser then reports
+    "Custom element doesn't exist: spider-farmer-card" on every page load.
+    """
     if hass.data.get(_STATIC_FLAG):
-        return
+        return True
     try:
         from homeassistant.components.http import StaticPathConfig
 
@@ -54,10 +61,23 @@ async def _ensure_static_path(hass: HomeAssistant) -> None:
             [StaticPathConfig(URL_BASE, _BUNDLE_DIR, False)]
         )
     except ImportError:
-        hass.http.register_static_path(URL_BASE, _BUNDLE_DIR, False)
-    except (RuntimeError, ValueError) as exc:
-        _LOGGER.debug("Static path register skipped: %s", exc)
+        try:
+            hass.http.register_static_path(URL_BASE, _BUNDLE_DIR, False)
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning("Serving Spider Farmer cards failed: %s", exc)
+            return False
+    except RuntimeError as exc:
+        # Already registered by an earlier entry/reload — that's a success.
+        if "already registered" in str(exc).lower():
+            hass.data[_STATIC_FLAG] = True
+            return True
+        _LOGGER.warning("Serving Spider Farmer cards failed: %s", exc)
+        return False
+    except Exception as exc:  # noqa: BLE001
+        _LOGGER.warning("Serving Spider Farmer cards failed: %s", exc)
+        return False
     hass.data[_STATIC_FLAG] = True
+    return True
 
 
 def _lovelace_resources(hass: HomeAssistant):
@@ -130,7 +150,16 @@ async def async_register_card(hass: HomeAssistant, version: str) -> None:
         )
         return
 
-    await _ensure_static_path(hass)
+    if not await _ensure_static_path(hass):
+        # Without the static route the cards can't load; registering the
+        # resource anyway is what produces the "Custom element doesn't exist"
+        # error, so stop here and say why.
+        _LOGGER.error(
+            "Spider Farmer cards not installed: the %s route could not be "
+            "served. The dashboard card will be unavailable until Home "
+            "Assistant is restarted.", URL_BASE,
+        )
+        return
     urls = [card_url(f, version) for f in files]
 
     # Primary: Lovelace resource collection (storage-mode dashboards).

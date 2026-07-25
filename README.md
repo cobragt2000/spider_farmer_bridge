@@ -12,7 +12,7 @@
 [![Downloads](https://img.shields.io/github/downloads/cobragt2000/spider_farmer_bridge/total?color=orange&label=downloads)](https://github.com/cobragt2000/spider_farmer_bridge/releases)
 
 Local control and monitoring for **Spider Farmer GGS (Genius Grow System)**
-devices — Display Paneles, AC5/AC10 power strips, light controllers, grow
+devices — Display Panels, AC5/AC10 power strips, light controllers, grow
 lights, climate gear, and 3-in-1 soil probes — as **native Home Assistant
 entities**. No cloud API, no MQTT broker, no polling the app.
 
@@ -135,6 +135,10 @@ doesn't consume is flagged once — a literal to-do list for feature additions
 — plus full capture of app commands, config responses, detection decisions,
 and contained errors.
 
+> **Sharing diagnostic logs?** They contain your devices' MAC addresses,
+> account UID, and timezone/locale. Redact those before posting a log to a
+> public GitHub issue (search-and-replace the MACs with e.g. `aabbccddeeff`).
+
 **Robustness.** Frame-processing errors are contained (they can never sever a
 device's cloud connection), reloads sever sessions so devices reconnect to
 the new instance (no reboot needed after options changes), a misdetected
@@ -235,6 +239,24 @@ on the HA host). Devices connect within seconds of the rule going live; no
 device-side changes. Needs a router that supports NAT/DNS overrides — most
 consumer routers do not, which is what Option A is for.
 
+Rule checklist:
+
+- **Destination port `8883`** is what the rule must *match* (that's what the
+  devices dial); the **translated/redirect port** is the integration's listen
+  port (e.g. `8000`). Don't put `8000` in the destination-port field — the
+  devices never send anything there, so the rule would match nothing.
+- **Source port stays Any** (clients use random ephemeral ports).
+- **Same subnet? Enable Masquerade/SNAT on the rule.** If the GGS devices and
+  the HA host sit on the same subnet, a destination-NAT-only redirect breaks:
+  the HA host replies *directly* to the device from its own IP instead of the
+  cloud IP the device dialed, and the device drops the reply — the TCP
+  handshake never completes and the proxy log stays silent even though the
+  rule's hit counter climbs. Turning on the rule's **Masquerade / SNAT /
+  NAT reflection** option forces replies back through the router, which
+  un-NATs them. (pfSense: enable NAT reflection + associated outbound NAT for
+  the rule; UniFi/others: tick Masquerade on the NAT rule.) Putting the
+  devices on their own VLAN also avoids this, as does Option A.
+
 ## Configuration (gear icon → Configure)
 
 - **Settings** — listen port, upstream host/port, **Allow device control**
@@ -280,6 +302,15 @@ The main card (`custom:spider-farmer-card`) is a single tabbed card:
   Climate (Air Temp, Humidity, VPD, CO2, PPFD), Substrate (Soil Temp, WC, Soil
   EC), and Other Device flags. Each has an enable toggle and Max/Min limits;
   edits are staged and written together with Save.
+- **Log** — the app's Notification screen: decoded alarm history with raised
+  (red) / restored (green) markers, Device and Type filters, and a date picker
+  that defaults to the current day. Shows that day's entries, newest first
+  (capped at ten rows, scroll for the rest). Appears once the controller's
+  Alarms sensor has data.
+
+On the device tiles, mode-dependent settings (schedules, cycles, speeds) are
+staged as you edit and committed as one atomic write when you press **Save** —
+under the hood the card calls the `sf.apply_bundle` service.
 
 Add it to a dashboard once installed:
 
@@ -288,7 +319,7 @@ type: custom:spider-farmer-card
 panel: dp1                   # the display panel's slot (sf_dp1_*)
 outlets: [dp1, ac5, ac10]    # slots whose outlet modes to show on the Outlets tab (optional)
 title: Grow Tent             # optional
-default_tab: overview        # optional: "overview" (default), "environment", "outlets", or "calibration"
+default_tab: overview        # optional: "overview" (default), "environment", "outlets", "calibration", "alerts", or "log"
 ```
 
 Entities render only when they exist, so partial setups display cleanly: each
@@ -349,6 +380,35 @@ decoded `periods` list as an attribute) and written back with the
 <p align="center">
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/23_light_card.png" width="300" alt="Spider Light card — dial, mode, and schedule editor" />
 </p>
+
+## Troubleshooting the dashboard card
+
+**"Custom element doesn't exist: spider-farmer-card"** means the browser
+couldn't load the card's JavaScript. In order of likelihood:
+
+1. **Hard-refresh the browser** (Ctrl/Cmd-Shift-R; in the companion app:
+   Settings → Companion app → Reset frontend cache). The card is served with a
+   `?v=` version query, and a stale cached page can still reference an old one.
+2. **Check the integration actually loaded.** The cards are served by the
+   integration, so if setup failed the URL 404s and the element never
+   registers. The usual cause is the proxy's **listen port being taken** (port
+   `8883` is the Mosquitto add-on's — use e.g. `8000`); look for
+   `cannot bind port` in Settings → System → Logs. Since 3.19.45 the card is
+   registered before the port is bound, so this no longer breaks the card.
+3. **Confirm the integration folder is `custom_components/sf`.** HA derives the
+   folder from the integration's domain — a folder named after the *repository*
+   (`spider_farmer_bridge`) won't load at all. Rename it to `sf` and restart.
+4. **Check for duplicate/stale resources.** Settings → Dashboards → ⋮ →
+   Resources: there should be exactly one `/sf_bridge_frontend/spider-farmer-card.js`
+   entry. Delete extras (older `?v=` copies), then reload.
+5. **YAML-mode dashboards** don't read the storage resource list; the
+   integration also adds the card as a frontend extra-module URL, which covers
+   this — but a manual `lovelace: resources:` entry pointing at
+   `/sf_bridge_frontend/spider-farmer-card.js` works too.
+
+You do **not** need to symlink or copy the cards into `config/www/` — if that's
+the only thing that makes the card load, something above is the real cause and
+worth reporting with your log.
 
 ## Entity ID scheme
 

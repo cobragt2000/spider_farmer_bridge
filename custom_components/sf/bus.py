@@ -142,6 +142,7 @@ from .entity_defs import (
     build_air_calibration_entities,
     build_alarms_entity,
     build_alarm_settings_entity,
+    build_oplog_entity,
     build_soil_calibration_entities,
     SUBSTRATE_OPTIONS,
     _device_model,
@@ -190,6 +191,8 @@ class SfBus:
         self._air_cal: dict[str, dict] = {}          # mac -> air calibration block
         self._alarm_events: dict[str, dict] = {}     # mac -> {id: event}
         self._alarm_seeded: set[str] = set()         # macs seen once (don't fire on backfill)
+        self._oplog_events: dict[str, dict] = {}     # mac -> {id: op entry}
+        self._oplog_seeded: set[str] = set()
         self.keep_offline: bool = True               # v3.9.0: keep entities for
                                                      # blocks that stop reporting
         self.env_entities: bool = True               # create Environment device
@@ -805,6 +808,40 @@ class SfBus:
             try:
                 self.hass.bus.async_fire("sf_alarm", {"mac": mac, **e})
             except Exception:  # noqa: BLE001 — never let event firing break parsing
+                pass
+
+    def apply_oplog(self, mac_raw: str, events: list) -> None:
+        """Merge decoded operation-log entries (v3.19.42): create the
+        Operations sensor once, publish the merged list (newest first), and
+        fire an ``sf_oplog`` HA event for each genuinely new entry (skipped on
+        the first backfill so restarts don't replay history)."""
+        if not isinstance(events, list) or not events:
+            return
+        import json as _json
+        mac = _mac(mac_raw)
+        store = self._oplog_events.setdefault(mac, {})
+        seeded = mac in self._oplog_seeded
+        fresh = []
+        for e in events:
+            if not isinstance(e, dict) or e.get("id") is None:
+                continue
+            eid = e["id"]
+            if eid not in store and seeded:
+                fresh.append(e)
+            store[eid] = e
+        self._oplog_seeded.add(mac)
+        if f"ggs_{mac}_oplog" not in self._registered:
+            cfg = {"mac": mac_raw, "type": self._type_for_mac(mac_raw) or "cb"}
+            self._add_defs([build_oplog_entity(cfg, slot=self._slot_for_cfg(cfg))])
+        merged = sorted(
+            store.values(),
+            key=lambda x: (x.get("epoch") or 0, x.get("id") or 0), reverse=True,
+        )[:50]
+        self.publish(f"ggs/ha/{mac}/oplog/state", _json.dumps(merged))
+        for e in fresh:
+            try:
+                self.hass.bus.async_fire("sf_oplog", {"mac": mac, **e})
+            except Exception:  # noqa: BLE001
                 pass
 
     def apply_alarm_settings(self, mac_raw: str, alarm: dict) -> None:

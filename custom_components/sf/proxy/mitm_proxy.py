@@ -407,6 +407,18 @@ class MITMProxy:
                 })
             except Exception as exc:
                 _LOGGER.debug("env target poll failed: %s", exc)
+        # Alarm/notification history (v3.19.41): the device only reports the
+        # log when asked (the app's Notification screen). Poll it so HA's
+        # Alarms sensor backfills without the app.
+        if sess.device_type in ("cb", "ps5", "ps10"):
+            try:
+                await sess.inject({
+                    "method": "getAlarmLog", "pid": sess.mac_raw,
+                    "params": {"offset": 0, "count": 50},
+                    "msgId": str(int(time.time() * 1000)), "uid": sess.uid,
+                })
+            except Exception as exc:
+                _LOGGER.debug("alarm log poll failed: %s", exc)
         # Panels/strips: pull the whole config file so senConfig (soil names,
         # calibration, substrate) and the top-level air calibration arrive
         # reliably. The device does NOT answer targeted getConfigField reads
@@ -946,6 +958,14 @@ def _process_publish(
             apply = getattr(mqtt_client, "apply_alarms", None)
             if apply is not None and entry:
                 apply(session.mac_raw, [entry])
+        # oplogLast: latest device operation, pushed the same way (v3.19.42).
+        ol = d.get("oplogLast") if isinstance(d, dict) else None
+        if isinstance(ol, dict) and ol.get("epoch") is not None:
+            from .normalizer import _decode_oplog_entry
+            entry = _decode_oplog_entry(ol)
+            apply = getattr(mqtt_client, "apply_oplog", None)
+            if apply is not None and entry:
+                apply(session.mac_raw, [entry])
 
     # ── Device type detection (evidence accumulated across frames) ────────
     if method == "getDevSta":
@@ -969,7 +989,8 @@ def _process_publish(
         if isinstance(sensor_block, dict) and _air_sensor_live(sensor_block):
             present |= {
                 f"sensor:{k}"
-                for k in ("temp", "humi", "co2", "vpd", "ppfd")
+                for k in ("temp", "humi", "co2", "vpd", "ppfd",
+                          "isDaySensor", "isDayEnvTarget")
                 if k in sensor_block
             }
         # Standalone SE-series lights (pcode 1005) report a FLAT schema —
@@ -1122,6 +1143,16 @@ def _process_publish(
                     try:
                         await session.inject({
                             "method": "getConfigFile", "pid": session.mac_raw,
+                            "msgId": str(int(time.time() * 1000)),
+                            "uid": session.uid,
+                        })
+                    except Exception:
+                        pass
+                    # Backfill the alarm/notification history once at connect.
+                    try:
+                        await session.inject({
+                            "method": "getAlarmLog", "pid": session.mac_raw,
+                            "params": {"offset": 0, "count": 50},
                             "msgId": str(int(time.time() * 1000)),
                             "uid": session.uid,
                         })

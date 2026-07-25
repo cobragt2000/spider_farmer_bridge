@@ -94,8 +94,24 @@ def _decode_se_periods(tp: Any) -> list:
 # devType / alarmType are numeric enums; only devType 8 / alarmType 2 have been
 # captured so far, so the raw values are surfaced with a best-effort label that
 # can be extended as more captures arrive.
-_ALARM_DEVTYPE = {}     # id -> label (extend from future captures)
-_ALARM_TYPE = {}        # id -> label
+# Confirmed from live correlation (2026-07-25): a triggered temp-above alarm
+# fired devType 1 / alarmType 1, and an app-visible "Humidity Restoring
+# normal" matched a devType-2 entry with no alarmType to the second. Raise/
+# restore entries strictly alternate; the alarmType is absent on restores.
+# 3/5/7/8 are inferred from the alarm-settings metric order (temp, humi, vpd,
+# co2 / soil temp, WC) and their below-threshold firing patterns.
+_ALARM_DEVTYPE = {
+    1: "Air Temp",          # confirmed
+    2: "Humidity",          # confirmed
+    3: "VPD",               # inferred
+    5: "CO2",               # confirmed (app notification matched wire entry)
+    7: "Soil Temp",         # inferred
+    8: "Soil WC",           # inferred
+}
+_ALARM_TYPE = {
+    1: "Above threshold",   # confirmed
+    2: "Below threshold",   # confirmed (dry-season humidity/soil lows)
+}
 
 
 def _alarm_iso(epoch: Any) -> Optional[str]:
@@ -119,7 +135,9 @@ def _decode_alarm_entry(a: Any) -> Optional[dict]:
         "devType": dt,
         "device": _ALARM_DEVTYPE.get(dt, f"Device {dt}" if dt is not None else None),
         "alarmType": at,
-        "alarm": _ALARM_TYPE.get(at, f"Alarm {at}" if at is not None else None),
+        # No alarmType on the wire == the metric returned to normal.
+        "alarm": ("Restoring normal" if at is None
+                  else _ALARM_TYPE.get(at, f"Alarm {at}")),
     }
 
 
@@ -309,6 +327,7 @@ def normalize_status(
         return out
 
     _decode_air(out, e, d.get("sensor", {}))
+    _decode_sys(out, e, d.get("sys", {}))
     for module, num in (("light", 1), ("light2", 2)):
         _decode_light(out, e, num, d.get(module, {}),
                       (light_cache or {}).get(module, {}))
@@ -328,11 +347,67 @@ def normalize_status(
     return out
 
 
+def _decode_sys(out, e, sys_block):
+    """System/health block (v3.19.42): firmware version, uptime, and link
+    status. Reported by controllers in the ``sys`` top-level block."""
+    if not isinstance(sys_block, dict) or not sys_block:
+        return
+    ver = sys_block.get("ver")
+    if ver not in (None, ""):
+        out[f"ggs/ha/{e}/fw_version/state"] = str(ver)
+    if "upTime" in sys_block:
+        try:
+            out[f"ggs/ha/{e}/uptime/state"] = str(int(sys_block["upTime"]))
+        except (ValueError, TypeError):
+            pass
+    wifi = sys_block.get("wifi")
+    if isinstance(wifi, dict):
+        if "isConnect" in wifi:
+            out[f"ggs/ha/{e}/wifi_connected/state"] = (
+                "ON" if wifi.get("isConnect") else "OFF")
+        if wifi.get("rssi") is not None:
+            try:
+                out[f"ggs/ha/{e}/wifi_rssi/state"] = str(int(wifi["rssi"]))
+            except (ValueError, TypeError):
+                pass
+    eth = sys_block.get("eth")
+    if isinstance(eth, dict) and "isConnect" in eth:
+        out[f"ggs/ha/{e}/eth_connected/state"] = (
+            "ON" if eth.get("isConnect") else "OFF")
+
+
+def _decode_oplog_entry(a: Any) -> Optional[dict]:
+    """One operation-log entry {id, epoch, opType, modeType, devType, subidx,
+    env} -> HA dict. Codes are raw until label tables are captured."""
+    if not isinstance(a, dict):
+        return None
+    return {
+        "id": a.get("id"),
+        "epoch": a.get("epoch"),
+        "time": _alarm_iso(a.get("epoch")),
+        "opType": a.get("opType"),
+        "modeType": a.get("modeType"),
+        "devType": a.get("devType"),
+        "subidx": a.get("subidx"),
+        "env": a.get("env"),
+    }
+
+
 def _decode_air(out, e, sensor):
     for src, field in (("temp", "temperature"), ("humi", "humidity"),
                        ("co2", "co2"), ("vpd", "vpd"), ("ppfd", "ppfd")):
         if src in sensor:
             out[f"ggs/ha/{e}/{field}/state"] = str(sensor[src])
+    # Day/night flags (v3.19.41): isDaySensor = day as seen by the light
+    # sensor; isDayEnvTarget = inside the environment day-cycle window.
+    for src, field in (("isDaySensor", "is_day_sensor"),
+                       ("isDayEnvTarget", "is_day_env_target")):
+        if src in sensor:
+            try:
+                out[f"ggs/ha/{e}/{field}/state"] = (
+                    "ON" if int(sensor[src]) else "OFF")
+            except (ValueError, TypeError):
+                pass
 
 
 # Panel light modeType -> label (12 == PPFD).

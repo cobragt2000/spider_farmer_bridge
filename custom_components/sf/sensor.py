@@ -32,7 +32,7 @@ async def async_setup_entry(
     def _add(defs: list[SfDef]) -> None:
         async_add_entities(
             SfScheduleSensor(bus, d) if d.kind == "schedule"
-            else SfAlarmsSensor(bus, d) if d.kind == "alarms"
+            else SfAlarmsSensor(bus, d) if d.kind in ("alarms", "oplog")
             else SfAlarmSettingsSensor(bus, d) if d.kind == "alarm_settings"
             else SfSensor(bus, d)
             for d in defs

@@ -169,9 +169,10 @@ class SfDef:
 # own field token instead of the whole block.
 EVIDENCE_BLOCKS = (
     "sensor:temp", "sensor:humi", "sensor:co2", "sensor:vpd", "sensor:ppfd",
+    "sensor:isDaySensor", "sensor:isDayEnvTarget",
     "light", "light2", "fan", "blower",
     "humidifier", "dehumidifier", "heater",
-    "selight",
+    "selight", "sys",
 )
 
 
@@ -230,6 +231,31 @@ def build_device_entities(
             defs.append(d("sensor", "ppfd", "PPFD",
               unit="µmol/m²/s", state_class="measurement",
               icon="mdi:white-balance-sunny"))
+    # ── System/health diagnostics (v3.19.42): the "sys" block ─────────────
+    if want("sys"):
+        defs += [
+            d("sensor", "fw_version", "Firmware Version",
+              icon="mdi:chip", entity_category="diagnostic"),
+            d("sensor", "uptime", "Uptime", unit="s",
+              device_class="duration", state_class="measurement",
+              icon="mdi:timer-outline", entity_category="diagnostic"),
+            d("sensor", "wifi_rssi", "WiFi Signal", unit="dBm",
+              device_class="signal_strength", state_class="measurement",
+              icon="mdi:wifi", entity_category="diagnostic"),
+            d("binary_sensor", "wifi_connected", "WiFi Connected",
+              icon="mdi:wifi-check", entity_category="diagnostic"),
+            d("binary_sensor", "eth_connected", "Ethernet Connected",
+              icon="mdi:ethernet", entity_category="diagnostic"),
+        ]
+
+    if dtype in _FULL_TYPES:
+        # Day/night flags (v3.19.41): reported inside the sensor block.
+        if want("sensor:isDaySensor"):
+            defs.append(d("binary_sensor", "is_day_sensor",
+              "Daytime (Light Sensor)", icon="mdi:weather-sunny"))
+        if want("sensor:isDayEnvTarget"):
+            defs.append(d("binary_sensor", "is_day_env_target",
+              "Daytime (Schedule)", icon="mdi:sun-clock"))
 
     # ── Outlets ───────────────────────────────────────────────────────────
     if caps["hasOutlets"] and include_outlets:
@@ -690,6 +716,19 @@ def build_alarms_entity(device_cfg, slot=None):
         device_name=_device_name(device_cfg), device_model=_device_model(device_cfg),
         slot=slot, entity_category="diagnostic", icon="mdi:bell-alert",
         object_id=(f"sf_{slot}_alarms" if slot else None),
+    )
+
+
+def build_oplog_entity(device_cfg, slot=None):
+    """Per-controller operation-log sensor: state = latest operation time,
+    attribute ``events`` = decoded entries. Created on first oplog data."""
+    mac_raw = device_cfg.get("mac", "")
+    return SfDef(
+        platform="sensor", field="oplog", name="Operations", kind="oplog",
+        mac=_mac(mac_raw), mac_raw=mac_raw,
+        device_name=_device_name(device_cfg), device_model=_device_model(device_cfg),
+        slot=slot, entity_category="diagnostic", icon="mdi:history",
+        object_id=(f"sf_{slot}_oplog" if slot else None),
     )
 
 

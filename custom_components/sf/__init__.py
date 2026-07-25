@@ -7,6 +7,7 @@ import ssl
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 
@@ -141,6 +142,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # presenting months-old restored values as current.
     bus.start_grace(120)
 
+    # ── Bundled Lovelace cards (opt-in in Settings) ──────────────────────
+    # Registered BEFORE the TLS/port work below: if the proxy can't bind (the
+    # classic port-8883-taken-by-Mosquitto case) this setup returns False, and
+    # a card installed on an earlier run would keep its Lovelace resource
+    # entry while its static route was never served — the browser then shows
+    # "Custom element doesn't exist: spider-farmer-card" on every load.
+    await _apply_card_option(hass, cfg)
+    # Re-assert once HA has fully started: on a cold boot this entry can be
+    # set up before frontend/lovelace are ready to accept the registration.
+    async def _recheck_cards(_event) -> None:
+        await _apply_card_option(hass, cfg)
+
+    entry.async_on_unload(
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _recheck_cards)
+    )
+
     # ── TLS server context (blocking load in executor) ────────────────────
     def _build_ssl_ctx():
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -188,9 +205,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         DATA_PROXY_TASK: proxy_task,
         "stop_event":    stop_event,
     })
-
-    # ── Optional bundled Lovelace card (opt-in in Settings) ───────────────
-    await _apply_card_option(hass, cfg)
 
     # Remove the card's internal "Apply" write-channel entities left over
     # from older versions. Saves now go through the sf.apply_bundle service,

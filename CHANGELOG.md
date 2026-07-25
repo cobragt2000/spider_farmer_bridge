@@ -3,6 +3,115 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.47
+
+### Changed
+- **The Log tab now shows only the selected day.** It previously listed the picked date *and
+  everything earlier*, so months-old entries appeared under today's date. Pick a date to see
+  that day's alarms; the picker still defaults to the current day and rolls over at midnight.
+  (Bundled card v0.17.2.)
+
+## 3.19.46
+
+### Fixed
+- **Log tab clipped the tab bar and ran off the bottom of the card.** With six tabs the row
+  scrolled horizontally, which left "Log" half cut off (and hid that it existed); the tab bar
+  now wraps to a second row on narrow cards. The log list itself is capped at roughly ten
+  rows and scrolls for the rest, with an entry count above it. (Bundled card v0.17.1.)
+
+## 3.19.45
+
+### Fixed
+- **"Custom element doesn't exist: spider-farmer-card" (recurring).** Three separate causes,
+  all fixed:
+  - A **failed static-route registration was cached as success** — the integration marked the
+    card route "served" even when registering it raised, so the Lovelace resource pointed at
+    a URL that 404s for the rest of the HA run. Failures are no longer cached, and the
+    integration now logs a clear error instead of registering a resource it can't serve.
+  - **Card registration happened after the proxy bound its port.** If the bind failed (the
+    classic "listen port 8883 is Mosquitto's" case) setup returned early, leaving a card
+    resource from an earlier run pointing at a route that never got served. The card is now
+    registered *before* the port work, so a bind failure no longer breaks the dashboard.
+  - **Load order.** `lovelace` was missing from the integration's `after_dependencies`, so on
+    a cold boot the resource registration could be skipped silently. It's declared now, and
+    the registration is re-asserted once Home Assistant has fully started.
+
+### Added
+- **README: "Troubleshooting the dashboard card"** — an ordered checklist (hard refresh,
+  integration load failure, wrong `custom_components` folder name, duplicate resources, YAML
+  mode). Symlinking or copying the cards into `config/www/` is *not* needed; if that's the
+  only thing that helps, one of the listed causes is the real one.
+
+## 3.19.44
+
+### Added
+- **Log tab on the tent card** — the app's Notification screen, in HA. Shows the decoded
+  alarm history (red bar = raised, green = restored) with a **Device** filter (panel + nested
+  strips, shown when more than one has a log), a **Type** filter built from the metrics
+  actually present (Air Temp, Humidity, CO2, …), and a **date picker that always defaults to
+  the current day** — entries from the picked day and earlier are listed, newest first. The
+  tab appears once a controller's Alarms sensor exists; `default_tab: log` is supported in
+  the card config and editor. (Bundled card v0.17.0.)
+- **`default_tab: alerts`** now works too (previously the editor offered tabs the option
+  didn't accept).
+
+### Changed
+- **CO2 alarm label upgraded from inferred to confirmed** — an app-visible "CO₂ Below
+  threshold" notification matched the wire entry exactly.
+
+## 3.19.43
+
+### Added
+- **Alarm events now carry human-readable labels.** Decoded from live correlation of a
+  triggered temp-above alarm and app-visible notification history: `Air Temp`/`Humidity`
+  (confirmed) plus `VPD`/`CO2`/`Soil Temp`/`Soil WC` (inferred) for the source, and
+  `Above threshold` / `Below threshold` / `Restoring normal` for the event — so the Alarms
+  sensor and `sf_alarm` automation events read like the app's Notification screen instead of
+  raw codes. Unknown codes still surface as `Device N` / `Alarm N`.
+
+### Notes
+- The alarm-log poll added in 3.19.41 is confirmed working: controllers answer the
+  `{"offset": 0, "count": 50}` read with their full recent history (an empty `data` reply
+  just means that device has no log).
+
+## 3.19.42
+
+### Added
+- **System/health diagnostic sensors.** Controllers that report the `sys` block get
+  **Firmware Version**, **Uptime**, **WiFi Signal** (dBm), **WiFi Connected**, and
+  **Ethernet Connected** — created evidence-based, grouped under Diagnostic.
+- **Operations log.** The controller pushes its latest operation (outlet switched by a mode,
+  schedule fired, …) in every status frame; it's now an **Operations** sensor (state = latest
+  operation time, last 50 decoded entries in the `events` attribute) plus an `sf_oplog` HA
+  event per new entry for automations — same pattern as the Alarms sensor. Codes (`opType`,
+  `devType`, `modeType`) are raw until label captures land.
+
+### Fixed
+- **Novel-field detector table refreshed.** Climate schedule read-backs
+  (`heater/humidifier/dehumidifier timePeriod`/`cycleTime`) and the light threshold/PPFD
+  read-backs (`darkTemp`, `offTemp`, `ppfdPeriod`) have been decoded since earlier releases —
+  the diagnostic log wrongly flagged them as NOVEL. The known-fields table now matches
+  reality, so the NOVEL feed is back to being a true to-do list.
+
+## 3.19.41
+
+### Added
+- **Day/night binary sensors.** Controllers report two day/night flags in every status frame
+  and they're now entities: **Daytime (Light Sensor)** (`isDaySensor` — day as detected by the
+  light sensor) and **Daytime (Schedule)** (`isDayEnvTarget` — whether the environment
+  day-cycle window is currently active). Created evidence-based like every other sensor, so
+  they appear only on controllers that actually report them.
+- **Alarm/notification history now backfills without the app.** The controller only reports
+  its alarm log when asked, which used to mean HA's Alarms sensor filled in only while the SF
+  app's Notification screen was open (plus the passive latest-alarm on every status frame).
+  The integration now requests the alarm log at connect and on the periodic poll, so the
+  Alarms sensor (last 50 events, newest first) and `sf_alarm` HA events work standalone.
+
+### Notes
+- Alarm device/type labels are still raw codes (`Device 8`, `Alarm 2`) — the wire values
+  aren't documented. If you match a code to what the app's Notification screen shows for the
+  same event, captures are welcome to fill in the label tables.
+
 ## 3.19.40
 
 ### Fixed

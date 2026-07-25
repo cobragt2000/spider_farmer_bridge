@@ -4,6 +4,7 @@
   "after_dependencies": [
     "http",
     "frontend",
+    "lovelace",
     "recorder"
   ],
   "codeowners": [
@@ -15,5 +16,5 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/cobragt2000/spider_farmer_bridge/issues",
   "requirements": [],
-  "version": "3.19.40"
+  "version": "3.19.47"
 }

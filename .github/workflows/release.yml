@@ -3,6 +3,13 @@ name: Release
 on:
   release:
     types: [published]
+  # Manual fallback: run against any existing tag from the Actions tab
+  # (e.g. if a release was published before this workflow existed).
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and attach sf.zip to (e.g. v3.19.40)"
+        required: true
 
 permissions:
   contents: write
@@ -12,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       # HACS extracts this zip into custom_components/sf, so the
       # integration files must sit at the zip root (no nested folders).
@@ -24,3 +33,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: sf.zip
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}

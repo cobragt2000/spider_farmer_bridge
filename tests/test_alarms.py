@@ -15,16 +15,32 @@ CB_MAC_LC = "0a1b2c3d4e01"
 
 
 def test_decode_alarm_log():
+    """devType/alarmType carry human labels since 3.19.43 (decoded from live
+    correlation against the app's Notification screen)."""
     d = {"count": 1, "list": [{"id": 386, "epoch": 1784571720,
                                "devType": 8, "alarmType": 2}]}
     got = decode_alarm_log(d)
     assert got == [{
         "id": 386, "epoch": 1784571720,
         "time": "2026-07-20T18:22:00+00:00",   # 13:22 CDT
-        "devType": 8, "device": "Device 8",
-        "alarmType": 2, "alarm": "Alarm 2",
+        "devType": 8, "device": "Soil WC",
+        "alarmType": 2, "alarm": "Below threshold",
     }]
     assert decode_alarm_log({}) == []
+
+
+def test_decode_alarm_log_restore_and_unknown():
+    """No alarmType on the wire == the metric returned to normal; unrecognised
+    codes still fall back to their raw form rather than dropping the entry."""
+    got = decode_alarm_log({"count": 2, "list": [
+        {"id": 1, "epoch": 1784571720, "devType": 1},              # restore
+        {"id": 2, "epoch": 1784571800, "devType": 99, "alarmType": 7},
+    ]})
+    assert got[0]["device"] == "Air Temp"
+    assert got[0]["alarmType"] is None
+    assert got[0]["alarm"] == "Restoring normal"
+    assert got[1]["device"] == "Device 99"
+    assert got[1]["alarm"] == "Alarm 7"
 
 
 def _alarm_pkt(events, count=None):

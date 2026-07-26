@@ -3,6 +3,28 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.49
+
+### Fixed
+- **Dashboard cards intermittently showing "Configuration error" after a page refresh.**
+  On a cache-cold reload Home Assistant could build the tent/light cards a moment before the
+  (large) card bundle finished registering its custom elements; HA then rendered a
+  "Configuration error" box and did not always rebuild it once the element appeared, so the
+  card stayed broken until another manual refresh. The card now self-heals: after it loads it
+  re-asserts its element registrations (which triggers HA's own rebuild) and nudges any
+  stranded error card of its own to rebuild, across a few short passes right after load. Live
+  testing confirmed that once the elements are (re)defined HA immediately swaps the error box
+  for the real card. (Bundled card v0.17.4.)
+
+## 3.19.48
+
+### Fixed
+- **Environment tab: the "Dead Zone" dropdown no longer stretches across the whole row.**
+  It previously took all the space left after Night/Day, making it far wider than the values
+  it holds. It's now a compact box aligned to the right edge of each row (Temperature,
+  Humidity, CO2), with Night/Day still sized to their contents on the left. (Bundled card
+  v0.17.3.)
+
 ## 3.19.47
 
 ### Changed

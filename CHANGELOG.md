@@ -3,6 +3,62 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.52
+
+### Changed
+- **Sensor-offline alarm now labelled.** An app capture confirmed a devType 16 / alarmType 3
+  entry as **"Temperature & Humidity Sensor — Current device is offline"**, so it and its
+  "Restoring normal" now read like the app instead of "Device 16 / Alarm 3". alarmType 3 is
+  decoded as the offline condition generally, so devType 17 (a second device that fires it)
+  reads "Device 17 Current device is offline" until its own device name is captured.
+
+### Notes
+- **Over-temperature is still the one remaining unmapped alarm** — it hasn't appeared in any
+  capture. A diagnostic log while it's active (with the app's Notification screen) will finish
+  the set.
+
+## 3.19.51
+
+### Changed
+- **Alarm labels fully confirmed against the app, and two more decoded.** A frame-by-frame
+  match of the SF app's Notification screen against the wire log confirmed every metric label
+  from 3.19.50 to the second — including Soil Temp (devType 6) and Soil EC (devType 8), which
+  were previously inferred and are now confirmed. Two alarms that had been surfacing as raw
+  "Device 26 / Device 27" are now decoded: **Humidification — "Humidifier is out of water"**
+  (devType 27 / alarmType 4) and **Dehumidification — "Dehumidifier water tank is full"**
+  (devType 26 / alarmType 5), matching the app's wording exactly.
+
+### Notes
+- **Over-temperature and sensor/device-offline alarms are still not labelled.** The only
+  candidates in captured history are a devType 16 / 17 pair (both alarmType 3) from
+  2025-11-23, which surface as "Device 16/17". They aren't yet correlated to an app entry, so
+  which is over-temp and which is offline is unconfirmed — a diagnostic log captured while one
+  of those alarms is active (with the app's Notification screen for cross-reference) will pin
+  them down.
+
+## 3.19.50
+
+### Fixed
+- **Log tab only showed alarms since HA booted — the rest of the device's history
+  was never fetched.** The controller pages its alarm history with a *cursor*
+  (`{"limit":N,"id":X}`, returning entries with id greater than X — exactly how the
+  SF app's Notification screen loads it). The integration was instead sending a
+  single `{"offset":0,"count":50}`, which the firmware only answers with the
+  *oldest ~10* entries; everything between that oldest slice and whatever arrived
+  live since boot was invisible. The poll now walks the cursor forward from a
+  per-device high-water id, one page at a time, until it catches up — so the full
+  buffered history (hundreds of entries) backfills into the Alarms sensor and the
+  Log tab. Later polls fetch only genuinely new entries. Verified against a live
+  capture: all 344 buffered entries for a panel now ingest in a handful of pages.
+
+### Changed
+- **Alarm labels corrected from a confirmed app correlation.** Matching the app's
+  Notification screen to the wire log by exact timestamp: **VPD** (devType 3) is now
+  confirmed (was inferred), and **devType 7 is "WC"** (water content) — it was
+  mislabelled "Soil Temp". The soil group is now read as devType 6/7/8 =
+  Soil Temp / WC / Soil EC (6 and 8 remain inferred, anchored by the confirmed
+  dev7=WC). Unmapped codes still surface as "Device N".
+
 ## 3.19.49
 
 ### Fixed

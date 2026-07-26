@@ -18,15 +18,62 @@ def test_decode_alarm_log():
     """devType/alarmType carry human labels since 3.19.43 (decoded from live
     correlation against the app's Notification screen)."""
     d = {"count": 1, "list": [{"id": 386, "epoch": 1784571720,
-                               "devType": 8, "alarmType": 2}]}
+                               "devType": 7, "alarmType": 2}]}
     got = decode_alarm_log(d)
     assert got == [{
         "id": 386, "epoch": 1784571720,
         "time": "2026-07-20T18:22:00+00:00",   # 13:22 CDT
-        "devType": 8, "device": "Soil WC",
+        "devType": 7, "device": "WC",          # confirmed via app (3.19.50)
         "alarmType": 2, "alarm": "Below threshold",
     }]
     assert decode_alarm_log({}) == []
+
+
+def test_alarm_log_cursor_paging():
+    """v3.19.50: a full page (>=50) advances the high-water id and schedules the
+    next page; a short page means caught-up and resets the walk. This is the
+    core of the history backfill — the device pages with {limit,id:cursor}
+    returning id>cursor, so a single {offset:0} only ever saw the oldest slice."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    async def run():
+        bus = MagicMock()
+        bus.apply_alarms = MagicMock()
+        session = ProxySession(CB_MAC, bus)
+        session.set_client(MagicMock())  # so inject() has a writer target
+        injected = []
+        async def fake_inject(payload):
+            injected.append(payload)
+        session.inject = fake_inject
+
+        assert session.alarm_hw == 0
+        # Full page of 50 (ids 56..105) -> hw=105 and one next-page injected.
+        full = [{"id": i, "epoch": 1784571720 + i, "devType": 3, "alarmType": 1}
+                for i in range(56, 106)]
+        _process_publish(session, _alarm_pkt(full), bus)
+        await asyncio.sleep(0)  # let the create_task run
+        assert session.alarm_hw == 105
+        assert injected and injected[-1]["params"] == {"limit": 50, "id": 105}
+
+        # Short page (2 entries) -> caught up: hw advances, no new page, reset.
+        before = len(injected)
+        short = [{"id": 106, "epoch": 1, "devType": 1, "alarmType": 1},
+                 {"id": 107, "epoch": 2, "devType": 2}]
+        _process_publish(session, _alarm_pkt(short), bus)
+        await asyncio.sleep(0)
+        assert session.alarm_hw == 107
+        assert session.alarm_pages == 0
+        assert len(injected) == before  # no further page scheduled
+
+        # A stale/repeat page (ids <= hw) makes no progress -> no new page.
+        _process_publish(session, _alarm_pkt(
+            [{"id": 60, "epoch": 1, "devType": 1, "alarmType": 1}]), bus)
+        await asyncio.sleep(0)
+        assert session.alarm_hw == 107
+        assert len(injected) == before
+
+    asyncio.get_event_loop().run_until_complete(run())
 
 
 def test_decode_alarm_log_restore_and_unknown():

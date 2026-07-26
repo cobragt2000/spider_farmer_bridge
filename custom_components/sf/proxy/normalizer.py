@@ -91,26 +91,40 @@ def _decode_se_periods(tp: Any) -> list:
     return out
 
 
-# devType / alarmType are numeric enums; only devType 8 / alarmType 2 have been
-# captured so far, so the raw values are surfaced with a best-effort label that
-# can be extended as more captures arrive.
-# Confirmed from live correlation (2026-07-25): a triggered temp-above alarm
-# fired devType 1 / alarmType 1, and an app-visible "Humidity Restoring
-# normal" matched a devType-2 entry with no alarmType to the second. Raise/
-# restore entries strictly alternate; the alarmType is absent on restores.
-# 3/5/7/8 are inferred from the alarm-settings metric order (temp, humi, vpd,
-# co2 / soil temp, WC) and their below-threshold firing patterns.
+# devType / alarmType are numeric enums surfaced with a best-effort label.
+# All labels below are CONFIRMED by exact-timestamp correlation of the app's
+# Notification screen against the wire alarm log (2026-07-25 and 2026-07-26
+# captures): every metric name and the humidifier/dehumidifier water messages
+# matched the app to the second.
+#   dev1 Air Temp   dev2 Humidity   dev3 VPD   dev5 CO2
+#   dev6 Soil Temp  dev7 WC         dev8 Soil EC
+#   dev26 Dehumidification (alarmType 5 = water tank full)
+#   dev27 Humidification   (alarmType 4 = out of water)
+# Raise/restore entries alternate; a restore carries no alarmType and reads
+# "Restoring normal". alarmType 3 is an offline condition (not a threshold):
+# the app showed "Temperature & Humidity Sensor Current device is offline" for
+# a devType-16 / alarmType-3 entry (2025-11-23 09:18:25). devType 17 also fires
+# alarmType 3 — a different device going offline — but hasn't been correlated to
+# an app entry, so it reads "Device 17 Current device is offline". The
+# over-temperature alarm has not appeared in any capture yet.
 _ALARM_DEVTYPE = {
-    1: "Air Temp",          # confirmed
-    2: "Humidity",          # confirmed
-    3: "VPD",               # inferred
-    5: "CO2",               # confirmed (app notification matched wire entry)
-    7: "Soil Temp",         # inferred
-    8: "Soil WC",           # inferred
+    1: "Air Temp",                        # confirmed (app)
+    2: "Humidity",                        # confirmed (app)
+    3: "VPD",                             # confirmed (app)
+    5: "CO2",                             # confirmed (app)
+    6: "Soil Temp",                       # confirmed (app "Soil Temperature")
+    7: "WC",                              # confirmed (app "WC")
+    8: "Soil EC",                         # confirmed (app "Soil EC")
+    16: "Temperature & Humidity Sensor",  # confirmed (app, offline alarm)
+    26: "Dehumidification",               # confirmed (app)
+    27: "Humidification",                 # confirmed (app)
 }
 _ALARM_TYPE = {
-    1: "Above threshold",   # confirmed
-    2: "Below threshold",   # confirmed (dry-season humidity/soil lows)
+    1: "Above threshold",                   # confirmed (app)
+    2: "Below threshold",                   # confirmed (app)
+    3: "Current device is offline",         # confirmed (app, devType 16)
+    4: "Humidifier is out of water",        # confirmed (app, devType 27)
+    5: "Dehumidifier water tank is full",   # confirmed (app, devType 26)
 }
 
 

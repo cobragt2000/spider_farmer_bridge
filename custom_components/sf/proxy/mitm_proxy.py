@@ -197,6 +197,14 @@ class ProxySession:
         self.confirm_delay: float = 2.0
         self._pending_confirms: set = set()
         self.initial_poll_task: Optional[asyncio.Task] = None
+        # Alarm-log cursor paging (v3.19.50). The controller pages its alarm
+        # history with {"limit":N,"id":cursor}, returning entries with id >
+        # cursor. alarm_hw is the highest alarm id we've ingested; we seed each
+        # poll with it (id:0 on a fresh session backfills the whole buffer) and
+        # walk forward one page at a time until a short page means we're caught
+        # up. alarm_pages bounds a single backfill walk.
+        self.alarm_hw: int = 0
+        self.alarm_pages: int = 0
 
     def set_upstream(self, writer: asyncio.StreamWriter) -> None:
         self._upstream_writer = writer
@@ -412,9 +420,13 @@ class MITMProxy:
         # Alarms sensor backfills without the app.
         if sess.device_type in ("cb", "ps5", "ps10"):
             try:
+                # Cursor paging (v3.19.50): seed from the high-water id. On a
+                # fresh session alarm_hw is 0, so this backfills the whole
+                # buffer (the response handler walks the pages forward); later
+                # polls fetch only entries newer than what we already have.
                 await sess.inject({
                     "method": "getAlarmLog", "pid": sess.mac_raw,
-                    "params": {"offset": 0, "count": 50},
+                    "params": {"limit": 50, "id": sess.alarm_hw},
                     "msgId": str(int(time.time() * 1000)), "uid": sess.uid,
                 })
             except Exception as exc:
@@ -928,13 +940,44 @@ def _process_publish(
 
     method = data.get("method")
 
-    # ── Alarm / event log (getAlarmLog response, app-initiated) ───────────
+    # ── Alarm / event log (getAlarmLog response) ─────────────────────────
+    # The controller pages its alarm history with a cursor: a request of
+    # {"limit":N,"id":X} returns up to N entries whose id is > X. A single
+    # {"offset":0,"count":50} (the pre-3.19.50 poll) only ever handed back the
+    # oldest ~10 entries, so everything between the oldest slice and whatever
+    # arrived live since HA booted was invisible on the Log tab. Here we walk
+    # the cursor forward — seeded from alarm_hw — one full page at a time until
+    # the device returns a short page (caught up). This ingests both our own
+    # injected pages and any the app happens to request.
     if method == "getAlarmLog":
         from .normalizer import decode_alarm_log
-        events = decode_alarm_log(data.get("data", {}))
+        d_alarm = data.get("data", {})
+        events = decode_alarm_log(d_alarm)
         apply = getattr(mqtt_client, "apply_alarms", None)
         if apply is not None and events:
             apply(session.mac_raw, events)
+        lst = d_alarm.get("list") if isinstance(d_alarm, dict) else None
+        ids = [a.get("id") for a in (lst or []) if isinstance(a.get("id"), int)]
+        if ids:
+            mx = max(ids)
+            # Only advance/page on genuine forward progress; this also stops us
+            # chaining forever off the app's own repeated reads.
+            if mx > session.alarm_hw:
+                session.alarm_hw = mx
+                full_page = len(lst or []) >= 50
+                if full_page and session.alarm_pages < 80:
+                    session.alarm_pages += 1
+                    nxt = {
+                        "method": "getAlarmLog", "pid": session.mac_raw,
+                        "params": {"limit": 50, "id": mx},
+                        "msgId": str(int(time.time() * 1000)), "uid": session.uid,
+                    }
+                    try:
+                        asyncio.create_task(session.inject(nxt))
+                    except RuntimeError:
+                        pass
+                else:
+                    session.alarm_pages = 0
         return
 
     if method not in ("getDevSta", "getConfigField", "getConfigFile"):
@@ -1148,11 +1191,14 @@ def _process_publish(
                         })
                     except Exception:
                         pass
-                    # Backfill the alarm/notification history once at connect.
+                    # Backfill the alarm/notification history at connect. Seed
+                    # the cursor from the high-water id (0 on a fresh session =
+                    # full backfill); the response handler walks the pages
+                    # forward until caught up (v3.19.50).
                     try:
                         await session.inject({
                             "method": "getAlarmLog", "pid": session.mac_raw,
-                            "params": {"offset": 0, "count": 50},
+                            "params": {"limit": 50, "id": session.alarm_hw},
                             "msgId": str(int(time.time() * 1000)),
                             "uid": session.uid,
                         })

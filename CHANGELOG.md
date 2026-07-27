@@ -3,6 +3,38 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.55
+
+### Fixed
+- **PPFD alarm Min now stops at 3900 (100 below the 4000 Max), matching the app.** The Min
+  dropdown had offered values all the way to 4000; the app's PPFD Min tops out 100 µmol/m²/s
+  under the Max ceiling. Min now ranges 0–3900 while Max stays 0–4000. (Bundled card v0.17.6.)
+
+## 3.19.54
+
+### Fixed
+- **PPFD alarm max now reaches 4000.** The Alerts-tab PPFD dropdowns were capped at 3000, but
+  the controller's PPFD alarm range goes to 4000 µmol/m²/s (its default max is 4000) — so the
+  default couldn't be shown and high maxes couldn't be set. Raised the bound to 4000 to match
+  the app. (Bundled card v0.17.5.)
+
+## 3.19.53
+
+### Added
+- **Min PPFD in the Alerts tab.** The PPFD alarm was max-only; it now offers a **Min** as well,
+  matching the other range metrics. It writes a `vmin` into the same alarm block the controller
+  already parses (the value round-trips); a controller that doesn't act on a low-PPFD alarm just
+  won't fire it.
+
+### Changed
+- **Three more alarms decoded from a confirmed app capture (2026-07-27).** **Soil Sensor**
+  offline (devType 19 — this was the "Device 19" still showing in the Log Type filter),
+  **Light 1** over-temperature ("The light temperature is too high", devType 20 / alarmType 6),
+  and its "Restoring normal" now read like the app instead of raw "Device N / Alarm N". That
+  covers the over-temperature and soil-sensor-offline alarms. (devType 17 — a still-unnamed
+  device that also fires the offline condition — remains "Device 17 Current device is offline"
+  until its own app entry is captured.)
+
 ## 3.19.52
 
 ### Changed

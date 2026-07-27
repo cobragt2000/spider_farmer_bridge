@@ -101,12 +101,14 @@ def _decode_se_periods(tp: Any) -> list:
 #   dev26 Dehumidification (alarmType 5 = water tank full)
 #   dev27 Humidification   (alarmType 4 = out of water)
 # Raise/restore entries alternate; a restore carries no alarmType and reads
-# "Restoring normal". alarmType 3 is an offline condition (not a threshold):
-# the app showed "Temperature & Humidity Sensor Current device is offline" for
-# a devType-16 / alarmType-3 entry (2025-11-23 09:18:25). devType 17 also fires
-# alarmType 3 — a different device going offline — but hasn't been correlated to
-# an app entry, so it reads "Device 17 Current device is offline". The
-# over-temperature alarm has not appeared in any capture yet.
+# "Restoring normal". Non-threshold alarmTypes: 3 = a device-offline condition
+# ("<device> Current device is offline"), 4/5 = humidifier/dehumidifier water,
+# 6 = light over-temperature. Devices that go offline are named by devType:
+# 16 = Temperature & Humidity Sensor, 19 = Soil Sensor (both confirmed via app).
+# devType 17 also fires alarmType 3 (some other device offline) but hasn't been
+# correlated to an app entry yet, so it reads "Device 17 Current device is
+# offline". devType 20 = Light 1, whose alarmType 6 is "The light temperature
+# is too high" (confirmed 2026-07-27).
 _ALARM_DEVTYPE = {
     1: "Air Temp",                        # confirmed (app)
     2: "Humidity",                        # confirmed (app)
@@ -116,15 +118,18 @@ _ALARM_DEVTYPE = {
     7: "WC",                              # confirmed (app "WC")
     8: "Soil EC",                         # confirmed (app "Soil EC")
     16: "Temperature & Humidity Sensor",  # confirmed (app, offline alarm)
+    19: "Soil Sensor",                    # confirmed (app, offline alarm)
+    20: "Light 1",                        # confirmed (app, over-temp alarm)
     26: "Dehumidification",               # confirmed (app)
     27: "Humidification",                 # confirmed (app)
 }
 _ALARM_TYPE = {
     1: "Above threshold",                   # confirmed (app)
     2: "Below threshold",                   # confirmed (app)
-    3: "Current device is offline",         # confirmed (app, devType 16)
+    3: "Current device is offline",         # confirmed (app, devType 16/19)
     4: "Humidifier is out of water",        # confirmed (app, devType 27)
     5: "Dehumidifier water tank is full",   # confirmed (app, devType 26)
+    6: "The light temperature is too high",  # confirmed (app, devType 20)
 }
 
 
@@ -168,7 +173,11 @@ _ALARM_CLIMATE = [
     ("humi", "Air Humi", "%", "range", False, 1),
     ("vpd", "VPD", "kPa", "range", False, 0.1),
     ("co2", "CO2", "ppm", "range", False, 10),
-    ("ppfd", "PPFD", "µmol/m²/s", "max", False, 10),
+    # PPFD carries only vmax on the wire (no vmin), but the alarm block accepts a
+    # vmin in the same read-modify-write shape every other metric uses, so the
+    # Alerts tab now offers a Min as well (v3.19.53). A device that doesn't act
+    # on a low-PPFD alarm simply won't fire it; the value still round-trips.
+    ("ppfd", "PPFD", "µmol/m²/s", "range", False, 10),
 ]
 _ALARM_SUBSTRATE = [
     ("tempSoil", "Soil Temp", "°F", "range", True, 1),

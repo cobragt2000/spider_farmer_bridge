@@ -1,4 +1,4 @@
-/*! spider-farmer-card v0.17.4 | MIT */
+/*! spider-farmer-card v0.17.6 | MIT */
 function t(t,e,s,i){var r,a=arguments.length,o=a<3?e:null===i?i=Object.getOwnPropertyDescriptor(e,s):i;if("object"==typeof Reflect&&"function"==typeof Reflect.decorate)o=Reflect.decorate(t,e,s,i);else for(var n=t.length-1;n>=0;n--)(r=t[n])&&(o=(a<3?r(o):a>3?r(e,s,o):r(e,s))||o);return a>3&&o&&Object.defineProperty(e,s,o),o}"function"==typeof SuppressedError&&SuppressedError;
 /**
  * @license
@@ -363,18 +363,18 @@ const pt={attribute:!0,type:String,converter:_,reflect:!1,hasChanged:$},ht=(t=pt
                 @click=${()=>this.saveAlerts()}>Save</button>`:V`<span class="alert-hint">Toggle an alert and adjust its limits, then Save.</span>`}
       </div>`}renderAlertGroup(t,e,s){const i=t[e]||[];return i.length?V`
       <div class="section-label">${s}</div>
-      ${i.map((t,s)=>this.renderAlertMetric(e,s,t))}`:q}alertBounds(t){switch(t){case"temp":case"tempSoil":return[32,122];case"humi":case"humiSoil":default:return[0,100];case"vpd":return[0,6];case"co2":return[0,5e3];case"ppfd":return[0,3e3];case"ECSoil":return[0,10]}}renderAlertMetric(t,e,s){const i=this.accent(),[r,a]=this.alertBounds(s.key),o=Number(s.step??1)||1,n=this.numOpts(r,a,o),l=(i,r)=>V`
+      ${i.map((t,s)=>this.renderAlertMetric(e,s,t))}`:q}alertBounds(t){switch(t){case"temp":case"tempSoil":return[32,122];case"humi":case"humiSoil":default:return[0,100];case"vpd":return[0,6];case"co2":return[0,5e3];case"ppfd":return[0,4e3];case"ECSoil":return[0,10]}}renderAlertMetric(t,e,s){const i=this.accent(),[r,a]=this.alertBounds(s.key),o=Number(s.step??1)||1,n="ppfd"===s.key?Math.max(r,a-100):a,l=(i,l)=>{const c=this.numOpts(r,"min"===l?n:a,o);return V`
       <label class="av">
         <span class="av-lbl">${i}</span>
         <span class="num-box">
-          <select .value=${String(s[r]??"")}
-            @change=${s=>this.editAlert(i=>{i[t][e][r]=Number(s.target.value)})}>
-            ${n.map(t=>V`
-              <option value=${t.value} ?selected=${String(t.value)===String(s[r]??"")}>${t.label}</option>`)}
+          <select .value=${String(s[l]??"")}
+            @change=${s=>this.editAlert(i=>{i[t][e][l]=Number(s.target.value)})}>
+            ${c.map(t=>V`
+              <option value=${t.value} ?selected=${String(t.value)===String(s[l]??"")}>${t.label}</option>`)}
           </select>
           <span class="unit">${s.unit??""}</span>
         </span>
-      </label>`;return V`
+      </label>`};return V`
       <div class="alert-row ${s.enabled?"":"off"}">
         <div class="alert-head">
           <span class="alert-name">${s.label} <span class="unit">${s.unit??""}</span></span>
@@ -1070,4 +1070,4 @@ const pt={attribute:!0,type:String,converter:_,reflect:!1,hasChanged:$},ht=(t=pt
     }
     .save { color: #fff; }
     .discard { background: var(--secondary-background-color); color: var(--primary-text-color); }
-  `,t([ut({attribute:!1})],jt.prototype,"hass",void 0),t([ft()],jt.prototype,"config",void 0),t([ft()],jt.prototype,"draft",void 0),customElements.get("spider-farmer-card")||customElements.define("spider-farmer-card",Tt),customElements.get("spider-farmer-card-editor")||customElements.define("spider-farmer-card-editor",zt),customElements.get("spider-light-card")||customElements.define("spider-light-card",jt),window.customCards=window.customCards||[],window.customCards.push({type:"spider-farmer-card",name:"Spider Farmer Card",description:"Tent overview + config for the Spider Farmer Bridge integration",preview:!0,documentationURL:"https://github.com/cobragt2000/spider_farmer_bridge"}),window.customCards.push({type:"spider-light-card",name:"Spider Light Card",description:"Brightness dial, mode, and schedule for a Spider Farmer SE-series light",preview:!0,documentationURL:"https://github.com/cobragt2000/spider_farmer_bridge"}),console.info("%c SPIDER-FARMER-CARD %c v0.17.4 ","color:#fff;background:#ff7a1a;border-radius:3px 0 0 3px;padding:2px 4px","color:#ff7a1a;background:#222;border-radius:0 3px 3px 0;padding:2px 4px"),(()=>{const t=["spider-farmer-card","spider-light-card"],e=new Set([...t,...t.map(t=>`custom:${t}`)]),s=()=>{const t=[["spider-farmer-card",Tt],["spider-farmer-card-editor",zt],["spider-light-card",jt]];for(const[e,s]of t)if(!customElements.get(e))try{customElements.define(e,s)}catch{}},i=()=>{let t=0;for(const s of(()=>{const t=[],e=new Set,s=i=>{if(!i||e.has(i))return;e.add(i);let r=[];try{r=i.querySelectorAll("hui-error-card")}catch{return}r.forEach(e=>t.push(e));let a=[];try{a=i.querySelectorAll("*")}catch{return}a.forEach(t=>{const e=t.shadowRoot;e&&s(e)})};return s(document),t})()){const i=s._config||{},r=i.origConfig&&i.origConfig.type||i.type||"";e.has(r)&&(s.dispatchEvent(new CustomEvent("ll-rebuild",{bubbles:!0,composed:!0})),t++)}return t};let r=0;const a=()=>{s(),i(),++r<12&&setTimeout(a,250)},o=()=>{s(),a()};"complete"===document.readyState?o():window.addEventListener("load",o,{once:!0})})();export{Tt as SpiderFarmerCard,zt as SpiderFarmerCardEditor,jt as SpiderLightCard};
+  `,t([ut({attribute:!1})],jt.prototype,"hass",void 0),t([ft()],jt.prototype,"config",void 0),t([ft()],jt.prototype,"draft",void 0),customElements.get("spider-farmer-card")||customElements.define("spider-farmer-card",Tt),customElements.get("spider-farmer-card-editor")||customElements.define("spider-farmer-card-editor",zt),customElements.get("spider-light-card")||customElements.define("spider-light-card",jt),window.customCards=window.customCards||[],window.customCards.push({type:"spider-farmer-card",name:"Spider Farmer Card",description:"Tent overview + config for the Spider Farmer Bridge integration",preview:!0,documentationURL:"https://github.com/cobragt2000/spider_farmer_bridge"}),window.customCards.push({type:"spider-light-card",name:"Spider Light Card",description:"Brightness dial, mode, and schedule for a Spider Farmer SE-series light",preview:!0,documentationURL:"https://github.com/cobragt2000/spider_farmer_bridge"}),console.info("%c SPIDER-FARMER-CARD %c v0.17.6 ","color:#fff;background:#ff7a1a;border-radius:3px 0 0 3px;padding:2px 4px","color:#ff7a1a;background:#222;border-radius:0 3px 3px 0;padding:2px 4px"),(()=>{const t=["spider-farmer-card","spider-light-card"],e=new Set([...t,...t.map(t=>`custom:${t}`)]),s=()=>{const t=[["spider-farmer-card",Tt],["spider-farmer-card-editor",zt],["spider-light-card",jt]];for(const[e,s]of t)if(!customElements.get(e))try{customElements.define(e,s)}catch{}},i=()=>{let t=0;for(const s of(()=>{const t=[],e=new Set,s=i=>{if(!i||e.has(i))return;e.add(i);let r=[];try{r=i.querySelectorAll("hui-error-card")}catch{return}r.forEach(e=>t.push(e));let a=[];try{a=i.querySelectorAll("*")}catch{return}a.forEach(t=>{const e=t.shadowRoot;e&&s(e)})};return s(document),t})()){const i=s._config||{},r=i.origConfig&&i.origConfig.type||i.type||"";e.has(r)&&(s.dispatchEvent(new CustomEvent("ll-rebuild",{bubbles:!0,composed:!0})),t++)}return t};let r=0;const a=()=>{s(),i(),++r<12&&setTimeout(a,250)},o=()=>{s(),a()};"complete"===document.readyState?o():window.addEventListener("load",o,{once:!0})})();export{Tt as SpiderFarmerCard,zt as SpiderFarmerCardEditor,jt as SpiderLightCard};

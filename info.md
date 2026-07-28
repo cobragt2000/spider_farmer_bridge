@@ -34,16 +34,5 @@ live HA entity and (optionally) HA can send commands back.
 3. Redirect the GGS devices' `TCP 8883` traffic to your HA host at your
    router/firewall (e.g. a pfSense port-forward)
 
-TLS certificates are generated automatically on first setup — each install
-gets its own local CA.
-
 See the full README for architecture, network setup, and the entity-ID
 scheme.
-
-## Credits
-
-An independent implementation, with thanks to the community projects that first
-reverse-engineered the Spider Farmer GGS protocol:
-[Schedule 4 Real](https://github.com/EddiePiazza/schedule-4-real) and
-[iceboerg/spiderfarmer-bridge](https://github.com/iceboerg00/spiderfarmer-bridge).
-Not affiliated with Spider Farmer.

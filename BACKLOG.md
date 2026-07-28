@@ -2,6 +2,75 @@
 
 Deferred items to pick up later. Not scheduled; captured so they aren't lost.
 
+## Open / remaining (as of 2026-07-27)
+
+Current outstanding items, newest work first. Most of the alarm feed (item 8
+below) is now shipped — cursor paging (3.19.50) and confirmed labels through
+3.19.52/53. These are what's left:
+
+- **Firmware "update available" detection + notify (deferred — needs a capture).**
+  The controller's *current* firmware is already exposed (`sys.ver` -> Firmware
+  Version sensor, 3.19.42), and each attached accessory reports its own
+  `fwVersion`/`hwVersion` in `getGGSDev` (soil probes, sensors — not surfaced
+  yet). What's missing is any "latest available version" signal: across ~52k
+  captured messages there is no firmware-check method on the proxied
+  MQTT-over-TLS link, so the OTA/update check almost certainly runs on a
+  separate cloud endpoint the SF app hits, not through the bridge. Do NOT call
+  Spider Farmer's cloud directly (undocumented, fragile, breaks local-only).
+  Plan when a real update is pending: (1) capture a diagnostic log while the SF
+  app is checking/showing a firmware update and see whether that traffic crosses
+  the proxy; if it does, decode it into an HA `update` entity + notification.
+  Feasible now regardless: notify on firmware *change* (fire an event when
+  `sys.ver` changes) and add per-accessory firmware sensors from `getGGSDev`.
+
+  **Bluetooth path (evaluated 2026-07-27).** Reference:
+  `https://github.com/cr0ssn0tice/Spider-Farmer-GGS-Controller-MQTT` — a working
+  reverse-engineering of the GGS controller's BLE protocol. Key facts:
+  - The controller (`SF-GGS-CB`) speaks **plain, unencrypted JSON over standard
+    BLE GATT**: service `0000ff00-…`, notifications on `0000ff01-…`
+    (device→client, pushes the same `getDevSta` telemetry), command writes on
+    `0000ff02-…`. Same payload shape we already decode from the TLS proxy.
+  - **Hardware: an ESP32 is NOT required for us.** That repo ships a convenience
+    ESP32 firmware (`.ino`, ESP32-WROOM-32 / NodeMCU ESP32; ESP8266 unsupported —
+    no BLE), but it also proved the protocol over plain `bleak` on a PC. Since HA
+    uses `bleak` natively, we can drive it from the **HA host's built-in
+    Bluetooth or a USB BLE dongle**. An ESP32 is only ever an *optional*
+    range-extender via ESPHome `bluetooth_proxy` (not this repo's firmware).
+  - Caveats to test first: BLE range (~10 m line-of-sight); the controller likely
+    allows **one BLE connection at a time**, so HA holding the link may block the
+    SF app (and vice-versa); and BLE carries the *same* telemetry, with no
+    firmware-"update-available" field shown in the repo — so BLE gives a fully
+    cloud-free control/telemetry path but does **not** by itself answer the
+    update-check question. Still need a capture (network or BLE) taken while an
+    update is actually pending. (Requested 2026-07-27.)
+
+- **Alarm devType 17 label — needs a capture.** devType 16 = Temperature &
+  Humidity Sensor and devType 19 = Soil Sensor are confirmed offline sources
+  (alarmType 3). devType 17 also fires the offline condition but has never been
+  matched to an app Notification entry, so it renders "Device 17 Current device
+  is offline". Capture the app's Notification screen + a diagnostic log while a
+  devType-17 alarm is active to name it. Label-only, low risk.
+
+- **"Lights off" alarm code — not yet seen.** Over-temperature is mapped
+  (devType 20 "Light 1" / alarmType 6 "The light temperature is too high",
+  3.19.53). A separate "lights off" alarm was mentioned but no distinct wire
+  code has appeared — the captured light entries were only the over-temp raise
+  and its restore. Grab the app Notification + log when a lights-off alarm fires
+  to map its devType/alarmType.
+
+- **Confirm the Min-PPFD alarm actually fires on-device.** 3.19.53 added a Min
+  PPFD threshold in the Alerts tab; it writes `vmin` into the alarm block in the
+  same shape every other metric uses and round-trips correctly. Whether the
+  firmware acts on a *low*-PPFD alarm is unverified — set a min and confirm it
+  triggers. If the device ignores it, note the limitation on the control.
+
+- **PPFD Min ceiling: fixed 3900 vs. dynamic.** 3.19.55 caps the PPFD Min
+  dropdown at a fixed 3900 (100 below the 4000 Max ceiling), matching the app
+  capture where Max was 4000. Not yet confirmed whether the app caps Min at
+  (currently-selected Max − 100) instead — i.e. Min ≤ 700 when Max is set to
+  800. If so, switch the Min ceiling from fixed to dynamic. Needs an app capture
+  with Max set below 4000.
+
 ## Soil sensor usability (requested 2026-07-11)
 
 1. **[DONE in 3.11.2b1] Pro/Basic labels in the Device mappings list**

@@ -15,6 +15,8 @@ device message via command_handler.py.
 from __future__ import annotations
 
 import logging
+import re
+import time
 from typing import Any, Optional
 
 from homeassistant.core import HomeAssistant, callback
@@ -152,6 +154,13 @@ from .entity_defs import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# A soil-probe measurement state topic: ggs/ha/{mac}/soil_{serial}_{metric}/state
+# (excludes the per-device soil_avg_* topics). Used to timestamp each probe so a
+# probe that stops reporting (unplugged) can be flipped to unavailable per-probe.
+_SOIL_STATE_RE = re.compile(
+    r"^ggs/ha/([^/]+)/soil_(?!avg_)([A-Za-z0-9]+)_(?:temperature|moisture|ec)/state$"
+)
+
 _PLATFORM_DOMAIN = {
     "sensor": "sensor",
     "binary_sensor": "binary_sensor",
@@ -195,6 +204,13 @@ class SfBus:
         self._oplog_seeded: set[str] = set()
         self.keep_offline: bool = True               # v3.9.0: keep entities for
                                                      # blocks that stop reporting
+        # Per-probe offline (v3.19.57): a soil probe that stops appearing in the
+        # controller's data (unplugged) is flipped to unavailable after
+        # _soil_timeout seconds, instead of freezing on its last reading.
+        self._soil_seen: dict[str, float] = {}       # "{mac}/{serial}" -> monotonic
+        self._soil_online: dict[str, bool] = {}      # last-dispatched per-probe online
+        self._soil_timeout: float = 90.0
+        self._soil_timer_cancel = None
         self.env_entities: bool = True               # create Environment device
 
     def start_grace(self, seconds: float) -> None:
@@ -216,6 +232,9 @@ class SfBus:
         if self._grace_cancel is not None:
             self._grace_cancel()
             self._grace_cancel = None
+        if self._soil_timer_cancel is not None:
+            self._soil_timer_cancel()
+            self._soil_timer_cancel = None
 
     def device_online(self, mac: str) -> bool:
         """Per-device availability with the startup grace window: a device
@@ -224,6 +243,52 @@ class SfBus:
         if mac in self.device_available:
             return self.device_available[mac]
         return not self._grace_over
+
+    # ── Per-probe soil freshness (v3.19.57) ───────────────────────────────
+    def _note_soil_seen(self, topic: str) -> None:
+        """Timestamp the probe behind a soil measurement topic. First soil
+        frame also starts the staleness sweep. A probe that had gone offline
+        and is now reporting again is flipped back immediately."""
+        m = _SOIL_STATE_RE.match(topic)
+        if not m:
+            return
+        mac, serial = m.group(1), m.group(2)
+        key = f"{mac}/{serial}"
+        self._soil_seen[key] = time.monotonic()
+        if not self._soil_online.get(key, True):
+            self._soil_online[key] = True
+            async_dispatcher_send(self.hass, SIGNAL_DEVICE_AVAIL_FMT.format(mac))
+        if self._soil_timer_cancel is None:
+            from datetime import timedelta
+            from homeassistant.helpers.event import async_track_time_interval
+            self._soil_timer_cancel = async_track_time_interval(
+                self.hass, self._check_soil_freshness, timedelta(seconds=30)
+            )
+
+    @callback
+    def _check_soil_freshness(self, _now=None) -> None:
+        """Flip probes silent longer than _soil_timeout to offline (and their
+        entities to unavailable) by re-dispatching device availability."""
+        mono = time.monotonic()
+        stale_macs: set[str] = set()
+        for key, seen in self._soil_seen.items():
+            online = (mono - seen) <= self._soil_timeout
+            if self._soil_online.get(key, True) != online:
+                self._soil_online[key] = online
+                stale_macs.add(key.split("/", 1)[0])
+        for mac in stale_macs:
+            async_dispatcher_send(self.hass, SIGNAL_DEVICE_AVAIL_FMT.format(mac))
+
+    def probe_online(self, mac: str, serial: str) -> bool:
+        """True while a soil probe is fresh. A probe not seen this boot reads
+        online during the startup grace (its controller may not have sent a
+        frame yet); once grace closes, a still-silent probe — e.g. one unplugged
+        before HA started — reads offline. Grace-close dispatches SIGNAL_
+        AVAILABILITY, which re-renders these entities."""
+        seen = self._soil_seen.get(f"{mac}/{serial}")
+        if seen is None:
+            return not self._grace_over
+        return (time.monotonic() - seen) <= self._soil_timeout
 
     # ── paho-compatible publish interface (called by proxy code) ──────────
 
@@ -255,6 +320,9 @@ class SfBus:
 
         if topic.startswith("ggs/ha/") and topic.endswith("/state"):
             self.states[topic] = payload
+            # Stamp the probe BEFORE dispatching so the entity re-renders with a
+            # fresh timestamp (avoids a one-frame lag flipping back from offline).
+            self._note_soil_seen(topic)
             async_dispatcher_send(self.hass, SIGNAL_STATE_FMT.format(topic), payload)
             return
 

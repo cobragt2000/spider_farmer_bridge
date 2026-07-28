@@ -3,6 +3,93 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.63
+
+### Changed
+- **"All Soil Stats" is now a tile.** The full-width "All Soil Sensors Stats" bar became a
+  proper Overview tile in the Parameters grid that expands the same per-probe table (Temp / WC /
+  EC) below the grid. The tile shows the probe count, and **turns red reading "N offline" when
+  one or more probes are offline** — matching the red rows in the expanded table. Verified live
+  (4 probes, 2 offline → red "2 offline"). (Bundled card v0.17.13.)
+
+## 3.19.62
+
+### Fixed
+- **Humidifier "TANK EMPTY" fault tile never lit up.** The fault check looked for a
+  `humidifier_water` entity, but the sensor's entity_id is `humidifier_tank` (derived from its
+  "Tank" name), so an empty humidifier never turned the tile red. Corrected to the right entity —
+  verified live with an empty tank. (Dehumidifier/heater ids were already correct.) (Bundled
+  card v0.17.12.)
+
+## 3.19.61
+
+### Changed
+- **Climate fault tiles reworded.** The humidifier's out-of-water fault now reads **"TANK
+  EMPTY"** and the dehumidifier's full-tank fault reads **"TANK FULL"** (shown in red only when
+  the fault is active). Same behaviour as 3.19.60, clearer wording. (Bundled card v0.17.11.)
+
+## 3.19.60
+
+### Added
+- **Fault highlighting on the climate device tiles.** The Humidifier, Dehumidifier and Heater
+  Overview tiles now turn red when the controller reports that device's live fault: the
+  humidifier is **"Out of water"**, the dehumidifier tank is **"Tank full"**, or the heater
+  reports an **"Alarm"**. These use the same always-on red treatment as the soil-offline flag
+  (a hardware fault, independent of the Settings-tab colour choice). Verified against live
+  entities (`humidifier_water` / `dehumidifier_tank` / `heater_status`). (Bundled card v0.17.10.)
+
+### Notes
+- The **heater "Alarm"** is decoded from the controller's per-device alarm flag; its exact
+  meaning (likely an over-temperature/overheat cutout) isn't yet confirmed against the app, so
+  the tile shows a generic "Alarm". If a capture pins it down, the label can be made specific.
+
+## 3.19.59
+
+### Fixed
+- **Overview tiles clipping off the right edge on mobile.** A long tile value (notably the
+  offline "Unavailable" text) widened its grid column enough to push the third column past the
+  card and off-screen on narrow phones. The parameter grid now uses `minmax(0, 1fr)` columns
+  with `min-width: 0` tiles so a wide value clips inside its own tile instead of overflowing the
+  card, and an offline soil-average tile now reads the shorter **"Offline"** (no unit) rather
+  than "Unavailable". Verified on a live card: at a 380px width the grid no longer overflows.
+  (Bundled card v0.17.9.)
+
+## 3.19.58
+
+### Added
+- **Offline soil probes are flagged red on the card.** Building on the per-probe offline
+  detection (3.19.57): a **Soil Avg** Overview tile that's unavailable (a probe on that
+  controller is offline) now shows red, and both soil breakdowns — the per-metric "by probe"
+  popup and the "All Soil Sensors Stats" table — give the offline probe's row a red backing and
+  red text (reading "Offline" in the popup) instead of a plain white row. This is a fault
+  indicator, shown regardless of the Settings-tab colour choice. (Bundled card v0.17.8.)
+
+## 3.19.57
+
+### Fixed
+- **An unplugged soil probe now shows offline instead of a frozen reading.** The controller
+  simply drops an offline probe from its data, so its Temperature / Moisture / EC entities used
+  to freeze on their last value (e.g. a plausible-looking 71 °F) with no sign the probe was
+  gone. Each probe is now timestamped as it reports; if one goes silent for ~90 seconds its
+  three entities flip to **unavailable** (per-probe — the controller and the other probes stay
+  online), and clear again the moment it reports. A probe that's already unplugged when Home
+  Assistant starts likewise reads unavailable once the 120-second startup grace closes. The
+  per-controller **Soil Avg** sensors are
+  unchanged: they still go unavailable when the controller has no live probes, which remains
+  the at-a-glance "a probe is offline, go look" cue.
+
+## 3.19.56
+
+### Added
+- **Settings tab: out-of-range tile highlighting.** A new Settings tab on the tent card lets
+  you pick how an Overview reading is flagged when it crosses its alarm limits — **No color**,
+  **Tile color** (the whole tile tints), or **Text color** (just the value). Red = above max,
+  blue = below min. It only colours metrics whose alarm is switched on in the Alerts tab, and
+  compares each reading against that metric's own min/max (Air Temp, Humidity, VPD, CO2, PPFD,
+  Soil Temp, WC, Soil EC). The choice is remembered per panel on the device (localStorage) and
+  can also be preset in YAML with `alarm_colors: tile | text | off`. The Settings tab appears
+  once a controller's alarm thresholds exist. (Bundled card v0.17.7.)
+
 ## 3.19.55
 
 ### Fixed

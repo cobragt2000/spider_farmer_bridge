@@ -214,7 +214,16 @@ class SfEntity(RestoreEntity):
 
     @property
     def available(self) -> bool:
-        return self.bus.available and self.bus.device_online(self.d.mac)
+        if not (self.bus.available and self.bus.device_online(self.d.mac)):
+            return False
+        # Per-probe soil offline (v3.19.57): a probe that stopped reporting is
+        # unavailable even while its controller is online, so an unplugged probe
+        # shows offline instead of a frozen last reading. Averages are unaffected
+        # (the _SOIL_FIELD_RE excludes soil_avg_*).
+        m = _SOIL_FIELD_RE.match(self.d.field or "")
+        if m:
+            return self.bus.probe_online(self.d.mac, m.group(1))
+        return True
 
     # ── Subclass hooks ─────────────────────────────────────────────────────
 

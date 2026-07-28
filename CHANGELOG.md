@@ -3,6 +3,67 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.73
+
+### Added
+- **Custom highlight colours and in-range colouring in the Settings tab.** The out-of-range section
+  now has two colour pickers — **Above max** and **Below min** — so you can set your own colours in
+  place of the default red / blue (they apply everywhere out-of-range colouring shows: Overview tiles
+  and the soil per-probe breakdowns). A new **In-range highlight** section mirrors the same three
+  modes (No color / Tile color / Text color) with its own colour picker, so readings *within* their
+  limits can be highlighted too — it colours every reading and is off by default. All five settings
+  stage behind the Apply bar and persist server-side per controller, like the existing colour mode.
+  Offline / fault tiles stay their fixed red. (Bundled card v0.17.23.)
+
+## 3.19.72
+
+### Changed
+- **Every Save/Discard prompt is now one standardized Apply/Discard bar.** All commit prompts across
+  the card — device tiles, Environment, Calibration, Outlets, Settings, Alerts, and the SE-light
+  schedule — share the same wording ("Apply" / "Discard"), the same button order and styling, and the
+  same disabled-until-changed behaviour. Previously some read "Save" with the buttons in the opposite
+  order; the older Alerts and schedule bars have been brought in line. (Bundled card v0.17.22.)
+
+## 3.19.71
+
+### Changed
+- **Environment, Calibration, Outlets, and Settings now stage edits behind an Apply button.**
+  Previously these tabs wrote to the device the instant you changed a dropdown or toggle. Each tab
+  now collects your edits locally and commits them together when you press **Apply** at the bottom
+  (with a **Discard** to revert), matching the Alerts tab. A staged control shows a small accent
+  bar until applied.
+  - Environment: Day Cycle start/stop and every Day / Night / Dead Zone value.
+  - Calibration: all air and soil offsets plus the substrate pick.
+  - Outlets: the outlet's power On/Off, mode, mode settings, and Time Slot schedule all apply
+    together from the one Apply bar in the expanded outlet (the schedule's separate Save is gone;
+    "+ Add slot" stays). The tile reflects your staged power/mode before you apply.
+  - Settings: the out-of-range colour choice is applied on Apply instead of instantly.
+  (Bundled card v0.17.21.)
+
+## 3.19.70
+
+### Added
+- **Day / Night cycle pill on the Overview "Parameters" header.** The right of the header now
+  shows a sun · "Day Cycle" or moon · "Night Cycle" badge, driven by the controller's own daytime
+  schedule (the Environment tab's Day Cycle Start/Stop, or the device's schedule sensor where it
+  exposes one; handles a window that wraps past midnight). Hidden on controllers with no cycle info.
+- **Light-leak alert.** When it's the night cycle and light is present, a red "Light detected"
+  alert appears centred between the Parameters label and the cycle pill. Controllers with a PPFD
+  sensor trip it when PPFD rises above the dark floor (> 1 µmol) and show the reading
+  ("Light detected · 118 µmol"); controllers without PPFD fall back to the hardware daytime light
+  sensor. It stays hidden during the day and on genuinely dark nights. (Bundled card v0.17.20.)
+
+## 3.19.69
+
+### Changed
+- **Out-of-range colouring now extends to individual soil-probe values in the breakdowns.** In the
+  per-metric "by probe" popup and the All Soil Stats table, each probe's value is coloured red when
+  it's above its soil alarm's max or blue when below its min — so you can see at a glance which
+  probe is out of range, not just that the tile average is. Respects the Settings-tab colour choice
+  (No color disables it) and only colours a value when that soil alarm (Soil Temp / WC / Soil EC) is
+  enabled. Offline probes still show fully red, and the existing tile alerts are unchanged.
+  (Bundled card v0.17.19.)
+
 ## 3.19.68
 
 ### Changed

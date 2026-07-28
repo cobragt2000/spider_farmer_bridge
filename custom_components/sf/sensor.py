@@ -186,7 +186,24 @@ class SfAlarmSettingsSensor(SfSensor):
             if isinstance(m, dict) and m.get("enabled")
         )
         self._attr_native_value = f"{enabled} on"
-        self._attr_extra_state_attributes = {
-            **(self._attr_extra_state_attributes or {}),
-            "settings": settings,
+        self._alarm_settings = settings
+
+    # `settings` (decoded thresholds) + `card_options` (per-panel card display
+    # prefs persisted server-side via sf.set_card_option, so the Settings tab's
+    # colour choice survives upgrades and syncs across devices). Exposed as a
+    # live property so a card-option change re-renders without a new payload.
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {
+            "settings": getattr(self, "_alarm_settings", {}),
+            "card_options": self._card_options(),
         }
+
+    def _card_options(self) -> dict:
+        try:
+            entry = self.hass.config_entries.async_get_entry(self.bus.entry_id)
+            opts = (entry.options or {}).get("card_options", {}) if entry else {}
+            v = opts.get(self.d.mac)
+            return dict(v) if isinstance(v, dict) else {}
+        except Exception:  # noqa: BLE001
+            return {}

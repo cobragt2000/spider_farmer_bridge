@@ -76,7 +76,7 @@ Alerts tabs. New alarm entries also fire an `sf_alarm` HA event; operations fire
 |---|---|---|---|
 | Alarms | `alarms` | sensor | Decoded alarm history; state = latest alarm time, `events` attribute = the list. |
 | Operations | `oplog` | sensor | Decoded operations log (mode switches, schedule fires); state = latest op time. |
-| Alarm Settings | `alarm_settings` | sensor | The controller's alarm thresholds, decoded for the card's Alerts tab (`settings` attribute). |
+| Alarm Settings | `alarm_settings` | sensor | The controller's alarm thresholds, decoded for the card's Alerts tab (`settings` attribute). Also carries a `card_options` attribute — per-panel card display prefs (e.g. the out-of-range `colors` mode) persisted server-side via the `sf.set_card_option` service, so the Settings-tab choice survives upgrades and syncs across devices. |
 
 ## Panel lights (Light 1 / Light 2)
 

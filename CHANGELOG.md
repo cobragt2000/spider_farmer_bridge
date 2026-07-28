@@ -3,6 +3,51 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.68
+
+### Changed
+- **Climate fault tiles read "EMPTY" / "FULL" instead of "TANK EMPTY" / "TANK FULL".** The
+  longer text was clipping to "TANK E…" on narrow mobile tiles; the shorter word fits at the
+  normal tile size (the "Humidifier" / "Dehumidifier" label already gives the context). Heater
+  still reads "Alarm". (Bundled card v0.17.18.)
+
+## 3.19.67
+
+### Changed
+- **The card's out-of-range colour choice now saves server-side.** Picking No color / Tile /
+  Text in the Settings tab was remembered only in the browser's local storage, which the Home
+  Assistant mobile app and other devices could reset. The choice is now persisted to the
+  controller's config entry (new `sf.set_card_option` service) and read back from the Alarm
+  Settings sensor's `card_options` attribute, so it survives upgrades, the mobile app, and syncs
+  across devices. Local storage stays as an instant cache for first paint, and the optional
+  `alarm_colors:` YAML default still works as a fallback. (Bundled card v0.17.17.)
+
+## 3.19.66
+
+### Changed
+- **Outlet controls now expand under their own strip.** Tapping an outlet tile opens its
+  control panel directly beneath that strip's grid, instead of at the bottom of the Outlets tab
+  — clearer with more than one power strip. (Bundled card v0.17.16.)
+
+## 3.19.65
+
+### Fixed
+- **Outlet tiles now work with a second same-type power strip.** A second AC5 / AC10 gets a
+  slot with an underscore (`ac5_2`, `ac10_2`), which the new tile Outlets tab's key parser (from
+  3.19.64) mis-read, so those outlets wouldn't expand. It now splits on the last underscore, so
+  `ac5_2` outlet 3 resolves correctly. (The integration already assigned multi-strip slots fine;
+  this was card-only.) (Bundled card v0.17.15.)
+
+## 3.19.64
+
+### Changed
+- **Outlets tab is now tile-based.** Each outlet is a compact tile (plug icon, On/Off, and its
+  mode) grouped by power strip, instead of a stack of full-width blocks. Tapping a tile expands
+  its controls below the grid — power toggle, Mode selector, and any mode-specific config
+  (Cycle timings, Temperature/Humidity/CO2 device type, Drip Irrigation, or the full Time-Slot
+  schedule editor) — mirroring the Overview device tiles. Verified against ac10 + ac5 (the
+  on/off toggle now lives in the expanded panel). (Bundled card v0.17.14.)
+
 ## 3.19.63
 
 ### Changed

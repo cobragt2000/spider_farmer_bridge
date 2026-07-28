@@ -104,3 +104,30 @@ apply_bundle:
       required: true
       selector:
         object:
+
+set_card_option:
+  name: Set card option
+  description: >-
+    Persist a per-panel card display option (e.g. the out-of-range colour mode)
+    in the config entry so it survives upgrades and syncs across devices. Used
+    by the tent card's Settings tab; not usually called by hand.
+  fields:
+    entity_id:
+      name: Panel entity
+      description: The panel's Alarm Settings sensor (identifies the controller).
+      required: true
+      selector:
+        entity:
+          integration: sf
+    key:
+      name: Key
+      description: 'Option name, e.g. "colors".'
+      required: true
+      selector:
+        text:
+    value:
+      name: Value
+      description: 'Option value, e.g. "tile", "text", or "off".'
+      required: true
+      selector:
+        text:

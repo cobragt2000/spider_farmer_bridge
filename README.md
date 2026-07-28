@@ -93,6 +93,10 @@ accordingly.
 | Climate | Humidifier / Dehumidifier / Heater: manual On/Off switch, Level control (heater 1-10, humidifier 1-4, dehumidifier Low/High), Active, Level, Mode, Tank / Status |
 | Soil probes | Temperature, Moisture, EC per probe (auto-discovered), plus per-device **Soil Avg** Temperature / Moisture / EC across a controller's probes |
 
+📋 **Full entity reference:** every entity the integration creates — grouped by
+function with `entity_id` suffixes and descriptions — is documented in
+**[docs/ENTITIES.md](docs/ENTITIES.md)**.
+
 **Logical slot entity IDs.** Display names stay physical
 (`SF Display Panel A1B2`); entity IDs are role-based:
 `sensor.sf_dp1_temperature`, `switch.sf_ac10_outlet_3`,

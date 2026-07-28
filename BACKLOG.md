@@ -8,6 +8,10 @@ Current outstanding items, newest work first. Most of the alarm feed (item 8
 below) is now shipped — cursor paging (3.19.50) and confirmed labels through
 3.19.52/53. These are what's left:
 
+- **Standing: keep `docs/ENTITIES.md` in sync.** Any entity added or removed in
+  `entity_defs.py` (or the platform files) must be reflected in the entity
+  reference doc, which the README links to. Update it as part of the same change.
+
 - **Firmware "update available" detection + notify (deferred — needs a capture).**
   The controller's *current* firmware is already exposed (`sys.ver` -> Firmware
   Version sensor, 3.19.42), and each attached accessory reports its own

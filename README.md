@@ -339,16 +339,23 @@ globally but has no effect until you add it to a dashboard.
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/24_card_alerts.png" width="245" alt="Spider Farmer card — Alerts tab" />
 </p>
 
-When a panel has two or more soil probes, the Soil Temp / Moisture / EC tiles
-gain a dropdown arrow — click one for a per-probe breakdown of that reading, or
-open **All Soil Sensors Stats** for a full table of every probe:
+When a panel has two or more soil probes, the Soil tiles and the **All Soil
+Stats** tile expand to a per-probe table. The Overview also flags problems at a
+glance: a reading colours against its own alarm limits — **red above max, blue
+below min** — an offline probe and the All Soil Stats tile turn red, and a
+climate fault shows on its tile (**TANK EMPTY** / **TANK FULL** / heater alarm).
+Pick tile-tint or value-text highlighting in the **Settings** tab. The two
+Overview shots below are the same tent in *tile-colour* and *text-colour* mode:
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/22_card_soil_tiles.png" width="245" alt="Soil tiles with per-probe dropdowns" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/20_card_soil_breakdown.png" width="245" alt="Per-probe soil breakdown" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/22_card_soil_tiles.png" width="245" alt="Overview — tile-colour highlights, offline soil probes, and TANK EMPTY" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/20_card_soil_breakdown.png" width="245" alt="Overview — text-colour highlights" />
 </p>
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/21_card_all_soil_stats.png" width="245" alt="All Soil Sensors Stats table" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/21_card_all_soil_stats.png" width="300" alt="Settings tab — out-of-range highlight modes" />
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/25_card_alert_color_modes.png" width="420" alt="Highlight modes compared — colored value text vs colored tile" />
 </p>
 
 The `custom:ppfd-3d-card` 3D PPFD visualizer for SE4500 / SF2000 grow lights:

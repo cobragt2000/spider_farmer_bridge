@@ -14,6 +14,13 @@ import json
 import re
 from typing import Any, Dict, Optional
 
+from ..tempunits import (
+    abs_bound,
+    c_to_disp,
+    cdelta_to_disp,
+    unit as _temp_unit,
+)
+
 # Truthy encodings the controllers use for on/off style fields.
 _TRUE = {1, True, "1", "true", "on"}
 
@@ -105,10 +112,11 @@ def _decode_se_periods(tp: Any) -> list:
 # ("<device> Current device is offline"), 4/5 = humidifier/dehumidifier water,
 # 6 = light over-temperature. Devices that go offline are named by devType:
 # 16 = Temperature & Humidity Sensor, 19 = Soil Sensor (both confirmed via app).
-# devType 17 also fires alarmType 3 (some other device offline) but hasn't been
-# correlated to an app entry yet, so it reads "Device 17 Current device is
-# offline". devType 20 = Light 1, whose alarmType 6 is "The light temperature
-# is too high" (confirmed 2026-07-27).
+# devType 17 & 18 are the two internal modules of the "4-in-1 Sensor": both fire
+# alarmType 3 (offline) together, which the SF app logs as a single "4-in-1
+# Sensor Current device is offline" (confirmed 2026-07-28, app + card at
+# 18:52:50 alongside devType 19 = Soil Sensor). devType 20 = Light 1, whose
+# alarmType 6 is "The light temperature is too high" (confirmed 2026-07-27).
 _ALARM_DEVTYPE = {
     1: "Air Temp",                        # confirmed (app)
     2: "Humidity",                        # confirmed (app)
@@ -118,6 +126,8 @@ _ALARM_DEVTYPE = {
     7: "WC",                              # confirmed (app "WC")
     8: "Soil EC",                         # confirmed (app "Soil EC")
     16: "Temperature & Humidity Sensor",  # confirmed (app, offline alarm)
+    17: "4-in-1 Sensor",                  # confirmed (app, offline alarm 2026-07-28)
+    18: "4-in-1 Sensor",                  # confirmed (app, offline alarm 2026-07-28)
     19: "Soil Sensor",                    # confirmed (app, offline alarm)
     20: "Light 1",                        # confirmed (app, over-temp alarm)
     26: "Dehumidification",               # confirmed (app)
@@ -193,10 +203,9 @@ _ALARM_OTHER = [
 
 
 def _alarm_c2f(v: Any):
-    try:
-        return round(float(v) * 9 / 5 + 32)
-    except (ValueError, TypeError):
-        return v
+    # Absolute wire °C -> display unit; keep the original value on a bad input.
+    r = c_to_disp(v)
+    return r if r is not None else v
 
 
 def _decode_alarm_metric(spec, alarm):
@@ -205,7 +214,9 @@ def _decode_alarm_metric(spec, alarm):
     if not isinstance(b, dict):
         return None
     conv = _alarm_c2f if is_temp else (lambda x: x)
-    m = {"key": key, "label": label, "unit": unit, "kind": kind, "step": step,
+    # Temperature metrics carry the live display unit (°F / °C); others fixed.
+    m = {"key": key, "label": label, "unit": _temp_unit() if is_temp else unit,
+         "kind": kind, "step": step, "is_temp": bool(is_temp),
          "enabled": 1 if b.get("enabled") else 0}
     if "vmax" in b:
         m["max"] = conv(b["vmax"])
@@ -461,16 +472,19 @@ def _decode_light(out, e, num, block, cache=None):
             int(mt), f"Mode {mt}"
         )
     # Go dark / Turn off temperature thresholds. The device stores 0 (== below
-    # the valid 59-122 °F range) for the disabled state; surface that as "0" so
-    # the card's dropdown shows "Off".
+    # the valid 15-50 °C / 59-122 °F range) for the disabled state; surface that
+    # as "0" so the card's dropdown shows "Off". Threshold follows the unit.
+    _floor = abs_bound(59)
     dark = val("darkTemp")
     if dark is not None:
-        f = round(float(dark) * 9 / 5 + 32)
-        out[f"ggs/ha/{e}/light_{num}_go_dark/state"] = str(f) if f >= 59 else "0"
+        v = c_to_disp(dark)
+        out[f"ggs/ha/{e}/light_{num}_go_dark/state"] = \
+            str(v) if v is not None and v >= _floor else "0"
     off = val("offTemp")
     if off is not None:
-        f = round(float(off) * 9 / 5 + 32)
-        out[f"ggs/ha/{e}/light_{num}_turn_off/state"] = str(f) if f >= 59 else "0"
+        v = c_to_disp(off)
+        out[f"ggs/ha/{e}/light_{num}_turn_off/state"] = \
+            str(v) if v is not None and v >= _floor else "0"
     # Time Slot schedule (timePeriod[0]) — start/stop, target brightness, fade.
     tp = val("timePeriod")
     if isinstance(tp, list) and tp:
@@ -752,17 +766,13 @@ def normalize_se_configfile(mac: str, light_cfg: Dict[str, Any]) -> Dict[str, st
 
 
 def _c_to_f(c):
-    try:
-        return round(float(c) * 9 / 5 + 32)
-    except (ValueError, TypeError):
-        return None
+    # Absolute wire °C -> display unit (°F imperial / °C metric); name kept.
+    return c_to_disp(c)
 
 
 def _cdelta_to_f(c):
-    try:
-        return round(float(c) * 9 / 5)
-    except (ValueError, TypeError):
-        return None
+    # Temperature difference wire °C -> display unit (no +32 offset); name kept.
+    return cdelta_to_disp(c, 0)
 
 
 def normalize_target(mac: str, target: Dict[str, Any]) -> Dict[str, str]:

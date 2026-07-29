@@ -17,6 +17,8 @@ import re
 from dataclasses import dataclass, field as dc_field
 from typing import Optional
 
+from . import tempunits as tu
+
 # ── Protocol constants ───────────────────────────────────────────────────────
 HA_STATUS_TOPIC = "ggs/ha/status"
 
@@ -409,14 +411,14 @@ def build_device_entities(
             d("select", f"{lf}_mode", f"{ln} Mode", icon="mdi:cog",
               options=["Manual", "Time Slot", "PPFD"],
               command_field=cf, command_subfield="mode"),
-            # 0 == Off (disabled); otherwise 59-122 °F.
-            d("number", f"{lf}_go_dark", f"{ln} Go Dark", unit="°F",
+            # 0 == Off (disabled); otherwise 59-122 °F / 15-50 °C.
+            d("number", f"{lf}_go_dark", f"{ln} Go Dark", unit=tu.unit(),
               icon="mdi:weather-night", num_mode="box",
-              min_value=0, max_value=122,
+              min_value=0, max_value=tu.abs_bound(122),
               command_field=cf, command_subfield="dim_threshold"),
-            d("number", f"{lf}_turn_off", f"{ln} Turn Off", unit="°F",
+            d("number", f"{lf}_turn_off", f"{ln} Turn Off", unit=tu.unit(),
               icon="mdi:lightbulb-off", num_mode="box",
-              min_value=0, max_value=122,
+              min_value=0, max_value=tu.abs_bound(122),
               command_field=cf, command_subfield="off_threshold"),
             # Time Slot schedule
             d("text", f"{lf}_schedule_start", f"{ln} Schedule Start",
@@ -765,7 +767,8 @@ def build_air_calibration_entities(device_cfg, slot=None):
             object_id=(f"sf_{slot}_{field}" if slot else None),
         )
     return [
-        num("cal_air_temp", "Air Temp Calibration", "°F", "mdi:thermometer", -18, 18, 0.1),
+        num("cal_air_temp", "Air Temp Calibration", tu.unit(), "mdi:thermometer",
+            tu.delta_bound(-18), tu.delta_bound(18), 0.1),
         num("cal_air_humidity", "Air Humidity Calibration", "%", "mdi:water-percent", -20, 20, 0.1),
         num("cal_ppfd", "PPFD Calibration", "µmol/m²/s", "mdi:white-balance-sunny", -20, 20, 0.1),
         num("cal_co2", "CO2 Calibration", "ppm", "mdi:molecule-co2", -200, 200, 10, mode="slider"),
@@ -792,7 +795,8 @@ def build_soil_calibration_entities(mac_raw, sensor_id, device_cfg, slot=None, s
             num_mode="box", entity_category="diagnostic", icon=icon, object_id=oid(suff),
         )
     out = [
-        num("cal_temp", "Temp Calibration", "°F", "mdi:thermometer", -20, 20, 0.1),
+        num("cal_temp", "Temp Calibration", tu.unit(), "mdi:thermometer",
+            tu.delta_bound(-20), tu.delta_bound(20), 0.1),
         num("cal_moisture", "Moisture Calibration", "%", "mdi:water-percent", -20, 20, 0.1),
         num("cal_ec", "EC Calibration", "mS/cm", "mdi:flash", -5, 5, 0.1),
     ]
@@ -906,14 +910,16 @@ def build_env_entities(device_cfg, slot):
         e("text", "env_day_start", "Day Cycle Start", icon="mdi:weather-sunny"),
         e("text", "env_day_end", "Day Cycle Stop", icon="mdi:weather-night"),
         # Targets: manual-entry boxes, whole numbers (step 1, CO2 step 10).
-        e("number", "env_temp_day", "Temp Target Day", unit="\u00b0F",
-          min_value=32, max_value=122, num_mode="box", icon="mdi:thermometer"),
-        e("number", "env_temp_night", "Temp Target Night", unit="\u00b0F",
-          min_value=32, max_value=122, num_mode="box", icon="mdi:thermometer"),
-        # Dead zones: sliders.
-        e("number", "env_temp_deadband", "Temp Dead Zone", unit="\u00b0F",
-          min_value=1, max_value=18, num_mode="slider",
-          icon="mdi:arrow-expand-vertical"),
+        e("number", "env_temp_day", "Temp Target Day", unit=tu.unit(),
+          min_value=tu.abs_bound(32), max_value=tu.abs_bound(122),
+          num_mode="box", icon="mdi:thermometer"),
+        e("number", "env_temp_night", "Temp Target Night", unit=tu.unit(),
+          min_value=tu.abs_bound(32), max_value=tu.abs_bound(122),
+          num_mode="box", icon="mdi:thermometer"),
+        # Dead zones: sliders (a temperature *difference*).
+        e("number", "env_temp_deadband", "Temp Dead Zone", unit=tu.unit(),
+          min_value=tu.delta_bound(1) or 1, max_value=tu.delta_bound(18),
+          num_mode="slider", icon="mdi:arrow-expand-vertical"),
         e("number", "env_humi_day", "Humidity Target Day", unit="%",
           min_value=0, max_value=100, num_mode="box", icon="mdi:water-percent"),
         e("number", "env_humi_night", "Humidity Target Night", unit="%",

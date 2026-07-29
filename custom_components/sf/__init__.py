@@ -35,6 +35,15 @@ _POLL_INTERVAL_SEC = 600
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    # Follow the HA instance's temperature unit for every temperature this
+    # integration decodes/writes (set before any entity is built, so their
+    # units and the decoded values agree). Default is °F if unread.
+    from .tempunits import set_unit as _set_temp_unit
+    try:
+        _set_temp_unit(hass.config.units.temperature_unit)
+    except Exception:  # noqa: BLE001 — never block setup on a unit read
+        pass
+
     # One-time migration: the diagnostic log default has moved twice
     # (sf_bridge/ -> sf/logs/ -> custom_components/sf/logs/). Rewrite only
     # stale *defaults* — never a path the user set deliberately.

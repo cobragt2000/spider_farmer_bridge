@@ -8,9 +8,43 @@ Current outstanding items, newest work first. Most of the alarm feed (item 8
 below) is now shipped — cursor paging (3.19.50) and confirmed labels through
 3.19.52/53. These are what's left:
 
+- **Classify climate accessories as real HA device types.** The humidifier /
+  dehumidifier / heater are currently HA `switch` entities, so HA shows them as
+  generic switches. HA's `switch` device_class only allows `outlet` / `switch`
+  (no "humidifier"), so a tag can't fix it. To get the proper humidifier /
+  thermostat UI (target humidity/temperature, modes), re-expose them on the
+  `humidifier` platform (`HumidifierEntity`, device_class humidifier/dehumidifier)
+  and `climate` platform (`ClimateEntity` for the heater). Larger feature — new
+  entity classes, not a tag. (Raised 2026-07-28 alongside the C/F unit work.)
+  Note: outlet switches are already tagged `device_class: outlet`
+  (`SfOutletSwitch`), confirmed live 2026-07-29 — nothing to do there.
+
+- **Runtime unit-system change needs a reload.** Temperatures follow
+  `hass.config.units.temperature_unit`, read once at setup (3.19.80). If a user
+  flips their HA unit system, entity units/values don't re-tag until the
+  integration reloads. Could listen for the core config-updated event and reload
+  (or re-decode) automatically.
+
 - **Standing: keep `docs/ENTITIES.md` in sync.** Any entity added or removed in
   `entity_defs.py` (or the platform files) must be reflected in the entity
   reference doc, which the README links to. Update it as part of the same change.
+
+- **Auto-detect a phantom Light 2 (manual "Hide Light 2" shipped 3.19.74).**
+  Some controllers report a `light2` block from just an inline adapter (no real
+  light). The block is byte-for-byte the same shape whether a real light or the
+  adapter is attached — `mLevel`/`mOnOff`/`timePeriod`/`darkTemp`/`offTemp`, and
+  the status stub stays `{"level":0}` — so light presence can't be inferred from
+  the light data. The only physical-presence signal is `getGGSDev`, which
+  enumerates accessories on the two UART buses (each with `uartNum`, `slaveId`,
+  `typeCode`, `devID`, `fw/hwVersion`). In the 3.19.73 log a UART-1 unit
+  (`typeCode 43531`, devID `383532380730C45A`) appeared then dropped during the
+  2nd-light test. To build auto-hide reliably we still need: (1) a `getGGSDev`
+  snapshot with the 2nd light connected AND one with just the adapter, from the
+  same session, to confirm which entry is the light; (2) a `typeCode` -> device
+  map (43521 = soil sensor is confirmed; light typeCode TBD); (3) confidence the
+  list reflects physical presence, not powered-on state (a light dropping off
+  when merely turned off would wrongly hide it). User will hook the light back up
+  for the extra captures. Also would unlock per-accessory firmware sensors.
 
 - **Firmware "update available" detection + notify (deferred — needs a capture).**
   The controller's *current* firmware is already exposed (`sys.ver` -> Firmware
@@ -48,12 +82,11 @@ below) is now shipped — cursor paging (3.19.50) and confirmed labels through
     update-check question. Still need a capture (network or BLE) taken while an
     update is actually pending. (Requested 2026-07-27.)
 
-- **Alarm devType 17 label — needs a capture.** devType 16 = Temperature &
-  Humidity Sensor and devType 19 = Soil Sensor are confirmed offline sources
-  (alarmType 3). devType 17 also fires the offline condition but has never been
-  matched to an app Notification entry, so it renders "Device 17 Current device
-  is offline". Capture the app's Notification screen + a diagnostic log while a
-  devType-17 alarm is active to name it. Label-only, low risk.
+- ~~**Alarm devType 17 label**~~ — DONE (3.19.78). Confirmed via app Notification +
+  card Log at 2026-07-28 18:52:50: devType 17 **and** 18 are the two modules of the
+  "4-in-1 Sensor" (both go offline together; the app logs one "4-in-1 Sensor"
+  offline). Both now decode to "4-in-1 Sensor". Possible follow-up: de-duplicate
+  the two same-second rows in the Log tab into one.
 
 - **"Lights off" alarm code — not yet seen.** Over-temperature is mapped
   (devType 20 "Light 1" / alarmType 6 "The light temperature is too high",

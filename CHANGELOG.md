@@ -3,6 +3,90 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.80
+
+### Added
+- **Temperatures now follow your Home Assistant unit system (°C or °F).** Every temperature the
+  integration decodes and writes — air/soil sensors (already), env Day/Night targets, Temp Dead
+  Zone, Go-dark / Turn-off thresholds, air + soil calibration offsets, and the air/soil alarm
+  thresholds — is emitted in your HA instance's configured temperature unit and converted back to
+  the controller's native °C on write. A metric install now sees °C throughout; an imperial install
+  is unchanged. Set once at setup from `hass.config.units.temperature_unit` (new `tempunits.py`);
+  the card's temperature ranges/labels follow `hass.config.unit_system`. If you change your HA unit
+  system, reload the integration to re-tag the entities.
+
+  Implementation note: the imperial path is byte-for-byte identical to before (the conversion helpers
+  reduce to the old formulas), and the metric path is a pure identity, so existing °F users see no
+  change. Verified with °C↔°F round-trip tests.
+
+## 3.19.79
+
+### Changed
+- **Log tab de-duplicates identical same-second entries.** When one physical device reports an alarm
+  as two modules (e.g. the 4-in-1 Sensor = devType 17 + 18), the Log tab now shows a single row for
+  that event — matching the SF app — instead of two identical lines. Rows are collapsed only when the
+  panel, device name, alarm text, and second all match; a same-second "Soil Sensor" offline stays its
+  own row. (Bundled card v0.17.28.)
+
+## 3.19.78
+
+### Fixed
+- **Alarm log now names the "4-in-1 Sensor" instead of "Device 17 / Device 18".** Alarm devType 17
+  and 18 are the two internal modules of the 4-in-1 air sensor; both report offline together, which
+  the SF app logs as a single "4-in-1 Sensor" offline. Confirmed by matching the app's notifications
+  to the card's Log tab at 2026-07-28 18:52:50 (alongside devType 19 = Soil Sensor). They now decode
+  to "4-in-1 Sensor" in the Log tab. (Integration-only; card unchanged at v0.17.27.)
+
+  Note: because both modules fire, the Log tab shows two "4-in-1 Sensor … offline" rows for one
+  event where the app shows one — say the word and I can de-duplicate same-second, same-name entries.
+
+## 3.19.77
+
+### Changed
+- **The standalone SE-light card now stages behind one Apply/Discard too.** Its power, brightness
+  dial, mode, and schedule (both the multi-period editor and the legacy fields) previously wrote
+  instantly; they now collect and commit together on Apply, matching the tent card's device tiles.
+  The dial reflects your pending brightness/on-off before you apply, dragging brightness to 0 turns
+  it off on Apply, and the schedule editor's separate Apply/Discard is gone (folded into the card
+  bar; "+ Add period" stays). (Bundled card v0.17.27.)
+
+## 3.19.76
+
+### Fixed
+- **Manual mode now shows each device's full control set, not just the primary control.** Manual was
+  missing the always-applicable options that the scheduled modes expose: the Fan's **Oscillation**
+  and **Natural Wind**, and the Light's **Go dark** and **Turn off** over-temperature thresholds are
+  now available in Manual too (they apply regardless of mode; only schedule/cycle timing is
+  mode-specific). Heater, humidifier, dehumidifier, and blower already carried their full non-timing
+  controls (gear / wind / speed / Close CO2). (Bundled card v0.17.26.)
+
+## 3.19.75
+
+### Changed
+- **Device tiles now stage every control behind one Apply/Discard, like the other tabs.** Opening a
+  device (light, fan, blower, heater, humidifier, dehumidifier) and changing power, brightness /
+  speed / gear, mode, oscillation, or any setting no longer writes instantly — the edits collect and
+  commit together when you press Apply (Discard reverts). Previously power, the main slider, and
+  Manual-mode controls acted immediately while only scheduled edits staged. Staged rows show the
+  accent bar; the Apply bar is disabled until you change something. Under the hood the commit is one
+  atomic `apply_bundle` for the module settings plus the right service call for power / brightness /
+  speed, and an explicit power-off always wins over a brightness/speed turn-on. (Bundled card
+  v0.17.25.)
+
+## 3.19.74
+
+### Added
+- **"Hide Light 2" toggle in the Settings tab.** Some controllers report a phantom second light
+  (e.g. an inline adapter on the port with no actual light attached), so a Light 2 tile shows with
+  nothing behind it. The toggle — shown only when a `light_2` entity exists — hides that tile. It
+  stages behind the Apply bar and persists server-side per controller like the colour settings.
+  (Bundled card v0.17.24.)
+
+  Note: this is the manual fix. The controller reports the `light2` block identically whether a real
+  light or just an adapter is attached, so it can't be auto-detected from the light data alone; a
+  data-driven auto-hide (via the controller's `getGGSDev` accessory list) is on the backlog pending
+  more diagnostic captures.
+
 ## 3.19.73
 
 ### Added

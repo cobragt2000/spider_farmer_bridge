@@ -21,6 +21,8 @@ import time
 import uuid
 from typing import Optional
 
+from ..tempunits import disp_to_c, dispdelta_to_c
+
 logger = logging.getLogger(__name__)
 
 # Default single-entry weekmask for payloads that need a timePeriod present.
@@ -144,7 +146,8 @@ _ENV_DEFAULT = {
 
 
 def _f_to_c(f):
-    return (float(f) - 32) * 5 / 9
+    # Absolute display-unit value -> °C wire value (identity when metric).
+    return disp_to_c(f)
 
 
 def _temp_threshold_c(value):
@@ -158,7 +161,8 @@ def _temp_threshold_c(value):
 
 
 def _fdelta_to_c(f):
-    return float(f) * 5 / 9
+    # Display-unit difference -> °C wire delta (identity when metric).
+    return dispdelta_to_c(f)
 
 
 # Full valid SE light config, used when the SE config cache is empty.
@@ -448,7 +452,7 @@ def build_alarm_settings(mac, uid, settings, alarm_cfg):
             if not isinstance(b, dict):
                 b = {}
                 obj[key] = b
-            conv = (lambda x: round((float(x) - 32) * 5 / 9, 4)) \
+            conv = (lambda x: round(disp_to_c(x), 4)) \
                 if key in _ALARM_TEMP_KEYS else (lambda x: x)
             if "enabled" in m:
                 b["enabled"] = 1 if m["enabled"] else 0

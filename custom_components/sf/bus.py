@@ -24,6 +24,8 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
+from .tempunits import cdelta_to_disp
+
 from .diag import DIAG
 from .const import (
     SIGNAL_AVAILABILITY,
@@ -838,7 +840,7 @@ class SfBus:
                 cfg, slot=self._slot_for_cfg(cfg)))
         t = cal.get("temp")
         if t is not None:
-            self.publish(f"ggs/ha/{mac}/cal_air_temp/state", round(float(t) * 9 / 5, 1))
+            self.publish(f"ggs/ha/{mac}/cal_air_temp/state", cdelta_to_disp(t, 1))
         for wire, field in (("humi", "cal_air_humidity"), ("co2", "cal_co2"),
                             ("ppfd", "cal_ppfd")):
             if cal.get(wire) is not None:
@@ -948,7 +950,7 @@ class SfBus:
             cal = e.get("calibration")
             cal = cal if isinstance(cal, dict) else {}
             self.publish(f"ggs/ha/{mac}/soil_{safe}_cal_temp/state",
-                         round(float(cal.get("tempSoil") or 0) * 9 / 5, 1))
+                         cdelta_to_disp(cal.get("tempSoil") or 0, 1))
             self.publish(f"ggs/ha/{mac}/soil_{safe}_cal_moisture/state",
                          cal.get("humiSoil") or 0)
             self.publish(f"ggs/ha/{mac}/soil_{safe}_cal_ec/state",

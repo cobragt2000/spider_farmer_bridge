@@ -46,6 +46,16 @@ below) is now shipped — cursor paging (3.19.50) and confirmed labels through
   when merely turned off would wrongly hide it). User will hook the light back up
   for the extra captures. Also would unlock per-accessory firmware sensors.
 
+- **✅ DONE (3.19.87) — Move "Hide Light 2" from the card to the integration.**
+  Shipped as an options-flow step (Configure → "Hide Light 2"): a per-panel
+  multi-select writing `card_options[mac]["hide_light2"]`. `build_device_entities`
+  gained a `hide_light2` flag that forces `caps["hasLight2"] = False`, so the
+  `light_2` / `light2` defs are never built; `SfBus._hide_light2()` reads the
+  option and `SfBus.prune_light2()` tears down any already-registered Light 2
+  entities on enable, then the entry reloads. The card's Settings toggle is gone,
+  replaced by a one-line pointer to the integration option. The auto-detect item
+  above can drive this same `hide_light2` gate once it lands. (Raised 2026-07-29.)
+
 - **Firmware "update available" detection + notify (deferred — needs a capture).**
   The controller's *current* firmware is already exposed (`sys.ver` -> Firmware
   Version sensor, 3.19.42), and each attached accessory reports its own

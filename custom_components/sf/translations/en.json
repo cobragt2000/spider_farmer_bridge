@@ -45,6 +45,13 @@
           "diagnostic_log_days": "Diagnostic log retention (days)"
         }
       },
+      "lights": {
+        "title": "Hide Light 2",
+        "description": "Some panels report a second light channel (Light 2) even when only one physical light is attached, creating a phantom light entity. Check any panel below to hide its Light 2 — the integration removes the entity and its settings, and won't recreate them. Uncheck to bring Light 2 back.",
+        "data": {
+          "hide": "Panels to hide Light 2 on"
+        }
+      },
       "migrate": {
         "title": "Migrate device",
         "description": "Replace hardware while keeping entity IDs, history, and automations. Pick the OLD device being retired and the NEW device replacing it. The new device must have connected at least once. The old device is removed after a successful migration.",
@@ -79,7 +86,8 @@
     },
     "abort": {
       "no_devices": "No devices have been assigned slots yet — connect a device first.",
-      "need_two_probes": "At least two soil probes are needed to perform a replacement."
+      "need_two_probes": "At least two soil probes are needed to perform a replacement.",
+      "no_lights": "No light-capable panels found — connect a panel with a light first."
     }
   }
 }

@@ -149,6 +149,21 @@ def test_mode_write_is_real_modetype():
     assert temp["params"]["O1"]["modeType"] == 3
 
 
+def test_mode_change_forces_outlet_off():
+    """A mode change forces mOnOff off so the outlet stays idle until the new
+    mode's settings are saved (guard added 3.19.86), even if the cached config
+    had it on."""
+    cfg = {"modeType": 0, "mOnOff": 1,
+           "timePeriod": [{"enabled": 1, "weekmask": 127}]}
+    cmd = translate_command(
+        "outlet_1_mode", "Time Slot", "0A1B2C3D4EA4", "u1",
+        outlet_num=1, outlet_block="ps10", outlet_subfield="mode",
+        outlet_cfg=cfg,
+    )
+    assert cmd["params"]["O1"]["modeType"] == 1     # Time Slot
+    assert cmd["params"]["O1"]["mOnOff"] == 0       # forced off on the switch
+
+
 def test_device_type_dropdowns_real_writes():
     """Temperature/Humidity/CO2 device dropdowns write confirmed encodings,
     block-preserving from the cached outlet config."""

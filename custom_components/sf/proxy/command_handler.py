@@ -511,6 +511,11 @@ def _cmd_outlet(mac, uid, value, n, block, sub, outlet_cfg, state):
             logger.warning("Unknown outlet mode: %s", value)
             return None
         obj["modeType"] = mt
+        # Force the outlet's manual setpoint off on a mode change so it stays
+        # idle until the new mode's settings are configured and saved (the user
+        # can turn it on / the schedule can take over afterward). Prevents a
+        # stale schedule/level from activating the outlet the moment you switch.
+        obj["mOnOff"] = 0
         return emit(obj)
     if sub == "temp_device":
         v = _OUTLET_TEMP_DEVICE.get(str(value))

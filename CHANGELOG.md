@@ -3,6 +3,76 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.87
+
+### Changed
+- **"Hide Light 2" moved from the card to the integration.** Some panels report a second light
+  channel even when only one physical light is attached, creating a phantom `light.sf_<panel>_light_2`
+  entity. That toggle used to live in the card's Settings and only hid the tile — the entity still
+  existed in Home Assistant. It's now an integration option: **Settings → Devices & services → Spider
+  Farmer Bridge → Configure → "Hide Light 2 (panels with a phantom 2nd light)"**. Check any
+  light-capable panel to hide its Light 2; the integration removes the entity and all its `light_2_*`
+  settings and never recreates them (via `build_device_entities(hide_light2=…)` + `SfBus.prune_light2`),
+  so HA no longer registers it at all. Uncheck to bring Light 2 back. The setting is stored per-panel
+  in the config entry (`card_options[mac]["hide_light2"]`), so any value you set previously from the
+  card carries over. The card's Settings now shows a one-line pointer to the integration option
+  instead of the toggle. Card bumped to **v0.17.34** (toggle removed; still respects the stored value).
+
+## 3.19.86
+
+### Changed
+- **An outlet mode change now forces the outlet off.** When you switch an outlet's mode, the write
+  sets `mOnOff = 0` so it stays idle until the new mode's settings are configured and saved — a stale
+  schedule or level can't switch the outlet on the moment you change modes. (Your 3.19.85 log showed
+  the setpoint was already preserved on a mode change; this makes "stays off through reconfigure"
+  explicit and safe.) Turn it back on manually, or let the mode's schedule/target take over, after
+  you've saved. Integration-only; card unchanged at v0.17.33.
+
+## 3.19.85
+
+### Changed
+- **Outlet pop fully staged, like the device tiles (supersedes 3.19.84).** The outlet Mode select is
+  staged again — changing it no longer writes to the device, so switching to a scheduled mode never
+  auto-turns the outlet on; everything commits together on Apply. The pop is reordered to match the
+  device tiles (Mode dropdown, then Power, then config), and the controls shown now follow the
+  *staged* mode: the Time Slot schedule editor appears optimistically (from a local draft, committed
+  on Apply), and the pop no longer shows the previous mode's fields after you switch. Note: the
+  per-field dropdowns for other scheduled modes (Cycle timings, device-type selects) are created by
+  the integration only once the device is actually in that mode, so those fill in right after Apply.
+  (Bundled card v0.17.33.)
+
+## 3.19.84
+
+### Fixed
+- **Outlet Mode change now reveals that mode's options immediately.** Since the outlets moved to
+  staged Apply (3.19.71), changing an outlet's mode (e.g. Manual → Time Slot) didn't show the new
+  mode's controls (the Time Slot schedule editor, cycle fields, …) until you pressed Apply. The
+  integration only creates an outlet's per-mode config entities while the device is actually in that
+  mode, so a staged mode change couldn't surface them. The outlet Mode select now writes live (with
+  an optimistic pick), so the device switches and reports the new config right away; power and the
+  config values still stage behind Apply. (Bundled card v0.17.32.)
+
+## 3.19.83
+
+### Added
+- **Device active color by mode (Settings tab).** A "Device active color" section colours a device
+  tile (light, fan, blower, heater, humidifier, dehumidifier) while it's on, by its mode — with a
+  No color / Tile color / Text color choice and three pinwheels grouped as **Manual** (default
+  accent), **Scheduled** (Time Slot + Cycle), and **Auto** (Environment, Temperature, Humidity,
+  PPFD). A device **fault** (out of water / tank full / heater alarm) always overrides the mode
+  colour with red. Shown when the panel has devices; staged behind the Apply bar and persisted
+  server-side per controller. (Bundled card v0.17.31.)
+
+## 3.19.82
+
+### Added
+- **Outlet active color by mode (Settings tab).** A new "Outlet active color" section colours an
+  outlet tile while it's on, by its operating mode — with a No color / Tile color / Text color choice
+  and four colour pinwheels grouped as **Manual** (default accent), **Scheduled** (Time Slot + Cycle),
+  **Environment** (Temperature + Humidity + CO2), and **Drip Irrigation**. Off outlets stay neutral.
+  Shown only when the panel has outlets; staged behind the Apply bar and persisted server-side per
+  controller like the other colour settings. (Bundled card v0.17.30.)
+
 ## 3.19.81
 
 ### Fixed

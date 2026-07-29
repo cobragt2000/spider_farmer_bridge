@@ -126,6 +126,7 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
             menu_options={
                 "settings": "Settings (ports, control, diagnostic log)",
                 "mappings": "Device mappings (logical slots for entity IDs)",
+                "lights": "Hide Light 2 (panels with a phantom 2nd light)",
                 "migrate": "Migrate device (replace hardware, keep history)",
                 "replace_soil": "Replace soil probe (swap hardware, keep history)",
             },
@@ -174,6 +175,93 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
         })
 
         return self.async_show_form(step_id="settings", data_schema=schema)
+
+    async def async_step_lights(self, user_input=None):
+        """Hide the phantom "Light 2" channel on panels that only have one
+        physical light. When hidden the integration never creates the
+        light.sf_<panel>_light_2 entity (nor its light_2_* settings), and any
+        already-created ones are removed. Stored per-MAC in the config entry:
+        options["card_options"][mac]["hide_light2"]."""
+        from homeassistant.helpers import (
+            device_registry as dr,
+            entity_registry as er_mod,
+        )
+
+        slots = dict((self._entry.options or {}).get("device_slots", {}))
+        card_opts = dict((self._entry.options or {}).get("card_options", {}))
+
+        # Candidate panels = anything that has a light channel (light_1/2).
+        ent_reg = er_mod.async_get(self.hass)
+        light_macs: set[str] = set()
+        for e in ent_reg.entities.values():
+            if e.platform != DOMAIN:
+                continue
+            uid = e.unique_id or ""
+            if uid.startswith("ggs_") and (
+                uid.endswith("_light_1") or uid.endswith("_light_2")
+            ):
+                light_macs.add(uid[4:].rsplit("_light_", 1)[0])
+
+        if not light_macs:
+            return self.async_abort(reason="no_lights")
+
+        dev_reg = dr.async_get(self.hass)
+        names: dict[str, str] = {}
+        for device in dr.async_entries_for_config_entry(
+            dev_reg, self._entry.entry_id
+        ):
+            for domain, ident in device.identifiers:
+                if domain == DOMAIN and ident.startswith("ggs_"):
+                    names[ident[4:]] = device.name_by_user or device.name
+
+        def _hidden(mac: str) -> bool:
+            return str(
+                card_opts.get(mac, {}).get("hide_light2")
+            ) in ("1", "true", "True", "on")
+
+        if user_input is not None:
+            selected = set(user_input.get("hide", []))
+            new_card = {m: dict(v) for m, v in card_opts.items()}
+            newly_hidden = []
+            for mac in light_macs:
+                opt = new_card.setdefault(mac, {})
+                if mac in selected:
+                    if not _hidden(mac):
+                        newly_hidden.append(mac)
+                    opt["hide_light2"] = "1"
+                else:
+                    opt["hide_light2"] = "0"
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={**(self._entry.options or {}), "card_options": new_card},
+            )
+            # Tear down already-registered Light 2 entities right away.
+            data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
+            bus = data.get("bus")
+            if bus is not None:
+                for mac in newly_hidden:
+                    bus.prune_light2({"mac": mac, "type": bus._type_for_mac(mac)})
+            self.hass.async_create_task(
+                self.hass.config_entries.async_reload(self._entry.entry_id)
+            )
+            return self.async_create_entry(
+                title="", data=dict(self._entry.options or {})
+            )
+
+        options = [
+            selector.SelectOptionDict(
+                value=mac,
+                label=f"{slots.get(mac, mac)} — {names.get(mac, 'panel')}",
+            )
+            for mac in sorted(light_macs, key=lambda m: slots.get(m, m))
+        ]
+        default_hidden = [m for m in light_macs if _hidden(m)]
+        schema = vol.Schema({
+            vol.Optional("hide", default=default_hidden): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=options, multiple=True)
+            ),
+        })
+        return self.async_show_form(step_id="lights", data_schema=schema)
 
     async def async_step_mappings(self, user_input=None):
         """View/edit the logical slot assigned to each device. Slots drive

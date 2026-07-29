@@ -477,6 +477,55 @@ class SfBus:
             device_cfg.get("mac", ""), (device_cfg.get("type") or "").lower()
         )
 
+    def _hide_light2(self, mac_raw: str) -> bool:
+        """True when the user has hidden Light 2 for this panel via the
+        integration options (Configure → Hide Light 2). Stored per-MAC in the
+        config entry: options["card_options"][mac]["hide_light2"] == "1"."""
+        entry = self.hass.config_entries.async_get_entry(self.entry_id)
+        if not entry:
+            return False
+        mac = _mac(mac_raw)
+        opt = (
+            (entry.options or {})
+            .get("card_options", {})
+            .get(mac, {})
+            .get("hide_light2")
+        )
+        return str(opt) in ("1", "true", "True", "on")
+
+    @callback
+    def prune_light2(self, device_cfg: dict) -> int:
+        """Remove any already-registered Light 2 entities for this panel
+        (the light itself, its brightness sensor, and every light_2_* config
+        entity). Used when the user turns on "Hide Light 2" so the phantom
+        channel disappears without waiting for a phantom-block prune."""
+        from .const import DOMAIN
+        registry = er.async_get(self.hass)
+        removed = 0
+        for d in build_device_entities(
+            device_cfg, include_outlets=False,
+            slot=self._slot_for_cfg(device_cfg), hide_light2=False,
+        ):
+            if not (d.field or "").startswith("light_2"):
+                continue
+            self._pruned.add(d.unique_id)
+            entity_id = registry.async_get_entity_id(
+                d.platform, DOMAIN, d.unique_id
+            )
+            if entity_id:
+                registry.async_remove(entity_id)
+                self._registered.discard(d.unique_id)
+                removed += 1
+        if removed:
+            _LOGGER.info(
+                "Hid Light 2 for %s — removed %d entities",
+                _mac(device_cfg.get("mac", "")), removed,
+            )
+            DIAG.bus_event(
+                f"prune_light2 {_mac(device_cfg.get('mac',''))} removed={removed}"
+            )
+        return removed
+
     # ── Device / entity registration (called via ha/discovery.py shim) ────
 
     @callback
@@ -568,7 +617,8 @@ class SfBus:
         wanted = {
             d.unique_id: d
             for d in build_device_entities(
-                device_cfg, slot=self._slot_for_cfg(device_cfg)
+                device_cfg, slot=self._slot_for_cfg(device_cfg),
+                hide_light2=self._hide_light2(device_cfg.get("mac", "")),
             )
         }
         ent_reg = er.async_get(self.hass)
@@ -728,7 +778,10 @@ class SfBus:
             cfg = {"mac": mac, "type": dtype}
             slot = self._slot_for_cfg(cfg)
             defs = [
-                d for d in build_device_entities(cfg, slot=slot)
+                d for d in build_device_entities(
+                    cfg, slot=slot,
+                    hide_light2=self._hide_light2(mac),
+                )
                 if d.unique_id in existing
             ]
 
@@ -1242,9 +1295,14 @@ class SfBus:
         blocks = set(seen) & set(EVIDENCE_BLOCKS)
         if not blocks:
             return
+        hide2 = self._hide_light2(mac_raw)
+        if hide2 and "light2" in blocks:
+            # Panel reports a Light 2 block but the user hid it — make sure any
+            # entities created before the option was set are torn down.
+            self.prune_light2(device_cfg)
         defs = build_device_entities(
             device_cfg, include_outlets=False, blocks=blocks,
-            slot=self._slot_for_cfg(device_cfg),
+            slot=self._slot_for_cfg(device_cfg), hide_light2=hide2,
         )
         defs = [d for d in defs if d.unique_id not in self._registered]
         for d in defs:

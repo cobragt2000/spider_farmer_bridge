@@ -183,6 +183,7 @@ def build_device_entities(
     include_outlets: bool = True,
     blocks: Optional[set] = None,
     slot: Optional[str] = None,
+    hide_light2: bool = False,
 ) -> list[SfDef]:
     """Return entities for one GGS device.
 
@@ -198,6 +199,11 @@ def build_device_entities(
     dname   = _device_name(device_cfg)
     dmodel  = _device_model(device_cfg)
     caps    = _capabilities(dtype)
+    # Per-panel "Hide Light 2" (integration option): treat the panel as if
+    # it had no second light channel, so the phantom light_2 entity and its
+    # light2_* config entities are never built. See SfBus._hide_light2().
+    if hide_light2:
+        caps["hasLight2"] = False
 
     def want(block: str) -> bool:
         return blocks is None or block in blocks

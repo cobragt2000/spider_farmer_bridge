@@ -48,12 +48,14 @@ def c_to_disp(c):
 
 
 def cdelta_to_disp(c, ndigits: int = 0):
-    """Temperature *difference* °C -> display unit (no +32 offset)."""
+    """Temperature *difference* °C -> display unit (no +32 offset). ``ndigits=0``
+    returns an int (like the legacy ``round(x)``); >0 keeps that many decimals."""
     try:
         c = float(c)
     except (TypeError, ValueError):
         return None
-    return round(c, ndigits) if is_metric() else round(c * 9 / 5, ndigits)
+    v = c if is_metric() else c * 9 / 5
+    return round(v) if ndigits == 0 else round(v, ndigits)
 
 
 # ── display -> wire °C ──────────────────────────────────────────────────────

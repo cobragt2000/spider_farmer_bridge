@@ -42,6 +42,21 @@ def enable_sockets(socket_enabled):
     """The integration binds a real TCP listener during setup."""
     yield
 
+
+@pytest.fixture(autouse=True)
+def _default_temp_unit():
+    """Temperatures follow the HA unit system (3.19.80). ``set_unit`` mutates a
+    module global, so reset it to °F before every test: pure-function tests are
+    then deterministic (the historical imperial path), and no test inherits a
+    unit left set by an earlier HA-setup test. HA-setup tests that want a
+    specific unit set ``hass.config.units`` before setup (async_setup_entry
+    re-reads it)."""
+    import custom_components.sf.tempunits as _tu
+
+    _tu.set_unit("°F")
+    yield
+    _tu.set_unit("°F")
+
 # 3) Also a consequence of pre-2024.3 lazy event processing: during the
 #    two-phase reconcile an entity can receive a registry-update event for
 #    an entity_id that a later (already applied) rename has superseded,

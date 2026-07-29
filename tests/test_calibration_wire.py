@@ -44,6 +44,8 @@ def _e(enable_custom_integrations):
 
 
 async def _setup(hass):
+    from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+    hass.config.units = US_CUSTOMARY_SYSTEM   # temps decode/write in °F for these tests
     entry = MockConfigEntry(domain=DOMAIN, title="Spider Farmer Bridge",
         data={"listen_port": 18997, "upstream_host": "h", "upstream_port": 8883,
               "allow_control": True}, unique_id=DOMAIN)

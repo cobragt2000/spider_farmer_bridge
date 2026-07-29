@@ -3,6 +3,19 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.81
+
+### Fixed
+- **Follow-up to the C/F unit change (3.19.80): green test suite + one decode fix.** The temperature
+  dead-zone/offset decode returned a float (`1.0`) where the historical code returned an int (`1`)
+  for whole-number deltas — restored the int so the imperial output is byte-for-byte unchanged
+  (`tempunits.cdelta_to_disp`). Test suite updates: an autouse fixture resets the unit module global
+  to °F before each test (kills cross-test leakage from the mutable global), the three
+  temperature-touching integration setups are pinned to the imperial unit system so they keep
+  validating the °F path, and a new `tests/test_tempunits.py` guards both paths (imperial =
+  legacy formulas, metric = identity, incl. a metric `normalize_target`). `pytest tests/` →
+  143 passed. (Integration-only; card unchanged at v0.17.29.)
+
 ## 3.19.80
 
 ### Added

@@ -126,7 +126,7 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
             menu_options={
                 "settings": "Settings (ports, control, diagnostic log)",
                 "mappings": "Device mappings (logical slots for entity IDs)",
-                "lights": "Hide Light 2 (panels with a phantom 2nd light)",
+                "components": "Device accessories (Light 2 / Fan per device)",
                 "migrate": "Migrate device (replace hardware, keep history)",
                 "replace_soil": "Replace soil probe (swap hardware, keep history)",
             },
@@ -154,15 +154,12 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
                 CONF_PRESERVE_ON_REMOVE,
                 default=current.get(CONF_PRESERVE_ON_REMOVE, True),
             ): bool,
-            vol.Required(
-                CONF_DIAG_LOG,
-                default=current.get(CONF_DIAG_LOG, False),
-            ): bool,
-            # Version-tagged per-restart log file — kept directly under the
-            # "Enable diagnostic log" toggle it belongs with.
+            # 3.19.90: single diagnostic-log toggle. Enabling it writes a new
+            # self-identifying file (version + date/time) each restart. The
+            # old separate "Enable diagnostic log" switch was removed.
             vol.Required(
                 CONF_DIAG_PER_BOOT,
-                default=current.get(CONF_DIAG_PER_BOOT, True),
+                default=current.get(CONF_DIAG_PER_BOOT, False),
             ): bool,
             vol.Required(
                 CONF_DIAG_PATH,
@@ -176,92 +173,44 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(step_id="settings", data_schema=schema)
 
-    async def async_step_lights(self, user_input=None):
-        """Hide the phantom "Light 2" channel on panels that only have one
-        physical light. When hidden the integration never creates the
-        light.sf_<panel>_light_2 entity (nor its light_2_* settings), and any
-        already-created ones are removed. Stored per-MAC in the config entry:
-        options["card_options"][mac]["hide_light2"]."""
-        from homeassistant.helpers import (
-            device_registry as dr,
-            entity_registry as er_mod,
-        )
+    async def async_step_components(self, user_input=None):
+        """Per-device accessory selection for the two phantom-prone channels —
+        Light 2 and Fan. Checked = create (when the device reports it),
+        unchecked = never create + tear down. One entry per (device,
+        accessory) so a fan on dp1 and a phantom fan on dp2 are independent.
+        Stored per-MAC: options["components"][mac][block] = bool. Everything
+        else (blower, primary light, humidifier, sensors…) stays auto."""
+        pairs = toggleable_candidates(self.hass, self._entry)
+        if not pairs:
+            return self.async_abort(reason="no_components")
 
-        slots = dict((self._entry.options or {}).get("device_slots", {}))
-        card_opts = dict((self._entry.options or {}).get("card_options", {}))
-
-        # Candidate panels = anything that has a light channel (light_1/2).
-        ent_reg = er_mod.async_get(self.hass)
-        light_macs: set[str] = set()
-        for e in ent_reg.entities.values():
-            if e.platform != DOMAIN:
-                continue
-            uid = e.unique_id or ""
-            if uid.startswith("ggs_") and (
-                uid.endswith("_light_1") or uid.endswith("_light_2")
-            ):
-                light_macs.add(uid[4:].rsplit("_light_", 1)[0])
-
-        if not light_macs:
-            return self.async_abort(reason="no_lights")
-
-        dev_reg = dr.async_get(self.hass)
-        names: dict[str, str] = {}
-        for device in dr.async_entries_for_config_entry(
-            dev_reg, self._entry.entry_id
-        ):
-            for domain, ident in device.identifiers:
-                if domain == DOMAIN and ident.startswith("ggs_"):
-                    names[ident[4:]] = device.name_by_user or device.name
-
-        def _hidden(mac: str) -> bool:
-            return str(
-                card_opts.get(mac, {}).get("hide_light2")
-            ) in ("1", "true", "True", "on")
+        labels = component_pair_labels(self.hass, self._entry, pairs)
 
         if user_input is not None:
-            selected = set(user_input.get("hide", []))
-            new_card = {m: dict(v) for m, v in card_opts.items()}
-            newly_hidden = []
-            for mac in light_macs:
-                opt = new_card.setdefault(mac, {})
-                if mac in selected:
-                    if not _hidden(mac):
-                        newly_hidden.append(mac)
-                    opt["hide_light2"] = "1"
-                else:
-                    opt["hide_light2"] = "0"
-            self.hass.config_entries.async_update_entry(
-                self._entry,
-                options={**(self._entry.options or {}), "card_options": new_card},
-            )
-            # Tear down already-registered Light 2 entities right away.
-            data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
-            bus = data.get("bus")
-            if bus is not None:
-                for mac in newly_hidden:
-                    bus.prune_light2({"mac": mac, "type": bus._type_for_mac(mac)})
-            self.hass.async_create_task(
-                self.hass.config_entries.async_reload(self._entry.entry_id)
-            )
+            selected = set(user_input.get("enabled", []))
+            decisions = {
+                (mac, block): f"{mac}:{block}" in selected
+                for mac, block in pairs
+            }
+            apply_component_decisions(self.hass, self._entry, decisions)
             return self.async_create_entry(
                 title="", data=dict(self._entry.options or {})
             )
 
         options = [
-            selector.SelectOptionDict(
-                value=mac,
-                label=f"{slots.get(mac, mac)} — {names.get(mac, 'panel')}",
-            )
-            for mac in sorted(light_macs, key=lambda m: slots.get(m, m))
+            selector.SelectOptionDict(value=f"{mac}:{block}", label=labels[(mac, block)])
+            for mac, block in pairs
         ]
-        default_hidden = [m for m in light_macs if _hidden(m)]
+        default = [
+            f"{mac}:{block}" for mac, block in pairs
+            if component_enabled(self._entry, mac, block)
+        ]
         schema = vol.Schema({
-            vol.Optional("hide", default=default_hidden): selector.SelectSelector(
+            vol.Optional("enabled", default=default): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=options, multiple=True)
             ),
         })
-        return self.async_show_form(step_id="lights", data_schema=schema)
+        return self.async_show_form(step_id="components", data_schema=schema)
 
     async def async_step_mappings(self, user_input=None):
         """View/edit the logical slot assigned to each device. Slots drive
@@ -542,3 +491,101 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="migrate", data_schema=schema, errors=errors
         )
+
+
+# ── Accessory-decision helpers for the "Device accessories" options step ────
+
+def toggleable_candidates(hass, entry, only_mac=None, extra=None):
+    """Return sorted [(mac, block)] pairs for the two toggleable accessories
+    (Light 2, Fan) worth offering: any device that currently has such an
+    entity, has a stored decision, or (via `extra` = {mac: [blocks]}) was just
+    reported to us — the repair deep-link path passes the reported blocks so a
+    brand-new device with nothing created yet still shows up."""
+    from homeassistant.helpers import entity_registry as er_mod
+    from .entity_defs import TOGGLEABLE_BLOCKS
+
+    ent_reg = er_mod.async_get(hass)
+    found: dict[str, set] = {}
+    for e in er_mod.async_entries_for_config_entry(ent_reg, entry.entry_id):
+        uid = e.unique_id or ""
+        if not uid.startswith("ggs_"):
+            continue
+        mac, _, tail = uid[4:].partition("_")
+        if tail.startswith("light_2"):
+            found.setdefault(mac, set()).add("light2")
+        elif tail.startswith("fan"):
+            found.setdefault(mac, set()).add("fan")
+    for mac, dec in (entry.options or {}).get("components", {}).items():
+        for b in TOGGLEABLE_BLOCKS:
+            if b in (dec or {}):
+                found.setdefault(mac, set()).add(b)
+    for mac, blocks in (extra or {}).items():
+        found.setdefault(mac, set()).update(
+            b for b in blocks if b in TOGGLEABLE_BLOCKS
+        )
+
+    pairs = []
+    for mac in sorted(found):
+        if only_mac and mac != only_mac:
+            continue
+        for b in sorted(found[mac]):
+            pairs.append((mac, b))
+    return pairs
+
+
+def component_pair_labels(hass, entry, pairs):
+    """Human labels like "dp2 — Fan" for each (mac, block) pair."""
+    from homeassistant.helpers import device_registry as dr
+    from .entity_defs import COMPONENT_LABELS
+
+    slots = (entry.options or {}).get("device_slots", {})
+    names = {}
+    dev_reg = dr.async_get(hass)
+    for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+        for domain, ident in device.identifiers:
+            if domain == DOMAIN and ident.startswith("ggs_"):
+                names[ident[4:]] = device.name_by_user or device.name
+
+    out = {}
+    for mac, block in pairs:
+        slot = slots.get(mac) or names.get(mac) or mac
+        out[(mac, block)] = f"{slot} — {COMPONENT_LABELS.get(block, block)}"
+    return out
+
+
+def component_enabled(entry, mac, block) -> bool:
+    """Current stored decision for one accessory (missing => not enabled)."""
+    return bool(
+        (entry.options or {})
+        .get("components", {})
+        .get(mac, {})
+        .get(block, False)
+    )
+
+
+def apply_component_decisions(hass, entry, decisions) -> None:
+    """Persist {(mac, block): bool} accessory decisions, tear down anything now
+    hidden, and reload. Light 2 / Fan are created automatically; this is how the
+    user hides one afterwards (block = False) or brings it back (True)."""
+    comps = {
+        mac: dict(v)
+        for mac, v in (entry.options or {}).get("components", {}).items()
+    }
+    touched = set()
+    for (mac, block), val in decisions.items():
+        comps.setdefault(mac, {})[block] = bool(val)
+        touched.add(mac)
+
+    hass.config_entries.async_update_entry(
+        entry, options={**(entry.options or {}), "components": comps},
+    )
+
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+    bus = data.get("bus")
+    for mac in touched:
+        if bus is not None:
+            bus.prune_toggled({"mac": mac, "type": bus._type_for_mac(mac)})
+
+    hass.async_create_task(
+        hass.config_entries.async_reload(entry.entry_id)
+    )

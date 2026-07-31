@@ -177,13 +177,22 @@ EVIDENCE_BLOCKS = (
     "selight", "sys",
 )
 
+# Optional accessories the controllers report unreliably — a second light or a
+# second/add-on fan can appear as a phantom block on a panel that has neither.
+# These two blocks (and only these) are gated on an explicit per-device
+# decision instead of pure evidence: undecided => defer creation (and prompt),
+# True => create when reported, False => never create. Everything else
+# (blower, primary light, humidifier, sensors, outlets…) stays auto-detected.
+TOGGLEABLE_BLOCKS = ("light2", "fan")
+COMPONENT_LABELS = {"light2": "Light 2", "fan": "Fan"}
+
 
 def build_device_entities(
     device_cfg: dict,
     include_outlets: bool = True,
     blocks: Optional[set] = None,
     slot: Optional[str] = None,
-    hide_light2: bool = False,
+    toggles: Optional[dict] = None,
 ) -> list[SfDef]:
     """Return entities for one GGS device.
 
@@ -199,13 +208,15 @@ def build_device_entities(
     dname   = _device_name(device_cfg)
     dmodel  = _device_model(device_cfg)
     caps    = _capabilities(dtype)
-    # Per-panel "Hide Light 2" (integration option): treat the panel as if
-    # it had no second light channel, so the phantom light_2 entity and its
-    # light2_* config entities are never built. See SfBus._hide_light2().
-    if hide_light2:
-        caps["hasLight2"] = False
 
     def want(block: str) -> bool:
+        # Light 2 / Fan are created automatically from evidence like everything
+        # else; the user can HIDE one afterwards from Configure → Device
+        # accessories. So only an explicit False suppresses it — a missing
+        # decision means "create" (3.19.91, back to the smoother auto-add).
+        if (toggles is not None and block in TOGGLEABLE_BLOCKS
+                and toggles.get(block, True) is False):
+            return False
         return blocks is None or block in blocks
 
     def d(platform, field, name, **kw) -> SfDef:
@@ -900,8 +911,10 @@ def build_env_entities(device_cfg, slot):
     mac = _mac(mac_raw)
     last4 = mac[-4:].upper()
     # last4 before "Environment" so the flat device list sorts each env
-    # right after its panel (…{last4} < …{last4} Environment < next panel).
-    dname = f"SF Display Panel {last4} Environment"
+    # right after its host device (…{last4} < …{last4} Environment < next).
+    # Name it after the actual host (Display Panel / Power Strip AC5/AC10),
+    # not a hardcoded panel label (3.19.91).
+    dname = f"{_device_name(device_cfg)} Environment"
     dmodel = "Environment"
 
     def e(platform, field, name, **kw):

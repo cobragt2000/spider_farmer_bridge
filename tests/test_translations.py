@@ -11,7 +11,7 @@ def test_settings_options_all_labeled():
     expected = {
         "listen_port", "upstream_host", "upstream_port", "allow_control",
         "keep_offline_entities", "environment_entities", "preserve_on_remove",
-        "diagnostic_log", "diagnostic_log_path", "diagnostic_log_days",
+        "diagnostic_log_path", "diagnostic_log_days",
         "diagnostic_log_per_boot",
     }
     missing = expected - set(labels)

@@ -59,6 +59,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "Migrated diagnostic log path to %s", DEFAULT_DIAG_PATH
         )
 
+    # 3.19.90: the two diagnostic-log toggles collapsed into one. The
+    # per-boot (version-tagged) switch is now the master enable; the old
+    # 'Enable diagnostic log' switch is gone. Carry each user's real on/off
+    # state onto the surviving toggle and drop the retired key.
+    if CONF_DIAG_LOG in (entry.options or {}):
+        opts = dict(entry.options)
+        opts[CONF_DIAG_PER_BOOT] = bool(opts.get(CONF_DIAG_LOG, False))
+        opts.pop(CONF_DIAG_LOG, None)
+        hass.config_entries.async_update_entry(entry, options=opts)
+
     # One-time rename to the DP / AC scheme (Display Panel + AC5/AC10):
     # rewrites stored entity-id slots and device names on existing installs.
     _migrate_naming_scheme(hass, entry)
@@ -77,6 +87,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # One-time (3.19.0): calibration/substrate became editable number/select
     # entities; drop the old read-only sensor-domain versions.
     _migrate_cal_to_editable(hass, entry)
+
+    # 3.19.88: seed per-device decisions for the toggleable accessories
+    # (Light 2 / Fan) from current state so an upgrade neither hides existing
+    # gear nor prompts for devices already in service. Runs before the update
+    # listener is registered (below), so it can't trigger a reload loop.
+    _seed_component_decisions(hass, entry)
 
     cfg = {**entry.data, **(entry.options or {})}
     listen_port   = int(cfg.get(CONF_LISTEN_PORT,   DEFAULT_LISTEN_PORT))
@@ -504,6 +520,32 @@ def _migrate_cal_to_editable(hass: HomeAssistant, entry: ConfigEntry) -> None:
             "editable number/select entities", removed)
 
 
+def _seed_component_decisions(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Carry a prior card-driven "Hide Light 2" into the per-device accessory
+    decisions (options["components"][mac]["light2"]). Light 2 / Fan otherwise
+    create automatically, so nothing else needs seeding. Runs before the update
+    listener is registered, so no reload loop; idempotent."""
+    comps: dict = {
+        mac: dict(v)
+        for mac, v in (entry.options or {}).get("components", {}).items()
+    }
+    before = {mac: dict(v) for mac, v in comps.items()}
+
+    # Carry a prior card-driven "Hide Light 2" over to the accessory decision
+    # (card_options[mac]["hide_light2"] == "1"  ->  components[mac]["light2"]
+    # = False). Everything else auto-creates, so nothing else needs seeding.
+    for mac, opt in (entry.options or {}).get("card_options", {}).items():
+        if "hide_light2" in (opt or {}):
+            hidden = str(opt["hide_light2"]) in ("1", "true", "True", "on")
+            comps.setdefault(mac, {})["light2"] = not hidden
+
+    if comps != before:
+        hass.config_entries.async_update_entry(
+            entry, options={**(entry.options or {}), "components": comps},
+        )
+        _LOGGER.info("Carried prior Hide Light 2 into accessory decisions")
+
+
 _SCHEDULE_SCHEMA = vol.Schema({
     vol.Required("entity_id"): cv.entity_ids,
     vol.Required("periods"): [dict],
@@ -676,15 +718,17 @@ def _integration_version() -> str:
 
 
 def _apply_diag_options(hass: HomeAssistant, cfg: dict) -> None:
-    """Start/stop the dedicated diagnostic log per current options."""
-    if cfg.get(CONF_DIAG_LOG, False):
+    """Start/stop the dedicated diagnostic log per current options.
+
+    v3.19.90: a single toggle (CONF_DIAG_PER_BOOT) both enables logging and
+    writes a self-identifying file per restart (version + date/time). The old
+    separate 'Enable diagnostic log' switch was removed."""
+    if cfg.get(CONF_DIAG_PER_BOOT, False):
         path = cfg.get(CONF_DIAG_PATH) or DEFAULT_DIAG_PATH
         if not path.startswith("/"):
             path = hass.config.path(path)
-        # v3.11.2b0: one self-identifying log file per HA boot (version + time)
-        if cfg.get(CONF_DIAG_PER_BOOT, True):
-            from .diag import per_boot_path
-            path = per_boot_path(path, _integration_version())
+        from .diag import per_boot_path
+        path = per_boot_path(path, _integration_version())
         days = int(cfg.get(CONF_DIAG_DAYS, DEFAULT_DIAG_DAYS))
         if not DIAG.enabled or DIAG.path != path or DIAG.days != days:
             DIAG.setup(path, days)

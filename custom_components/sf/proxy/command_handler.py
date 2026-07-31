@@ -427,8 +427,9 @@ def build_outlet_schedule(mac, uid, n, block, periods, outlet_cfg):
         tp.append({"enabled": 0, "weekmask": 127})
     obj["timePeriod"] = tp
     obj["modeType"] = 1           # Time Slot
+    keypath = ["outlet", ok] if block == "outlet" else ["device", block, ok]
     return {"method": "setConfigField", "pid": mac,
-            "params": {"keyPath": ["device", block, ok], ok: obj},
+            "params": {"keyPath": keypath, ok: obj},
             "msgId": _msg_id(), "uid": uid}
 
 
@@ -483,7 +484,13 @@ def _cmd_se_mode(mac, uid, value):
 # ── Outlets (PS5/PS10) ───────────────────────────────────────────────────────
 def _cmd_outlet(mac, uid, value, n, block, sub, outlet_cfg, state):
     ok = f"O{n}"
-    keypath = ["device", block, ok]
+    # A STANDALONE strip stores/controls its outlets under the TOP-LEVEL
+    # "outlet" block — keyPath ["outlet","O{n}"] — which is what the SF app
+    # sends and what the device actually acts on. A CB-HOSTED strip is driven
+    # through the panel's device tree — keyPath ["device","ps5"/"ps10","O{n}"].
+    # (v3.19.93: writing a standalone strip under ["device",...] saved the
+    # config but never flipped the live outlet — confirmed from an app capture.)
+    keypath = ["outlet", ok] if block == "outlet" else ["device", block, ok]
 
     def emit(obj):
         return {"method": "setConfigField", "pid": mac,

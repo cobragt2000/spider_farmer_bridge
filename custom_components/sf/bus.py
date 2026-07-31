@@ -133,6 +133,7 @@ def _expected_obj(slot, field, entity, registry):
 
 from .entity_defs import (
     EVIDENCE_BLOCKS,
+    TOGGLEABLE_BLOCKS,
     HA_STATUS_TOPIC,
     OUTLET_MODE_NAMES,
     OUTLET_TYPE_TO_MODE,
@@ -349,11 +350,43 @@ class SfBus:
             return prefix if n == 1 else f"{prefix}_{n}"
         return f"{prefix}{n}"
 
+    @staticmethod
+    def _slot_ok(slot: str, dtype: str) -> bool:
+        """Does this stored slot match the device type's prefix? A power strip
+        must sit on an ac5/ac10 slot; a panel on dp. Used to detect a strip
+        mis-slotted as a panel (dp*) by the 3.19.90 confirm-first bug, which
+        assigned a slot before the device was typed."""
+        from .entity_defs import _SLOT_PREFIX
+        exp = _SLOT_PREFIX.get((dtype or "").lower())
+        if not exp:
+            return True  # unknown type — don't second-guess
+        return slot == exp or slot.startswith(f"{exp}_") or slot.startswith(exp)
+
     def get_slot(self, mac_raw: str, dtype: str) -> str:
         """Persistent logical slot for a device (cb1, cb2, ps5, lc1 ...).
         Assigned on first sight, stored in the config entry, transferred by
         migration, and editable in the integration options."""
         mac = _mac(mac_raw)
+        # Self-heal (3.19.91): a strip mis-slotted as a panel (e.g. dp3) by the
+        # 3.19.90 confirm-first bug — purge the bad mapping so the logic below
+        # reassigns a correct ac5/ac10 slot; entity ids re-align via _add_defs.
+        if (dtype or "").lower() in ("ps5", "ps10"):
+            bad = self._slot_cache.get(mac)
+            if bad is None:
+                _e = self.hass.config_entries.async_get_entry(self.entry_id)
+                bad = (_e.options or {}).get("device_slots", {}).get(mac) if _e else None
+            if bad is not None and not self._slot_ok(bad, dtype):
+                _LOGGER.warning(
+                    "Re-slotting strip %s: %r is not a valid %s slot", mac, bad, dtype
+                )
+                self._slot_cache.pop(mac, None)
+                _e = self.hass.config_entries.async_get_entry(self.entry_id)
+                if _e is not None:
+                    _slots = dict((_e.options or {}).get("device_slots", {}))
+                    if _slots.pop(mac, None) is not None:
+                        self.hass.config_entries.async_update_entry(
+                            _e, options={**(_e.options or {}), "device_slots": _slots}
+                        )
         if mac in self._slot_cache:
             # Self-heal: if the stored mapping was wiped (pre-3.2.5 Settings
             # save replaced options wholesale), re-persist from cache so a
@@ -477,36 +510,40 @@ class SfBus:
             device_cfg.get("mac", ""), (device_cfg.get("type") or "").lower()
         )
 
-    def _hide_light2(self, mac_raw: str) -> bool:
-        """True when the user has hidden Light 2 for this panel via the
-        integration options (Configure → Hide Light 2). Stored per-MAC in the
-        config entry: options["card_options"][mac]["hide_light2"] == "1"."""
+    def _toggles_for(self, mac_raw: str) -> dict:
+        """Per-device decisions for the two toggleable accessories (Light 2,
+        Fan). Returns only *decided* blocks: {"light2": True/False, ...}. A
+        block missing from the dict is undecided — build_device_entities()
+        defers it (creates nothing) and blocks_seen() raises a first-run
+        prompt. Stored per-MAC: options["components"][mac][block] = bool."""
         entry = self.hass.config_entries.async_get_entry(self.entry_id)
         if not entry:
-            return False
+            return {}
         mac = _mac(mac_raw)
-        opt = (
-            (entry.options or {})
-            .get("card_options", {})
-            .get(mac, {})
-            .get("hide_light2")
-        )
-        return str(opt) in ("1", "true", "True", "on")
+        comps = (entry.options or {}).get("components", {}).get(mac, {})
+        return {b: bool(comps[b]) for b in TOGGLEABLE_BLOCKS if b in comps}
 
     @callback
-    def prune_light2(self, device_cfg: dict) -> int:
-        """Remove any already-registered Light 2 entities for this panel
-        (the light itself, its brightness sensor, and every light_2_* config
-        entity). Used when the user turns on "Hide Light 2" so the phantom
-        channel disappears without waiting for a phantom-block prune."""
+    def prune_toggled(self, device_cfg: dict) -> int:
+        """Remove already-registered entities for any toggleable accessory
+        that is not currently decided-on for this device (hidden or undecided).
+        Generic: diff the full toggleable set against what the current
+        decisions keep, and remove the difference from the registry."""
         from .const import DOMAIN
         registry = er.async_get(self.hass)
+        slot = self._slot_for_cfg(device_cfg)
+        keep = {
+            d.unique_id for d in build_device_entities(
+                device_cfg, include_outlets=False, slot=slot,
+                toggles=self._toggles_for(device_cfg.get("mac", "")),
+            )
+        }
+        all_on = {b: True for b in TOGGLEABLE_BLOCKS}
         removed = 0
         for d in build_device_entities(
-            device_cfg, include_outlets=False,
-            slot=self._slot_for_cfg(device_cfg), hide_light2=False,
+            device_cfg, include_outlets=False, slot=slot, toggles=all_on,
         ):
-            if not (d.field or "").startswith("light_2"):
+            if d.unique_id in keep:
                 continue
             self._pruned.add(d.unique_id)
             entity_id = registry.async_get_entity_id(
@@ -518,11 +555,11 @@ class SfBus:
                 removed += 1
         if removed:
             _LOGGER.info(
-                "Hid Light 2 for %s — removed %d entities",
-                _mac(device_cfg.get("mac", "")), removed,
+                "Pruned %d toggled-off accessory entities from %s",
+                removed, _mac(device_cfg.get("mac", "")),
             )
             DIAG.bus_event(
-                f"prune_light2 {_mac(device_cfg.get('mac',''))} removed={removed}"
+                f"prune_toggled {_mac(device_cfg.get('mac',''))} removed={removed}"
             )
         return removed
 
@@ -551,9 +588,15 @@ class SfBus:
         # its host panel still nests once both are up — not only on the first
         # block report.
         self._update_strip_nesting(device_cfg)
-        # Environment target device: one per display panel (CB), created once,
-        # if enabled in options.
-        if self.env_entities and (device_cfg.get("type", "") or "").lower() == "cb":
+        # Environment target device: one per panel (CB) and per power strip
+        # (AC5/AC10), created once, if enabled in options. v3.19.90: the strips
+        # carry the same "target" block as the panel (day/night temp/humidity/
+        # CO2 setpoints + deadband) — confirmed from device config — so they get
+        # the same Environment entities; their state/writes flow through the
+        # type-agnostic normalizer/command paths.
+        if self.env_entities and (device_cfg.get("type", "") or "").lower() in (
+            "cb", "ps5", "ps10"
+        ):
             mac = _mac(device_cfg.get("mac", ""))
             if f"ggs_{mac}_env_temp_day" not in self._registered:
                 # Ensure the panel device exists first so the env device's
@@ -618,7 +661,7 @@ class SfBus:
             d.unique_id: d
             for d in build_device_entities(
                 device_cfg, slot=self._slot_for_cfg(device_cfg),
-                hide_light2=self._hide_light2(device_cfg.get("mac", "")),
+                toggles=self._toggles_for(device_cfg.get("mac", "")),
             )
         }
         ent_reg = er.async_get(self.hass)
@@ -780,7 +823,7 @@ class SfBus:
             defs = [
                 d for d in build_device_entities(
                     cfg, slot=slot,
-                    hide_light2=self._hide_light2(mac),
+                    toggles=self._toggles_for(mac),
                 )
                 if d.unique_id in existing
             ]
@@ -887,8 +930,8 @@ class SfBus:
             return
         mac = _mac(mac_raw)
         self._air_cal[mac] = dict(cal)
-        if f"ggs_{mac}_cal_air_temp" not in self._registered:
-            cfg = {"mac": mac_raw, "type": self._type_for_mac(mac_raw) or "cb"}
+        if f"ggs_{mac}_cal_air_temp" not in self._registered and mac in self.device_display:
+            cfg = {"mac": mac_raw, "type": self._type_for_mac(mac_raw)}
             self._add_defs(build_air_calibration_entities(
                 cfg, slot=self._slot_for_cfg(cfg)))
         t = cal.get("temp")
@@ -919,8 +962,8 @@ class SfBus:
                 fresh.append(e)
             store[eid] = e
         self._alarm_seeded.add(mac)
-        if f"ggs_{mac}_alarms" not in self._registered:
-            cfg = {"mac": mac_raw, "type": self._type_for_mac(mac_raw) or "cb"}
+        if f"ggs_{mac}_alarms" not in self._registered and mac in self.device_display:
+            cfg = {"mac": mac_raw, "type": self._type_for_mac(mac_raw)}
             self._add_defs([build_alarms_entity(cfg, slot=self._slot_for_cfg(cfg))])
         merged = sorted(
             store.values(),
@@ -953,8 +996,8 @@ class SfBus:
                 fresh.append(e)
             store[eid] = e
         self._oplog_seeded.add(mac)
-        if f"ggs_{mac}_oplog" not in self._registered:
-            cfg = {"mac": mac_raw, "type": self._type_for_mac(mac_raw) or "cb"}
+        if f"ggs_{mac}_oplog" not in self._registered and mac in self.device_display:
+            cfg = {"mac": mac_raw, "type": self._type_for_mac(mac_raw)}
             self._add_defs([build_oplog_entity(cfg, slot=self._slot_for_cfg(cfg))])
         merged = sorted(
             store.values(),
@@ -978,8 +1021,8 @@ class SfBus:
             return
         import json as _json
         mac = _mac(mac_raw)
-        if f"ggs_{mac}_alarm_settings" not in self._registered:
-            cfg = {"mac": mac_raw, "type": self._type_for_mac(mac_raw) or "cb"}
+        if f"ggs_{mac}_alarm_settings" not in self._registered and mac in self.device_display:
+            cfg = {"mac": mac_raw, "type": self._type_for_mac(mac_raw)}
             self._add_defs([build_alarm_settings_entity(cfg, slot=self._slot_for_cfg(cfg))])
         self.publish(f"ggs/ha/{mac}/alarm_settings/state", _json.dumps(decoded))
 
@@ -1295,14 +1338,16 @@ class SfBus:
         blocks = set(seen) & set(EVIDENCE_BLOCKS)
         if not blocks:
             return
-        hide2 = self._hide_light2(mac_raw)
-        if hide2 and "light2" in blocks:
-            # Panel reports a Light 2 block but the user hid it — make sure any
-            # entities created before the option was set are torn down.
-            self.prune_light2(device_cfg)
+        toggles = self._toggles_for(mac_raw)
+        seen_toggleable = {b for b in TOGGLEABLE_BLOCKS if b in blocks}
+        if seen_toggleable:
+            # Light 2 / Fan are created automatically; if the user has HIDDEN
+            # one (explicit False), tear down anything built before.
+            if any(toggles.get(b) is False for b in seen_toggleable):
+                self.prune_toggled(device_cfg)
         defs = build_device_entities(
             device_cfg, include_outlets=False, blocks=blocks,
-            slot=self._slot_for_cfg(device_cfg), hide_light2=hide2,
+            slot=self._slot_for_cfg(device_cfg), toggles=toggles,
         )
         defs = [d for d in defs if d.unique_id not in self._registered]
         for d in defs:

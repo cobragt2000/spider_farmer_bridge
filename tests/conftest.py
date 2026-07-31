@@ -43,6 +43,11 @@ def enable_sockets(socket_enabled):
     yield
 
 
+# 3.19.91: Light 2 / Fan create automatically (default-on); a test only needs
+# to set options["components"][mac][block] = False to hide one. No confirm-first
+# gate, so the device-simulation tests need no special fixture here.
+
+
 @pytest.fixture(autouse=True)
 def _default_temp_unit():
     """Temperatures follow the HA unit system (3.19.80). ``set_unit`` mutates a

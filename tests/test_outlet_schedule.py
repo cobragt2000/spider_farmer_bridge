@@ -55,10 +55,10 @@ def test_build_outlet_schedule_pads_to_12_and_preserves_settings():
 
 
 def test_build_outlet_schedule_standalone_block_and_empty():
-    # standalone outlet uses the "outlet" block
+    # standalone strip writes the TOP-LEVEL ["outlet","O1"] keyPath (v3.19.93)
     msg = build_outlet_schedule("m", "u", 1, "outlet", [{"days": [0],
         "start": "01:00", "end": "02:00"}], None)
-    assert msg["params"]["keyPath"] == ["device", "outlet", "O1"]
+    assert msg["params"]["keyPath"] == ["outlet", "O1"]
     # empty -> all 12 slots disabled (clears the schedule)
     msg2 = build_outlet_schedule("m", "u", 1, "outlet", [], {})
     tp = msg2["params"]["O1"]["timePeriod"]

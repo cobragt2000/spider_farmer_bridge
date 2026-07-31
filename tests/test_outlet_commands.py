@@ -1,12 +1,11 @@
-"""Outlet command wire format (v3.10.7).
+"""Outlet command wire format.
 
-Regression: PS5/PS10 outlet toggles did nothing. The command handler built
-keyPath ["outlet","O{n}"] — missing the "device" root every other command
-uses. Authoritative app capture (2026-07-11):
-    keyPath = ["device","ps10","O10"]
-    params  = {"keyPath":[...], "O10":{...,"modeType":0,"mOnOff":1}}
-These assert the REAL injected payload (the old test mocked handle_command
-and never exercised translate_command, which is how the bug slipped by).
+Two shapes, confirmed from SF-app captures:
+  * STANDALONE strip  -> keyPath ["outlet","O{n}"]              (top-level)
+  * CB-HOSTED strip   -> keyPath ["device","ps5"/"ps10","O{n}"] (device tree)
+Only the standalone (top-level) write actually flips the live outlet on a
+strip with no host panel — writing it under ["device",...] saved the config
+but the outlet never switched (app capture 2026-07-31, v3.19.93).
 """
 import json
 
@@ -31,19 +30,29 @@ PS10_DATA = {"outlet": {
 }}
 
 
-def test_outlet_command_is_device_rooted():
-    """keyPath must be ["device","outlet","O{n}"] — the confirmed app shape."""
+def test_standalone_outlet_is_top_level():
+    """A standalone strip (default block "outlet") writes the TOP-LEVEL
+    ["outlet","O{n}"] keyPath — the only shape the firmware acts on."""
     cmd = translate_command(
         "outlet_3", "ON", PS10_MAC, "u1", outlet_num=3,
     )
     assert cmd["method"] == "setConfigField"
-    assert cmd["params"]["keyPath"] == ["device", "outlet", "O3"]
+    assert cmd["params"]["keyPath"] == ["outlet", "O3"]
     assert cmd["params"]["O3"]["mOnOff"] == 1
-    assert cmd["params"]["O3"]["modeType"] == 0   # forces manual over schedule
+    assert cmd["params"]["O3"]["modeType"] == 0
 
     off = translate_command("outlet_10", "OFF", PS10_MAC, "u1", outlet_num=10)
-    assert off["params"]["keyPath"] == ["device", "outlet", "O10"]
+    assert off["params"]["keyPath"] == ["outlet", "O10"]
     assert off["params"]["O10"]["mOnOff"] == 0
+
+
+def test_cb_hosted_outlet_is_device_rooted():
+    """A CB-hosted strip addresses its outlets under the panel's device tree."""
+    cmd = translate_command(
+        "outlet_10", "ON", PS10_MAC, "u1", outlet_num=10, outlet_block="ps10",
+    )
+    assert cmd["params"]["keyPath"] == ["device", "ps10", "O10"]
+    assert cmd["params"]["O10"]["mOnOff"] == 1
 
 
 def test_outlet_command_preserves_cached_config():
@@ -76,7 +85,8 @@ class _FakeWriter:
 
 async def test_outlet_toggle_reaches_wire(hass: HomeAssistant):
     """End-to-end: toggling switch.sf_ac10_outlet_10 injects a real
-    device-rooted setConfigField."""
+    setConfigField. v3.19.93: a STANDALONE strip writes the TOP-LEVEL
+    ["outlet","O10"] keyPath (what the SF app sends and the firmware acts on)."""
     entry = MockConfigEntry(
         domain=DOMAIN, title="Spider Farmer Bridge",
         data={"listen_port": 18902, "upstream_host": "sf.mqtt.spider-farmer.com",
@@ -118,7 +128,7 @@ async def test_outlet_toggle_reaches_wire(hass: HomeAssistant):
     cmds = [json.loads(p.message) for p in pkts if p.message
             and json.loads(p.message).get("method") == "setConfigField"]
     assert cmds, "outlet toggle produced no device payload"
-    assert cmds[-1]["params"]["keyPath"] == ["device", "outlet", "O10"]
+    assert cmds[-1]["params"]["keyPath"] == ["outlet", "O10"]
     assert cmds[-1]["params"]["O10"]["mOnOff"] == 0
 
     # the toggle scheduled a confirm-poll — let it drain before teardown
@@ -219,9 +229,7 @@ async def test_outlet_routes_via_cb_when_hosted(hass: HomeAssistant):
 
 
 def test_routing_helper_direct_when_no_cb():
-    """Bare helper: no CB session → route direct (block stays 'outlet')."""
-    from custom_components.sf.proxy.mitm_proxy import MITMProxy
-    # No sessions at all
+    """No CB host → standalone route: top-level ["outlet","O1"] keyPath."""
     cmd = translate_command("outlet_1", "ON", PS10_MAC, "u1", outlet_num=1,
                             outlet_block="outlet")
-    assert cmd["params"]["keyPath"] == ["device", "outlet", "O1"]
+    assert cmd["params"]["keyPath"] == ["outlet", "O1"]

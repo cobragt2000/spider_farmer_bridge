@@ -371,7 +371,7 @@ async def test_settings_save_preserves_device_slots(hass: HomeAssistant):
             "upstream_port": 8883,
             "allow_control": False,
             "preserve_on_remove": True,
-            "diagnostic_log": False,
+            "diagnostic_log_per_boot": False,
             "diagnostic_log_path": "custom_components/sf/logs/diagnostic.log",
             "diagnostic_log_days": 7,
         },

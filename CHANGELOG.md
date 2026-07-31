@@ -3,6 +3,121 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.93
+
+### Fixed
+- **Standalone AC5/AC10 outlet control now actually switches the outlet.** Confirmed from an SF-app
+  capture: a strip with no host panel controls its outlets through the **top-level `["outlet","O{n}"]`**
+  config path — exactly what the app sends. Every prior build addressed it under `["device",…]`
+  (`device.outlet`, then `device.ps5`/`ps10`), which the firmware *accepted* (200 OK, config saved) but
+  never applied to the live outlet — so the toggle bounced back. HA now sends the top-level path for
+  standalone strips (and polls/read-modify-writes it too); CB-hosted strips keep the `["device","ps5"/
+  "ps10",…]` path that already worked. Outlet on/off, mode, and schedule writes are all covered. It was
+  never the `modeType` — `modeType:0` (manual) is correct; only the keyPath prefix was wrong.
+
+## 3.19.92
+
+### Fixed
+- **AC5/AC10 mis-slotted as dp3/dp4 (shown as extra Display Panels).** When a strip reported an
+  operations-log, alarm, or sensor block *before* it was fully typed, those entity-creation paths fell
+  back to a panel (`cb`) type and grabbed a `dp` slot, which then stuck. Those paths now wait until the
+  device is typed, and `get_slot()` self-heals a strip already stored on a `dp` slot by re-slotting it
+  to the correct `ac5`/`ac10` (entity IDs re-align automatically). Strips that were showing as dp3/dp4
+  move back to ac5/ac10 on the next connect.
+
+### Notes
+- **AC5/AC10 control requires "Smart Mode."** The strips have a Standalone mode (local only, ignores
+  app/HA commands) and a Smart Mode (app/HA controlled). Toggles only take effect in Smart Mode; the
+  `ps5`/`ps10` outlet-block routing fix (3.19.90) applies once the strip is in Smart Mode.
+
+## 3.19.91
+
+### Changed
+- **Reverted confirm-first onboarding — devices auto-add again.** Back to the smoother flow: when a
+  device connects it appears in Home Assistant with all its entities right away, no "Confirm new
+  device" Repair to click through. Light 2 and Fan are created automatically like everything else; if
+  one is a phantom, hide it afterwards under **Configure → Device accessories** (which tears down the
+  entity and keeps it hidden). The device-confirm Repair, the `confirmed_devices` gate, and
+  `repairs.py` were removed.
+
+### Fixed
+- **Power-strip Environment device was mislabeled "Display Panel".** The Environment sub-device for an
+  AC5/AC10 now takes the strip's real name (e.g. "SF Power Strip AC10 …FB30 Environment") instead of a
+  hardcoded "Display Panel" label. Entity IDs are unchanged — display name only.
+
+## 3.19.90
+
+### Fixed
+- **AC5/AC10 outlets/settings no longer snap back off (standalone strips).** A standalone power strip
+  stores its per-outlet config under its own type block — `device.ps5` / `device.ps10` — not the
+  sparse `device.outlet` block earlier builds wrote to. The firmware accepted the `device.outlet`
+  write (200 OK) but never acted on it, so the outlet reverted on the next poll. Outlet commands,
+  polling, and schedule writes now route to the strip's `ps5`/`ps10` block whether it's standalone or
+  hosted by a display panel. (Reported on AC5+AC10 with sensors attached; wants a quick on-hardware
+  confirm.)
+
+### Added
+- **Environment setpoints on AC5/AC10.** The strips carry the same `target` block as the display
+  panel (day/night temperature, humidity, and CO2 setpoints + deadband) plus air-sensor calibration —
+  confirmed from the device config once those app screens were opened. A strip now gets the same
+  Environment target entities the panel has; their state and writes flow through the existing
+  type-agnostic normalizer/command paths, and the target block is polled for strips too. (Air-sensor
+  calibration entities were already type-agnostic and appear once the strip reports a calibration
+  block.)
+- **Confirm-first onboarding — every new device must be confirmed before it's added.** Previously
+  devices appeared in Home Assistant immediately and only Light 2 / Fan were deferred. Now a brand-new
+  device (display panel, AC5/AC10, or SE light) creates **no** entities — not even its device row —
+  until you approve it. A fixable Repair ("Confirm new device: …") is raised for each; it deep-links to
+  a confirm step where you also tick which phantom-prone accessories (Light 2 / Fan) are really
+  attached. Everything else (blower, sensors, outlets) is added automatically once confirmed. Existing
+  installs are seamless: an upgrade auto-confirms every device that already has entities, so nothing
+  vanishes and nothing re-prompts. Stored per-MAC in `options["confirmed_devices"]`.
+
+### Changed
+- **Diagnostic log: one toggle instead of two.** The separate "Enable diagnostic log" switch is gone;
+  the surviving toggle — renamed **"Create diagnostic log (new file each restart, tagged with version
+  + date/time)"** — now both enables logging and writes the versioned per-restart file. Your existing
+  on/off state is carried over on upgrade.
+
+## 3.19.89
+
+### Changed
+- **Housekeeping: the planning backlog is no longer published.** `BACKLOG.md` has been removed from
+  the repository and the release package, and added to `.gitignore` so it stays local. Planned work
+  and ideas are now kept privately; shipped changes remain documented here in the changelog. No
+  functional change — integration only; card unchanged at v0.17.35.
+
+## 3.19.88
+
+### Added
+- **Per-device accessory selection for Light 2 and Fan (supersedes 3.19.87's Hide Light 2).**
+  The controllers report a second light (`light2`) and an add-on fan (`fan`) unreliably — a panel
+  with neither can still surface a phantom tile (e.g. `…F478` reports a `fan` block with no fan
+  attached). These two are now the only manually-gated accessories; everything else (blower, the
+  primary light, humidifier, sensors, outlets) stays fully auto-detected. Manage them under
+  **Settings → Devices & services → Spider Farmer Bridge → Configure → "Device accessories"** — one
+  entry per device, so a real fan on one panel and a phantom fan on another are independent. Checked
+  means "allowed" (created when the device reports it); unchecked hides it and tears down any existing
+  entities.
+- **First-run prompt for new devices.** When a newly-connected device reports a Light 2 or Fan we
+  have no decision for, the integration **defers** creating those entities (so no phantom appears) and
+  raises a fixable **Repair** ("Confirm accessories on …") that deep-links to the same picker. Answer
+  it and the confirmed accessories are created; ignore it and nothing phantom is added. A bare-outlet
+  strip reports neither block, so it never prompts. Plug a light/fan into it later and the prompt fires
+  then.
+
+### Changed
+- **Upgrades are seamless.** A one-time migration seeds a decision for every device that already has a
+  Light 2 / Fan entity (kept, marked confirmed) and folds in the prior card-driven Hide Light 2
+  (`card_options[mac]["hide_light2"]=="1"` → Light 2 off). Existing panels aren't disrupted and don't
+  prompt; only genuinely new devices defer + prompt. Stored per-MAC in
+  `options["components"][mac][block]`.
+- Internals: `build_device_entities(…, toggles=…)` gates only the `light2`/`fan` blocks on the
+  per-device decision (True = evidence-based create, False = hide, undecided = defer);
+  `SfBus.prune_toggled()` / `_raise_component_issue()` and a shared `repairs.py` flow drive the
+  teardown and prompt. Card bumped to **v0.17.35** (its Settings note now points at "Device
+  accessories").
+
 ## 3.19.87
 
 ### Changed

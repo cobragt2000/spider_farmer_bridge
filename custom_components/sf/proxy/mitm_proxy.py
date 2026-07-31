@@ -402,11 +402,13 @@ class MITMProxy:
         # cache stays fresh for read-modify-write mode changes.
         outlet_blocks = []
         if sess.device_type in ("ps5", "ps10"):
+            # Standalone strip: poll the TOP-LEVEL "outlet" block — the one the
+            # firmware acts on and the app read-modify-writes (v3.19.93).
             outlet_blocks = ["outlet"]
         ev = getattr(sess, "evidence", set())
-        outlet_blocks += [b for b in ("ps5", "ps10") if b in ev]
-        # Display panels also hold the environment target block.
-        if sess.device_type == "cb":
+        outlet_blocks += [b for b in ("ps5", "ps10") if b in ev and b not in outlet_blocks]
+        # Panels AND strips hold the environment target block (v3.19.90).
+        if sess.device_type in ("cb", "ps5", "ps10"):
             try:
                 await sess.inject({
                     "method": "getConfigField", "pid": sess.mac_raw,
@@ -445,10 +447,13 @@ class MITMProxy:
             except Exception as exc:
                 _LOGGER.debug("config file poll failed: %s", exc)
         for block in outlet_blocks:
+            # Standalone strip caches from the top-level ["outlet"] block; a
+            # CB reports its hosted strips under ["device","ps5"/"ps10"].
+            keypath = ["outlet"] if block == "outlet" else ["device", block]
             try:
                 await sess.inject({
                     "method": "getConfigField", "pid": sess.mac_raw,
-                    "params": {"keyPath": ["device", block]},
+                    "params": {"keyPath": keypath},
                     "msgId": str(int(time.time() * 1000)), "uid": sess.uid,
                 })
             except Exception as exc:
@@ -512,6 +517,21 @@ class MITMProxy:
                 return s
         return None
 
+    def _outlet_route(self, sess):
+        """Return (command_session, config_block) for an outlet on `sess`.
+
+        A CB-HOSTED strip is driven through the panel's device tree, so its
+        outlets are addressed by the strip's TYPE block (ps5/ps10) on the
+        panel's session. A STANDALONE strip acts on the bare TOP-LEVEL "outlet"
+        block on its own session — the block the SF app writes and the firmware
+        actually toggles (v3.19.93; writing a standalone strip under ps5/ps10 or
+        device.outlet saved config but never flipped the live outlet)."""
+        stype = (getattr(sess, "device_type", "") or "").lower()
+        host = self._cb_host_for_strip(stype)
+        if host is not None:
+            return host, stype          # CB-hosted → ["device", ps5/ps10, …]
+        return sess, "outlet"           # standalone → ["outlet", …]
+
     def host_cb_mac_for_strip(self, strip_mac: str):
         """Lowercase mac of the display panel currently hosting the power strip
         with this mac (the panel reports the strip's ps5/ps10 block), or None
@@ -574,19 +594,19 @@ class MITMProxy:
         elif field == "light_2":
             field = "light2"
 
-        # Outlet routing (v3.11.0): if this strip is hosted by a connected
-        # CB, send through the CB with its ps5/ps10 block; else command the
-        # strip directly with its own "outlet" block.
+        # Outlet routing (v3.19.90): strips store their outlet config under
+        # their own TYPE block (ps5/ps10), whether commanded via a hosting CB
+        # or directly. Earlier builds wrote a standalone strip's outlets to the
+        # sparse "outlet" block, which the firmware stores (200 OK) but never
+        # acts on — so the outlet snapped back off. Route both cases to ps5/ps10.
         cmd_sess = sess
         outlet_block = "outlet"
         if outlet_num is not None:
-            host = self._cb_host_for_strip((sess.device_type or "").lower())
-            if host is not None:
-                cmd_sess = host
-                outlet_block = (sess.device_type or "").lower()
+            cmd_sess, outlet_block = self._outlet_route(sess)
+            if cmd_sess is not sess:
                 _LOGGER.debug(
                     "outlet %s on %s routed via CB host %s (block %s)",
-                    outlet_num, sess.mac, host.mac, outlet_block,
+                    outlet_num, sess.mac, cmd_sess.mac, outlet_block,
                 )
 
         from .command_handler import translate_command
@@ -633,13 +653,7 @@ class MITMProxy:
         if sess is None:
             _LOGGER.warning("set_outlet_schedule: no active session for mac=%s", mac)
             return False
-        host = self._cb_host_for_strip((sess.device_type or "").lower())
-        if host is not None:
-            cmd_sess = host
-            block = (sess.device_type or "").lower()
-        else:
-            cmd_sess = sess
-            block = "outlet"
+        cmd_sess, block = self._outlet_route(sess)
         outlet_cfg = cmd_sess.outlet_cfg.get(f"{block}/O{n}")
         from .command_handler import build_outlet_schedule
         payload = build_outlet_schedule(

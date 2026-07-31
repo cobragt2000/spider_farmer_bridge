@@ -33,23 +33,22 @@
         "data": {
           "preserve_on_remove": "Preserve customizations & history on removal (uncheck to purge on removal)",
           "keep_offline_entities": "Keep offline devices (don't remove entities for gear that stops reporting; uncheck to prune phantoms)",
-          "diagnostic_log_per_boot": "New diagnostic log file each restart (name tagged with version + date/time)",
+          "diagnostic_log_per_boot": "Create diagnostic log (new file each restart, tagged with version + date/time)",
           "environment_entities": "Create Environment Settings entities (per display panel: temp/humidity/CO2 targets)",
           "install_lovelace_card": "Install Spider Farmer dashboard cards (adds custom:spider-farmer-card and custom:ppfd-3d-card; uncheck to remove them)",
           "listen_port": "Proxy listen port (the port GGS controllers are redirected to)",
           "upstream_host": "Spider Farmer cloud host (upstream MQTT server)",
           "upstream_port": "Spider Farmer cloud port",
           "allow_control": "Enable device control (send commands to devices; off = read-only monitoring)",
-          "diagnostic_log": "Enable diagnostic log (writes a detailed protocol log for troubleshooting)",
           "diagnostic_log_path": "Diagnostic log file path",
           "diagnostic_log_days": "Diagnostic log retention (days)"
         }
       },
-      "lights": {
-        "title": "Hide Light 2",
-        "description": "Some panels report a second light channel (Light 2) even when only one physical light is attached, creating a phantom light entity. Check any panel below to hide its Light 2 — the integration removes the entity and its settings, and won't recreate them. Uncheck to bring Light 2 back.",
+      "components": {
+        "title": "Device accessories",
+        "description": "The controllers report a second light (Light 2) and an add-on fan unreliably — a panel with neither can still show a phantom tile. These two are the only manual toggles; everything else (blower, primary light, humidifier, sensors, outlets) auto-detects. Check an accessory to allow it (it appears when the device reports it); uncheck to hide it and tear it down. One entry per device, so a real fan on one panel and a phantom fan on another are independent.",
         "data": {
-          "hide": "Panels to hide Light 2 on"
+          "enabled": "Accessories present on each device"
         }
       },
       "migrate": {
@@ -87,7 +86,7 @@
     "abort": {
       "no_devices": "No devices have been assigned slots yet — connect a device first.",
       "need_two_probes": "At least two soil probes are needed to perform a replacement.",
-      "no_lights": "No light-capable panels found — connect a panel with a light first."
+      "no_components": "No devices with a toggleable Light 2 or Fan were found yet — connect the device first."
     }
   }
 }

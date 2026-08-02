@@ -4,6 +4,25 @@ All notable changes to the **Spider Farmer Hotspot** add-on. The Supervisor
 offers an update whenever the `version` in `config.yaml` increases; the notes
 below are shown on the add-on's Changelog tab.
 
+## 0.7.1
+
+### Added
+- **Online status + last-seen** and **link speed** per client, from the same AP station table. The
+  connected-clients list now shows Status (Online with how long since it was last heard from, or
+  Offline when a device still holds a DHCP lease but has dropped off the air) and Link (the current
+  Wi-Fi tx bitrate in Mbit/s).
+
+## 0.7.0
+
+### Added
+- **Signal strength for each connected client.** The status page now shows a Signal column —
+  Excellent / Great / OK / Poor with the dBm — read straight from the access point's station table
+  (`iw station dump`), so you can see which grow controllers have a weak link to the hotspot.
+- **Real device names.** When the Spider Farmer Bridge integration is running (v3.19.95+), it writes a
+  `mac → name` map to `/config`, and the client list now shows the friendly device name (e.g. "SF
+  Power Strip AC10 …FB30") instead of the DHCP hostname ("GGS-CB") or "(unknown)". Falls back to the
+  DHCP hostname, then "(unknown)", if the integration hasn't identified a device yet.
+
 ## 0.6.8
 
 - **`proxy_port` now defaults to `8000`** (was `8883`), matching the integration's new

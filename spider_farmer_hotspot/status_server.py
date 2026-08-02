@@ -15,6 +15,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 OPTIONS = "/data/options.json"
 LEASES = "/data/dnsmasq.leases"
+# The Spider Farmer Bridge integration writes this map (mac -> friendly name)
+# into HA's /config, which this add-on mounts read-write.
+DEVICE_MAP = "/config/sf_hotspot_devices.json"
 PORT = int(os.environ.get("INGRESS_PORT", "8099"))
 
 
@@ -24,6 +27,88 @@ def opts():
             return json.load(f)
     except Exception:
         return {}
+
+
+def device_names():
+    """mac (lower, no separators) -> friendly name, from the integration."""
+    try:
+        with open(DEVICE_MAP) as f:
+            raw = json.load(f)
+        out = {}
+        for k, v in raw.items():
+            mac = re.sub(r"[^0-9a-f]", "", str(k).lower())
+            name = v.get("name") if isinstance(v, dict) else v
+            if mac and name:
+                out[mac] = str(name)
+        return out
+    except Exception:
+        return {}
+
+
+def stations():
+    """mac (lower, colon) -> {signal dBm, inactive ms, tx MBit/s}, from the AP's
+    station table across all wifi interfaces. A device present here is currently
+    associated (online); one only in the DHCP leases is offline."""
+    out = {}
+    try:
+        ifaces = re.findall(
+            r"Interface (\w+)",
+            subprocess.run(["iw", "dev"], capture_output=True, text=True,
+                           timeout=2).stdout,
+        )
+    except Exception:
+        ifaces = []
+    for ifc in ifaces:
+        try:
+            dump = subprocess.run(
+                ["iw", "dev", ifc, "station", "dump"],
+                capture_output=True, text=True, timeout=2,
+            ).stdout
+        except Exception:
+            continue
+        cur = None
+        for ln in dump.splitlines():
+            m = re.match(r"Station ([0-9a-fA-F:]{17})", ln)
+            if m:
+                cur = out.setdefault(m.group(1).lower(), {})
+                continue
+            if cur is None:
+                continue
+            s = re.search(r"signal:\s*(-?\d+)", ln)
+            if s:
+                cur["signal"] = int(s.group(1))
+            i = re.search(r"inactive time:\s*(\d+)", ln)
+            if i:
+                cur["inactive"] = int(i.group(1))
+            t = re.search(r"tx bitrate:\s*([\d.]+)", ln)
+            if t:
+                cur["tx"] = float(t.group(1))
+    return out
+
+
+def fmt_ago(ms):
+    """A wifi 'inactive time' in ms -> a short 'last seen' string."""
+    if ms is None:
+        return ""
+    s = ms / 1000.0
+    if s < 5:
+        return "now"
+    if s < 90:
+        return f"{int(s)}s ago"
+    return f"{int(s // 60)}m ago"
+
+
+def signal_quality(dbm):
+    """dBm -> (label, colour). None dBm -> unknown."""
+    if dbm is None:
+        return "—", "#8b98a5"
+    if dbm >= -55:
+        return "Excellent", "#3fb950"
+    if dbm >= -67:
+        return "Great", "#56d364"
+    if dbm >= -75:
+        return "OK", "#d29922"
+    return "Poor", "#f85149"
 
 
 def leases():
@@ -89,6 +174,8 @@ def page():
                      f"<span style='color:{hcolor}'>{hits} pkts{note}</span></div>")
     else:
         hits_html = ""
+    names = device_names()
+    sta = stations()
     trs = ""
     for mac, ip, name, exp in rows:
         try:
@@ -96,11 +183,39 @@ def page():
             lease = f"{left // 60} min" if left > 0 else "expired"
         except Exception:
             lease = html.escape(exp)
-        nm = "(unknown)" if name in ("*", "") else html.escape(name)
-        trs += (f"<tr><td>{nm}</td><td>{html.escape(ip)}</td>"
+        # Prefer the integration's friendly name; fall back to the DHCP
+        # hostname, then "(unknown)".
+        mackey = re.sub(r"[^0-9a-f]", "", mac.lower())
+        friendly = names.get(mackey)
+        if friendly:
+            nm = html.escape(friendly)
+        elif name not in ("*", ""):
+            nm = html.escape(name)
+        else:
+            nm = "<span style='opacity:.55'>(unknown)</span>"
+        st = sta.get(mac.lower())
+        online = st is not None
+        # Status (online + last-seen, from the AP association table).
+        if online:
+            ago = fmt_ago(st.get("inactive"))
+            status_html = ("<span style='color:#3fb950'>Online</span>"
+                           + (f" <span style='opacity:.55'>· {ago}</span>" if ago else ""))
+        else:
+            status_html = "<span style='color:#8b98a5'>Offline</span>"
+        # Signal.
+        dbm = st.get("signal") if online else None
+        label, colour = signal_quality(dbm)
+        sig_txt = f"{label}" + (f" ({dbm} dBm)" if dbm is not None else "")
+        sig_html = f"<span style='color:{colour}'>{sig_txt}</span>"
+        # Link speed (tx bitrate).
+        tx = st.get("tx") if online else None
+        link_html = (f"{tx:g} Mbit/s" if tx is not None
+                     else "<span style='opacity:.4'>—</span>")
+        trs += (f"<tr><td>{nm}</td><td>{status_html}</td><td>{sig_html}</td>"
+                f"<td>{link_html}</td><td>{html.escape(ip)}</td>"
                 f"<td>{html.escape(mac)}</td><td>{lease}</td></tr>")
     if not trs:
-        trs = "<tr><td colspan=4 style='opacity:.55'>No clients connected yet</td></tr>"
+        trs = "<tr><td colspan=7 style='opacity:.55'>No clients connected yet</td></tr>"
     e = lambda v: html.escape(str(v))
     return f"""<!doctype html><html><head><meta charset=utf-8>
 <meta http-equiv=refresh content=10>
@@ -127,7 +242,7 @@ th{{color:#9aa;font-weight:400}}
 </div>
 <div class=card>
   <h3>Connected clients ({len(rows)})</h3>
-  <table><tr><th>Name</th><th>IP</th><th>MAC</th><th>Lease left</th></tr>{trs}</table>
+  <table><tr><th>Name</th><th>Status</th><th>Signal</th><th>Link</th><th>IP</th><th>MAC</th><th>Lease left</th></tr>{trs}</table>
 </div>
 <p style='opacity:.5;font-size:12px'>Auto-refreshes every 10s. Grow gear should
 appear here within a minute of joining the hotspot. If a device is listed here

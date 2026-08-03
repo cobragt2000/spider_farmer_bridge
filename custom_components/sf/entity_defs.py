@@ -132,6 +132,8 @@ class SfDef:
     max_value: Optional[float] = None       # number entities
     num_mode: Optional[str] = None          # number UI: "box" | "slider" | "auto"
     step: Optional[float] = None            # number entities: step (default 1)
+    default_value: Optional[float] = None   # local number entities: seed value
+                                            # when nothing has been restored
     mode_group: Optional[str] = None        # outlet mode this entity belongs
                                             # to (dynamic visibility); None =
                                             # always visible
@@ -243,9 +245,36 @@ def build_device_entities(
               unit="ppm", device_class="carbon_dioxide", state_class="measurement",
               icon="mdi:molecule-co2"))
         if want("sensor:vpd"):
-            defs.append(d("sensor", "vpd", "VPD",
+            # Named "VPD Air" so it sorts beside "VPD Leaf"; object_id is pinned
+            # to keep the stable sensor.sf_<slot>_vpd entity id (the name no
+            # longer derives it).
+            defs.append(d("sensor", "vpd", "VPD Air",
               unit="kPa", state_class="measurement", icon="mdi:gauge",
-              precision=2))
+              precision=2, object_id=f"sf_{slot}_vpd"))
+        # Leaf VPD (v3.19.101): VPD referenced to the leaf surface, which runs
+        # cooler than the air. Derived in HA from air temp + humidity + a
+        # user-set leaf-temp offset, so it only makes sense when the panel has
+        # both an air-temp and a humidity reading. The offset is a local config
+        # number (no device field); Leaf Offset is a *temperature delta*, held
+        # in the user's temperature unit and converted per-degree by the sensor.
+        # Leaf VPD min/max are local target bounds the card uses to colour the
+        # tile (out-of-range highlight), independent of the device alarm block.
+        if want("sensor:temp") and want("sensor:humi"):
+            defs.append(d("sensor", "leaf_vpd", "VPD Leaf",
+              unit="kPa", state_class="measurement", icon="mdi:leaf",
+              precision=2, kind="leaf_vpd", object_id=f"sf_{slot}_leaf_vpd"))
+            defs.append(d("number", "leaf_offset", "Leaf Offset",
+              icon="mdi:thermometer-minus", num_mode="box",
+              min_value=-10, max_value=5, step=0.1, default_value=-2.0,
+              kind="leaf_offset", entity_category="config"))
+            defs.append(d("number", "leaf_vpd_min", "Leaf VPD Min",
+              unit="kPa", icon="mdi:arrow-collapse-down", num_mode="box",
+              min_value=0, max_value=4, step=0.05, default_value=0.8,
+              kind="leaf_target", entity_category="config"))
+            defs.append(d("number", "leaf_vpd_max", "Leaf VPD Max",
+              unit="kPa", icon="mdi:arrow-collapse-up", num_mode="box",
+              min_value=0, max_value=4, step=0.05, default_value=1.2,
+              kind="leaf_target", entity_category="config"))
         if want("sensor:ppfd"):
             defs.append(d("sensor", "ppfd", "PPFD",
               unit="µmol/m²/s", state_class="measurement",

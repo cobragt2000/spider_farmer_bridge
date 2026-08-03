@@ -35,7 +35,9 @@ async def async_setup_entry(
     @callback
     def _add(defs: list[SfDef]) -> None:
         async_add_entities(
-            SfCalNumber(bus, d) if d.kind == "cal"
+            SfLeafOffsetNumber(bus, d) if d.kind == "leaf_offset"
+            else SfLocalNumber(bus, d) if d.kind == "leaf_target"
+            else SfCalNumber(bus, d) if d.kind == "cal"
             else SfBlowerSpeedNumber(bus, d) if d.kind == "blower"
             else SfFanSpeedNumber(bus, d) if d.kind == "fan"
             else SfLevelNumber(bus, d)
@@ -139,6 +141,72 @@ class SfFanSpeedNumber(SfLevelNumber):
         gear = max(1, min(10, round(pct / 10)))
         await self._command(str(gear), subfield=self.d.command_subfield)
 
+
+
+class SfLocalNumber(SfEntity, NumberEntity):
+    """A number that lives entirely in HA — no device field behind it.
+
+    Used for user preferences the controller knows nothing about (Leaf VPD
+    target bounds, the leaf-temp offset). It persists across restarts via
+    RestoreEntity and, when set, simply stores the value so dependents (the Leaf
+    VPD sensor, the card's tile colouring) can react. Seeded from
+    ``default_value`` until something is restored."""
+
+    def __init__(self, bus: SfBus, d: SfDef) -> None:
+        super().__init__(bus, d)
+        self._attr_mode = NumberMode.BOX
+        self._attr_native_min_value = float(
+            d.min_value if d.min_value is not None else 0)
+        self._attr_native_max_value = float(
+            d.max_value if d.max_value is not None else 100)
+        self._attr_native_step = float(d.step or 1)
+        self._attr_native_value = (
+            float(d.default_value) if d.default_value is not None else None)
+        if d.unit:
+            self._attr_native_unit_of_measurement = d.unit
+
+    @property
+    def state_topics(self) -> list[str]:
+        return []  # local config; nothing on the device feeds it
+
+    @property
+    def available(self) -> bool:
+        # Settable whenever the integration is up, even if this controller is
+        # momentarily offline (it's a preference, not live device data).
+        return self.bus.available
+
+    @callback
+    def _handle_payload(self, topic: str, payload: str) -> None:
+        return  # no device topics feed this entity
+
+    @callback
+    def _clamp(self, v: float) -> float:
+        return max(self._attr_native_min_value,
+                   min(self._attr_native_max_value, v))
+
+    @callback
+    def _restore(self, last) -> None:
+        try:
+            self._attr_native_value = self._clamp(float(last.state))
+        except (ValueError, TypeError):
+            pass
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._attr_native_value = self._clamp(round(float(value), 2))
+        self.async_write_ha_state()
+
+
+class SfLeafOffsetNumber(SfLocalNumber):
+    """Leaf-temperature offset — a local delta (leaf runs cooler than air) used
+    only to derive the Leaf VPD sensor. Its unit follows the HA temperature unit
+    so it reads in °F or °C; because it is a *delta*, the Leaf VPD sensor
+    converts it per-degree (÷1.8 for °F) rather than as an absolute temp."""
+
+    async def async_added_to_hass(self) -> None:
+        units = getattr(self.hass.config, "units", None)
+        self._attr_native_unit_of_measurement = getattr(
+            units, "temperature_unit", "°F")
+        await super().async_added_to_hass()
 
 
 class SfCalNumber(SfLevelNumber):

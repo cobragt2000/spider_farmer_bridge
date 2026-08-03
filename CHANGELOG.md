@@ -3,6 +3,53 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.103
+
+### Fixed
+- **Soil calibration showing the wrong controller after a panel slot swap.** When
+  two Display Panels swapped dp slots, the slot-reconcile re-homed the soil probe
+  sensors but not the editable soil *calibration* (and substrate) entities, so
+  those stranded on the other panel — e.g. panel 2E64's Calibration tab listed
+  "SF Display Panel F478 Soil 1". Reconcile now moves the calibration/substrate
+  ids too, and a one-time repair corrects any already-stranded ids in place
+  (history preserved). The "VPD Air"/"VPD Leaf" ids are pinned so the rename
+  can't disturb them.
+
+### Changed
+- **Card layout.** Leaf VPD targets (Environment) and Leaf VPD calibration
+  (Calibration) now sit **above** their Apply/Discard bar. Air-calibration
+  dropdowns are narrower and share one row, and the soil substrate selector moved
+  onto the same row as Temp / Moisture / EC. (Card v0.18.4.)
+
+## 3.19.102
+
+### Added
+- **Leaf VPD target band + tile colouring.** New `number.sf_<panel>_leaf_vpd_min`
+  and `_leaf_vpd_max` (kPa, defaults 0.8 / 1.2) set the leaf VPD you're aiming
+  for. The card shows them under the **Environment** tab, and the VPD Leaf tile
+  now colours when the reading drifts outside that band — reusing the Settings
+  tab highlight colours, exactly like the air metrics. (Card v0.18.3.)
+
+### Changed
+- **Renamed the VPD sensors to "VPD Air" and "VPD Leaf"** so they list next to
+  each other. Entity ids are unchanged (`sensor.sf_<panel>_vpd`,
+  `sensor.sf_<panel>_leaf_vpd`), so dashboards and automations keep working.
+- **Moved Leaf VPD calibration (offset + 5-reading calibrator) to the
+  Calibration tab**, where it belongs alongside the other sensor calibrations.
+
+## 3.19.101
+
+### Added
+- **Leaf VPD.** A new `sensor.sf_<panel>_leaf_vpd` computes VPD referenced to the
+  leaf surface — which runs cooler than the air — as SVP(leaf) − RH·SVP(air),
+  and shows as a tile in the Parameters grid. Leaf temperature comes from a new
+  local **Leaf Offset** control (`number.sf_<panel>_leaf_offset`, a temperature
+  delta that persists across restarts). The card's Settings tab adds a Leaf VPD
+  section: set the offset directly, or use the 5-reading calibrator (enter five
+  measured leaf-surface temps and it applies the implied leaf − air offset).
+  Only created on panels that report both air temperature and humidity.
+  (Card v0.18.2.)
+
 ## 3.19.100
 
 ### Changed

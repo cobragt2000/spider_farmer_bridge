@@ -71,14 +71,27 @@ def reconcile_registry_to_slots(hass, slots: dict, soil_slots: dict | None = Non
             final_eid = f"{entity.domain}.sf_{cb_slot}_soil_avg_{suffix}"
         elif field.startswith("soil_"):
             # ggs_{mac}_soil_{serial}_{suffix} — id is CB-scoped (v3.3.1):
-            # sf_{cb_slot}_{soil_slot}_{suffix}
+            # sf_{cb_slot}_{soil_slot}_{suffix}. The suffix is either a probe
+            # reading (temperature/moisture/ec) OR an editable-calibration field
+            # (cal_temp/cal_moisture/cal_ec/substrate). Earlier builds only
+            # matched the readings, so the cal/substrate ids were never re-homed
+            # on a dp-slot change — a dp1<->dp2 swap stranded them on the wrong
+            # panel (v3.19.103 fix).
             body = field[len("soil_"):]
-            serial, _, suffix = body.rpartition("_")
-            soil_slot = soil_slots.get(serial.lower())
             cb_slot = slots.get(mac)
-            if not soil_slot or not cb_slot or suffix not in (
-                "temperature", "moisture", "ec"
-            ):
+            # Longest / most-specific suffixes first so "cal_ec" wins over "ec".
+            suffix = next(
+                (s for s in (
+                    "cal_temp", "cal_moisture", "cal_ec", "substrate",
+                    "temperature", "moisture", "ec")
+                 if body == s or body.endswith(f"_{s}")),
+                None,
+            )
+            if not suffix or not cb_slot:
+                continue
+            serial = body[: len(body) - len(suffix)].rstrip("_")
+            soil_slot = soil_slots.get(serial.lower())
+            if not soil_slot:
                 continue
             final_eid = f"{entity.domain}.sf_{cb_slot}_{soil_slot}_{suffix}"
         else:
@@ -119,10 +132,19 @@ def reconcile_registry_to_slots(hass, slots: dict, soil_slots: dict | None = Non
     return len(temp_map)
 
 
+# Fields whose SfDef pins an explicit object_id, so the entity id must NOT be
+# derived from the (display) name. Keeps sensor.sf_<slot>_vpd / _leaf_vpd stable
+# even though their names are "VPD Air" / "VPD Leaf".
+_PINNED_OBJ_SUFFIX = {"vpd": "vpd", "leaf_vpd": "leaf_vpd"}
+
+
 def _expected_obj(slot, field, entity, registry):
     """Final object_id for a slot+field. Mirrors SfDef.expected_object_id
     but works from registry data (unique_id field + original_name)."""
     from homeassistant.util import slugify
+    # A pinned object_id wins over the name (the def sets object_id explicitly).
+    if field in _PINNED_OBJ_SUFFIX:
+        return slugify(f"sf_{slot}_{_PINNED_OBJ_SUFFIX[field]}")
     # Prefer the entity's original_name (the human name we set), which is
     # what slugify used originally: sf_{slot}_{name}. Fall back to field.
     name = entity.original_name

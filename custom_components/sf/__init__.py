@@ -88,6 +88,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # entities; drop the old read-only sensor-domain versions.
     _migrate_cal_to_editable(hass, entry)
 
+    # One-time (3.19.103): soil calibration/substrate entity ids were never
+    # re-homed when a Display Panel's dp slot changed, so a dp1<->dp2 swap left
+    # them stranded on the other panel (their device name showed the wrong
+    # controller). reconcile now handles them — run it once to correct any
+    # stranded ids in place (history preserved).
+    _migrate_soil_cal_slots(hass, entry)
+
     # 3.19.88: seed per-device decisions for the toggleable accessories
     # (Light 2 / Fan) from current state so an upgrade neither hides existing
     # gear nor prompts for devices already in service. Runs before the update
@@ -490,6 +497,36 @@ def _migrate_soil_cal_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> Non
                 _LOGGER.error("soil-cal finalize failed %s -> %s: %s", cur, want, exc)
     if removed:
         _LOGGER.info("Removed %d phantom soil-cal entity(ies)", removed)
+
+
+_SOIL_CAL_SLOT_FLAG = "soil_cal_slot_reconcile_v1"
+
+
+def _migrate_soil_cal_slots(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """One-time repair (3.19.103): re-home soil calibration/substrate entity ids
+    that a dp-slot swap stranded on the wrong panel.
+
+    Older reconciles only remapped the probe sensors (temperature/moisture/ec),
+    not the editable calibration numbers/selects, so after two Display Panels
+    swapped dp1<->dp2 the cal entities kept the other panel's slot prefix and
+    showed the wrong device name. Now that reconcile handles them, run it once
+    with the persisted slot maps to correct any stranded ids (two-phase and
+    collision-safe, so a straight swap is fine). Flagged so it runs a single
+    time; harmless when nothing is stranded."""
+    if (entry.options or {}).get(_SOIL_CAL_SLOT_FLAG):
+        return
+    from .bus import reconcile_registry_to_slots
+
+    slots = dict((entry.options or {}).get("device_slots", {}))
+    soil_slots = dict((entry.options or {}).get("soil_slots", {}))
+    if slots:
+        try:
+            reconcile_registry_to_slots(hass, slots, soil_slots)
+        except Exception:  # noqa: BLE001 - never block setup on a repair pass
+            _LOGGER.exception("soil-cal slot reconcile failed (continuing)")
+    hass.config_entries.async_update_entry(
+        entry, options={**(entry.options or {}), _SOIL_CAL_SLOT_FLAG: True}
+    )
 
 
 def _migrate_cal_to_editable(hass: HomeAssistant, entry: ConfigEntry) -> None:

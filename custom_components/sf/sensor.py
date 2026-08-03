@@ -31,7 +31,8 @@ async def async_setup_entry(
     @callback
     def _add(defs: list[SfDef]) -> None:
         async_add_entities(
-            SfScheduleSensor(bus, d) if d.kind == "schedule"
+            SfLeafVpdSensor(bus, d) if d.kind == "leaf_vpd"
+            else SfScheduleSensor(bus, d) if d.kind == "schedule"
             else SfAlarmsSensor(bus, d) if d.kind in ("alarms", "oplog")
             else SfAlarmSettingsSensor(bus, d) if d.kind == "alarm_settings"
             else SfSensor(bus, d)
@@ -119,6 +120,95 @@ class SfSensor(SfEntity, SensorEntity):
                 )
                 return
             self._attr_native_value = payload
+
+
+def _to_c(value: float, unit: str | None) -> float:
+    """A temperature reading in its displayed unit -> °C."""
+    u = unit or "°C"
+    if "F" in u or "℉" in u:
+        return (value - 32) / 1.8
+    if u == "K":
+        return value - 273.15
+    return value
+
+
+def _delta_to_c(value: float, unit: str | None) -> float:
+    """A temperature *delta* (offset) in its unit -> a °C delta (per-degree)."""
+    u = unit or "°C"
+    return value / 1.8 if ("F" in u or "℉" in u) else value
+
+
+def _svp(tc: float) -> float:
+    """Saturation vapour pressure (kPa) at temperature ``tc`` °C."""
+    import math
+    return 0.6108 * math.exp(17.27 * tc / (tc + 237.3))
+
+
+class SfLeafVpdSensor(SfSensor):
+    """Leaf VPD, derived in HA (v3.19.101).
+
+    VPD referenced to the leaf surface rather than the air:
+        VPD_leaf = SVP(T_leaf) - (RH / 100) * SVP(T_air),  T_leaf = T_air + offset
+    The offset (Leaf Offset number) is a temperature delta in the user's unit.
+    This sensor watches the panel's air-temperature, humidity, and Leaf Offset
+    entities and recomputes whenever any of them changes — there is no device
+    topic for it."""
+
+    @property
+    def state_topics(self) -> list[str]:
+        return []  # computed from sibling entities, not a device topic
+
+    @property
+    def _sibling_ids(self) -> tuple[str, str, str]:
+        base = f"sf_{self.d.slot}"
+        return (
+            f"sensor.{base}_temperature",
+            f"sensor.{base}_humidity",
+            f"number.{base}_leaf_offset",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        from homeassistant.helpers.event import async_track_state_change_event
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, list(self._sibling_ids), self._sources_changed
+            )
+        )
+        self._recompute()
+        self.async_write_ha_state()
+
+    @callback
+    def _sources_changed(self, _event) -> None:
+        self._recompute()
+        self.async_write_ha_state()
+
+    @callback
+    def _restore(self, last) -> None:
+        return  # always recomputed live; never restore a stale kPa reading
+
+    def _recompute(self) -> None:
+        if self.hass is None:
+            return
+        temp_id, humi_id, off_id = self._sibling_ids
+        t = self.hass.states.get(temp_id)
+        h = self.hass.states.get(humi_id)
+        o = self.hass.states.get(off_id)
+        try:
+            air = float(t.state)
+            rh = float(h.state)
+        except (AttributeError, ValueError, TypeError):
+            self._attr_native_value = None
+            return
+        air_c = _to_c(air, t.attributes.get("unit_of_measurement"))
+        try:
+            offset = float(o.state)
+            off_unit = o.attributes.get("unit_of_measurement")
+        except (AttributeError, ValueError, TypeError):
+            offset, off_unit = -2.0, t.attributes.get("unit_of_measurement")
+        leaf_c = air_c + _delta_to_c(offset, off_unit)
+        vpd = _svp(leaf_c) - (rh / 100.0) * _svp(air_c)
+        self._attr_native_value = f"{max(0.0, vpd):.2f}"
 
 
 class SfScheduleSensor(SfSensor):

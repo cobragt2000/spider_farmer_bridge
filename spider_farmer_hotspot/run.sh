@@ -37,14 +37,19 @@ SSID=$(get '.ssid')
 PASSWORD=$(get '.password')
 CHANNEL=$(get '.channel')
 HOTSPOT_IP=$(get '.hotspot_ip')
-DNS_TARGET=$(get '.dns_target')
+# sf.mqtt.spider-farmer.com always resolves to the hotspot IP (where the
+# integration's proxy listens). The old configurable dns_target override was
+# removed in 0.7.2 — it was never needed.
+DNS_TARGET="${HOTSPOT_IP}"
 COUNTRY=$(get '.country_code')
 UNMANAGE=$(get '.unmanage_via_nmcli')
 SECURITY=$(get '.security')
 DNS_LOGGING=$(get '.dns_logging')
 PROXY_PORT=$(get '.proxy_port')
 [ -z "${PROXY_PORT}" ] || [ "${PROXY_PORT}" = "null" ] && PROXY_PORT=8883
-INTERNET_ACCESS=$(get '.internet_access')
+# Internet passthrough (NAT to the uplink) is always on — controllers need it
+# to come online. The user-facing toggle was removed in 0.8.0.
+INTERNET_ACCESS="true"
 
 # All firewall work goes through native nftables (HAOS's own backend), in a
 # single dedicated table "sfhs" so teardown is one command. Helper creates the
@@ -55,9 +60,6 @@ nft_table() {
   NFT_ADDED=1
 }
 
-if [ -z "${DNS_TARGET}" ] || [ "${DNS_TARGET}" = "null" ]; then
-  DNS_TARGET="${HOTSPOT_IP}"
-fi
 
 if [ "${ENABLED}" != "true" ]; then
   log "hotspot_enabled is false - nothing to do. Sleeping."

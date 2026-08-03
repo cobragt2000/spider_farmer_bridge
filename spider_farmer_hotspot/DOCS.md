@@ -90,8 +90,6 @@ handled by `auto` (the log shows the exact name to type if you need to override)
 | `channel` | `6` | 2.4 GHz channel (1-13). |
 | `hotspot_ip` | `192.168.10.1` | The host's address on the hotspot; also the gateway/DNS handed to clients. Pick a subnet that does NOT overlap your LAN. |
 | `proxy_port` | `8000` | The port the Spider Farmer Bridge integration listens on (its default is `8000` — not `8883`, which the MQTT broker add-on binds). The add-on redirects the hotspot's inbound `8883` to this port. Match it to the integration's listen port. |
-| `internet_access` | `true` | Give joined devices real internet (IP forward + NAT to the host uplink), like the LAN. Many controllers need this to come online. Turn off for an isolated hotspot. |
-| `dns_target` | *(blank)* | Where `sf.mqtt.spider-farmer.com` resolves for hotspot clients. Blank = `hotspot_ip` (the local proxy). |
 | `country_code` | `US` | Regulatory domain for the radio. |
 | `unmanage_via_nmcli` | `false` | hostapd backend only: run `nmcli dev set <iface> managed no` on start so hostapd can claim the radio. |
 
@@ -176,8 +174,8 @@ Use it to debug a device that won't come online:
   port 53. dnsmasq here binds only to the hotspot interface; if a host-wide DNS
   is bound to `0.0.0.0:53` there may be a conflict - see the log.
 - **Device connects but no entities** - confirm the Spider Farmer Bridge
-  integration is running and its proxy is on `:8883`, and that `dns_target`
-  points at the host address where the proxy listens.
+  integration is running and its proxy is reachable at the hotspot IP on the
+  configured `proxy_port`.
 
 ## Alternative: router NAT (no add-on)
 

@@ -4,6 +4,21 @@ All notable changes to the **Spider Farmer Hotspot** add-on. The Supervisor
 offers an update whenever the `version` in `config.yaml` increases; the notes
 below are shown on the add-on's Changelog tab.
 
+## 0.8.0
+
+### Changed
+- **Removed the `internet_access` option.** Joined devices always get real internet (IP forward + NAT
+  to the host uplink), same as the LAN, which is what controllers need to come online. The toggle only
+  invited breakage, so it's hardcoded on. No action required. To keep devices from reaching the Spider
+  Farmer cloud, use the **Block cloud / local-only** toggle in the integration instead — it air-gaps
+  both hotspot and NAT'd devices at the proxy.
+
+## 0.7.2
+
+### Changed
+- **Removed the `dns_target` option.** `sf.mqtt.spider-farmer.com` now always resolves to the hotspot
+  IP (where the integration's proxy listens) — the override was never needed. No action required.
+
 ## 0.7.1
 
 ### Added
@@ -20,7 +35,7 @@ below are shown on the add-on's Changelog tab.
   (`iw station dump`), so you can see which grow controllers have a weak link to the hotspot.
 - **Real device names.** When the Spider Farmer Bridge integration is running (v3.19.95+), it writes a
   `mac → name` map to `/config`, and the client list now shows the friendly device name (e.g. "SF
-  Power Strip AC10 …FB30") instead of the DHCP hostname ("GGS-CB") or "(unknown)". Falls back to the
+  Power Strip AC10") instead of the DHCP hostname ("GGS-CB") or "(unknown)". Falls back to the
   DHCP hostname, then "(unknown)", if the integration hasn't identified a device yet.
 
 ## 0.6.8
@@ -104,7 +119,7 @@ below are shown on the add-on's Changelog tab.
 ## 0.5.7
 
 - **Fix: light's SYN to the proxy got no reply (dropped).** tcpdump showed the device
-  sending SYN to 192.168.99.1:8883 with zero replies - the `REDIRECT` to the hotspot IP was
+  sending SYN to 192.168.10.1:8883 with zero replies - the `REDIRECT` to the hotspot IP was
   being dropped by the host firewall on HAOS. The add-on now **DNATs** tcp/8883 to the
   host's detected **wired LAN IP:proxy_port** - the exact destination the working router-NAT
   rule uses, which HAOS already permits - instead of REDIRECT to the hotspot IP.
@@ -130,7 +145,7 @@ below are shown on the add-on's Changelog tab.
   `iptables` is the legacy backend, but Home Assistant OS processes **nftables** — so the
   8883->proxy redirect and the internet-NAT rules were added to a table the kernel never
   evaluates. They reported success yet matched 0 packets, which is why the light dialed
-  192.168.99.1 but nothing reached the proxy. The add-on now uses `iptables-nft` (the
+  192.168.10.1 but nothing reached the proxy. The add-on now uses `iptables-nft` (the
   nft-backed backend) so the rules land in the ruleset the kernel actually uses.
 
 ## 0.5.3

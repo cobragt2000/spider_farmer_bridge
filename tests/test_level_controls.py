@@ -107,9 +107,9 @@ async def test_level_entities_and_state(hass: HomeAssistant):
     session, _ = await _live_session(hass, entry)
 
     # Sliders mirror the controller's reported levels
-    assert hass.states.get("number.sf_dp1_heater_level").state == "4.0"
-    assert hass.states.get("number.sf_dp1_humidifier_level").state == "2.0"
-    assert hass.states.get("number.sf_dp1_fan_oscillation").state == "3.0"
+    assert hass.states.get("number.sf_dp1_heater_level").state == "4"
+    assert hass.states.get("number.sf_dp1_humidifier_level").state == "2"
+    assert hass.states.get("number.sf_dp1_fan_oscillation").state == "3"
     # Dehumidifier running at mLevel 1 → High
     assert hass.states.get("select.sf_dp1_dehumidifier_level").state == "High"
 

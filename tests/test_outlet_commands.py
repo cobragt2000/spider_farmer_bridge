@@ -21,8 +21,8 @@ from custom_components.sf.proxy.mqtt_parser import (
     MQTTPacket, MQTT_PUBLISH, parse_packets,
 )
 
-PS10_MAC = "10003B49ABCD"
-PS10_MAC_LC = "10003b49abcd"
+PS10_MAC = "0A1B2C3D4E30"
+PS10_MAC_LC = "0a1b2c3d4e30"
 
 PS10_DATA = {"outlet": {
     "psmode": 2, "hostType": 0,

@@ -77,6 +77,13 @@ class SfLevelNumber(SfEntity, NumberEntity):
     def state_topics(self) -> list[str]:
         return [f"ggs/ha/{self.d.mac}/{self._state_field}/state"]
 
+    def _display(self, value: float) -> float | int:
+        """Whole-number controls (targets, levels, dead zones — step 1/10) show
+        as integers, so the box reads "16" not "16.0". Fractional-step controls
+        (calibration offsets at 0.1) keep their decimal."""
+        step = self._attr_native_step or 1
+        return int(round(value)) if float(step).is_integer() else value
+
     @callback
     def _handle_payload(self, topic: str, payload: str) -> None:
         try:
@@ -88,7 +95,8 @@ class SfLevelNumber(SfEntity, NumberEntity):
         if value < self._attr_native_min_value:
             self._attr_native_value = None
         else:
-            self._attr_native_value = min(value, self._attr_native_max_value)
+            self._attr_native_value = self._display(
+                min(value, self._attr_native_max_value))
 
     @callback
     def _restore(self, last) -> None:
@@ -131,7 +139,7 @@ class SfFanSpeedNumber(SfLevelNumber):
             gear = float(payload)
         except (ValueError, TypeError):
             return
-        self._attr_native_value = max(0.0, min(100.0, gear * 10))
+        self._attr_native_value = self._display(max(0.0, min(100.0, gear * 10)))
 
     async def async_set_native_value(self, value: float) -> None:
         pct = int(value)

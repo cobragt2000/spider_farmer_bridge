@@ -109,9 +109,9 @@ async def test_env_device_created_and_synced(hass: HomeAssistant):
     await hass.async_block_till_done()
 
     # Entities exist, on their own Environment device, with synced values
-    assert hass.states.get("number.sf_dp1_env_temp_day").state == "63.0"
+    assert hass.states.get("number.sf_dp1_env_temp_day").state == "63"
     assert hass.states.get("text.sf_dp1_env_day_start").state == "07:30"
-    assert hass.states.get("number.sf_dp1_env_co2_night").state == "500.0"
+    assert hass.states.get("number.sf_dp1_env_co2_night").state == "500"
     # units are shown on the sliders
     assert hass.states.get("number.sf_dp1_env_co2_day").attributes[
         "unit_of_measurement"] == "ppm"
@@ -119,13 +119,12 @@ async def test_env_device_created_and_synced(hass: HomeAssistant):
         "unit_of_measurement"] == "%"
     assert hass.states.get("number.sf_dp1_env_temp_day").attributes[
         "unit_of_measurement"] == "\u00b0F"
-    # AUTO mode (HA picks slider/box per range) + corrected dead-zone ranges
-    # Targets = manual-entry boxes; dead zones = sliders
+    # Targets AND dead zones are manual-entry boxes, so every calibration/target
+    # control is uniform (v3.19.104).
     for t in ("temp_day", "temp_night", "humi_day", "humi_night",
-              "co2_day", "co2_night"):
+              "co2_day", "co2_night",
+              "temp_deadband", "humi_deadband", "co2_deadband"):
         assert hass.states.get(f"number.sf_dp1_env_{t}").attributes["mode"] == "box"
-    for dz in ("temp_deadband", "humi_deadband", "co2_deadband"):
-        assert hass.states.get(f"number.sf_dp1_env_{dz}").attributes["mode"] == "slider"
     cd = hass.states.get("number.sf_dp1_env_co2_day").attributes
     assert cd["min"] == 300 and cd["max"] == 2500 and cd["step"] == 10
     td = hass.states.get("number.sf_dp1_env_temp_day").attributes

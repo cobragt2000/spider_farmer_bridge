@@ -196,8 +196,8 @@ async def test_se_light_control(hass: HomeAssistant):
     # Schedule entities reflect the config file
     assert hass.states.get("text.sf_se1_schedule_start").state == "08:00"
     assert hass.states.get("text.sf_se1_schedule_stop").state == "20:00"
-    assert hass.states.get("number.sf_se1_schedule_brightness").state == "50.0"
-    assert hass.states.get("number.sf_se1_sunrise_sunset_fade").state == "30.0"
+    assert hass.states.get("number.sf_se1_schedule_brightness").state == "50"
+    assert hass.states.get("number.sf_se1_sunrise_sunset_fade").state == "30"
     # Light + mode entities live
     light = hass.states.get("light.sf_se1_light")
     assert light is not None and light.state == "on"

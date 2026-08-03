@@ -15,8 +15,8 @@ from custom_components.sf.proxy.mqtt_parser import (
     MQTT_CONNACK, MQTT_SUBACK, MQTT_PUBACK, MQTT_PINGRESP,
 )
 
-MAC = "10003B49CDEF"
-MAC_LC = "10003b49cdef"
+MAC = "0A1B2C3D4E20"
+MAC_LC = "0a1b2c3d4e20"
 
 
 @pytest.fixture(autouse=True)

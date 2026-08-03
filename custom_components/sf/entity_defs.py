@@ -517,7 +517,8 @@ def build_device_entities(
               icon="mdi:air-humidifier", kind="climate"),
             d("number", "humidifier_level_set", "Humidifier Level",
               icon="mdi:water-percent", command_field="humidifier",
-              command_subfield="level", min_value=1, max_value=4),
+              command_subfield="level", min_value=1, max_value=4,
+              num_mode="box"),
             d("binary_sensor", "humidifier_active", "Humidifier Active", icon="mdi:water"),
             d("sensor", "humidifier_level", "Humidifier Level", icon="mdi:water-percent"),
             d("sensor", "humidifier_mode", "Humidifier Mode",
@@ -822,7 +823,7 @@ def build_air_calibration_entities(device_cfg, slot=None):
             tu.delta_bound(-18), tu.delta_bound(18), 0.1),
         num("cal_air_humidity", "Air Humidity Calibration", "%", "mdi:water-percent", -20, 20, 0.1),
         num("cal_ppfd", "PPFD Calibration", "µmol/m²/s", "mdi:white-balance-sunny", -20, 20, 0.1),
-        num("cal_co2", "CO2 Calibration", "ppm", "mdi:molecule-co2", -200, 200, 10, mode="slider"),
+        num("cal_co2", "CO2 Calibration", "ppm", "mdi:molecule-co2", -200, 200, 10),
     ]
 
 
@@ -969,16 +970,17 @@ def build_env_entities(device_cfg, slot):
         e("number", "env_temp_night", "Temp Target Night", unit=tu.unit(),
           min_value=tu.abs_bound(32), max_value=tu.abs_bound(122),
           num_mode="box", icon="mdi:thermometer"),
-        # Dead zones: sliders (a temperature *difference*).
+        # Dead zones: entry boxes (a temperature/humidity/CO2 *difference*),
+        # kept as boxes so every calibration/target control looks uniform.
         e("number", "env_temp_deadband", "Temp Dead Zone", unit=tu.unit(),
           min_value=tu.delta_bound(1) or 1, max_value=tu.delta_bound(18),
-          num_mode="slider", icon="mdi:arrow-expand-vertical"),
+          num_mode="box", icon="mdi:arrow-expand-vertical"),
         e("number", "env_humi_day", "Humidity Target Day", unit="%",
           min_value=0, max_value=100, num_mode="box", icon="mdi:water-percent"),
         e("number", "env_humi_night", "Humidity Target Night", unit="%",
           min_value=0, max_value=100, num_mode="box", icon="mdi:water-percent"),
         e("number", "env_humi_deadband", "Humidity Dead Zone", unit="%",
-          min_value=1, max_value=10, num_mode="slider",
+          min_value=1, max_value=10, num_mode="box",
           icon="mdi:arrow-expand-vertical"),
         e("number", "env_co2_day", "CO2 Target Day", unit="ppm",
           min_value=300, max_value=2500, step=10, num_mode="box",
@@ -987,7 +989,7 @@ def build_env_entities(device_cfg, slot):
           min_value=300, max_value=2500, step=10, num_mode="box",
           icon="mdi:molecule-co2"),
         e("number", "env_co2_deadband", "CO2 Dead Zone", unit="ppm",
-          min_value=10, max_value=250, step=10, num_mode="slider",
+          min_value=10, max_value=250, step=10, num_mode="box",
           icon="mdi:arrow-expand-vertical"),
     ]
     return defs

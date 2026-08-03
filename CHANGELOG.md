@@ -3,14 +3,38 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.106
+
+### Fixed
+- **Card build warning.** `alarmSources()` passed the optional `config.panel`
+  into a helper typed for a required string (TS2345). Guarded it — no behaviour
+  change, just a clean build. (Card v0.18.5.)
+
+## 3.19.105
+
+### Changed
+- **Whole-number controls read as integers.** Targets, levels, dead zones, speeds
+  and other step-1/step-10 numbers now show "16" instead of "16.0". Calibration
+  offsets (step 0.1) and sensors keep their decimal.
+- **Humidifier Level is an entry box** (1–4) instead of a slider, matching the
+  other level controls.
+
+## 3.19.104
+
+### Changed
+- **Uniform calibration/target controls.** CO2 Calibration and the three
+  environment Dead Zone controls were sliders while every other calibration and
+  target was an entry box, so the device page looked mixed. They're all boxes
+  now, so the number controls line up consistently.
+
 ## 3.19.103
 
 ### Fixed
 - **Soil calibration showing the wrong controller after a panel slot swap.** When
   two Display Panels swapped dp slots, the slot-reconcile re-homed the soil probe
   sensors but not the editable soil *calibration* (and substrate) entities, so
-  those stranded on the other panel — e.g. panel 2E64's Calibration tab listed
-  "SF Display Panel F478 Soil 1". Reconcile now moves the calibration/substrate
+  those stranded on the other panel — e.g. one panel's Calibration tab listed a
+  soil probe under the other panel's name. Reconcile now moves the calibration/substrate
   ids too, and a one-time repair corrects any already-stranded ids in place
   (history preserved). The "VPD Air"/"VPD Leaf" ids are pinned so the rename
   can't disturb them.

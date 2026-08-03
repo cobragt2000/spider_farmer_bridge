@@ -40,15 +40,16 @@
           "upstream_host": "Spider Farmer cloud host (upstream MQTT server)",
           "upstream_port": "Spider Farmer cloud port",
           "allow_control": "Enable device control (send commands to devices; off = read-only monitoring)",
+          "block_cloud": "Block cloud (local-only — devices never reach Spider Farmer's servers; HA keeps control, but the phone app and cloud firmware updates stop working)",
           "diagnostic_log_path": "Diagnostic log file path",
           "diagnostic_log_days": "Diagnostic log retention (days)"
         }
       },
       "components": {
         "title": "Device accessories",
-        "description": "The controllers report a second light (Light 2) and an add-on fan unreliably — a panel with neither can still show a phantom tile. These two are the only manual toggles; everything else (blower, primary light, humidifier, sensors, outlets) auto-detects. Check an accessory to allow it (it appears when the device reports it); uncheck to hide it and tear it down. One entry per device, so a real fan on one panel and a phantom fan on another are independent.",
+        "description": "Each device is listed with Light 1, Light 2, and Fan. These are created automatically when the device reports them; uncheck one to hide it and tear it down (handy for a phantom light/fan, or a fan-only setup where the light channel should be off). Everything else (blower, humidifier, sensors, outlets) auto-detects. Leaving a box checked means \"allow it\" — it still only appears when the device actually reports it.",
         "data": {
-          "enabled": "Accessories present on each device"
+          "enabled": "Accessories to keep (unchecked = hidden)"
         }
       },
       "migrate": {

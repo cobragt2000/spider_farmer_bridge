@@ -75,6 +75,12 @@ def _air_sensor_live(sensor_block: dict) -> bool:
 _DETECT_MIN_FRAMES = 3
 _DETECT_MAX_WAIT_SEC = 8.0
 
+# Local-only fallback (3.19.96): how long to wait for the cloud on connect
+# before serving a controller locally, and how often to re-check the cloud
+# while in local mode so we can hand back to full relay when it returns.
+_UPSTREAM_CONNECT_TIMEOUT = 8.0
+_UPSTREAM_PROBE_INTERVAL = 20.0
+
 
 def _classify_evidence(evidence: set, max_outlet: int) -> tuple[Optional[str], bool]:
     """
@@ -343,6 +349,12 @@ class MITMProxy:
         self._upstream_ssl_ctx: Optional[ssl.SSLContext] = None
         # Safety lock — commands are dropped unless explicitly enabled
         self.allow_control: bool = False
+        # Block cloud (local-only): never relay to the Spider Farmer cloud —
+        # serve every controller from the built-in local broker instead, so no
+        # device data leaves the LAN. Applies to hotspot-AP and NAT'd devices
+        # alike (both funnel through this proxy). HA keeps full read + control;
+        # the phone app and cloud firmware updates stop working while on.
+        self.block_cloud: bool = False
         # Republish discovery for this many seconds after startup
         self._start_time: float = time.monotonic()
         self._discovery_window_sec: float = 30.0
@@ -721,6 +733,114 @@ class MITMProxy:
                 "reconnect to the new instance", count,
             )
 
+    def _bind_local(self, client_id: str, client_writer, peer) -> "ProxySession":
+        """Bind (or reuse) a session for local-only mode — device writer only,
+        no cloud upstream."""
+        mac_addr = _mac(client_id)
+        sess = self._sessions.get(mac_addr)
+        if sess is None:
+            sess = ProxySession(client_id, self.mqtt_client)
+            self._sessions[mac_addr] = sess
+            _LOGGER.info("[%s] new LOCAL session (cloud offline)", mac_addr)
+            DIAG.session(mac_addr, "CONNECT-LOCAL", f"peer={peer}")
+        sess.set_upstream(None)
+        sess.set_client(client_writer)
+        return sess
+
+    async def _upstream_reachable(self) -> bool:
+        """Quick TCP probe of the cloud MQTT endpoint (no TLS needed)."""
+        try:
+            _, w = await asyncio.wait_for(
+                asyncio.open_connection(
+                    self.config["proxy"]["upstream_host"],
+                    self.config["proxy"]["upstream_port"],
+                ),
+                timeout=4,
+            )
+            w.close()
+            try:
+                await w.wait_closed()
+            except Exception:
+                pass
+            return True
+        except Exception:
+            return False
+
+    async def _serve_local(self, client_reader, client_writer, peer,
+                           session_ref) -> None:
+        """Act as the MQTT broker for one controller while the cloud is down.
+
+        Answers CONNECT/SUBSCRIBE/PUBLISH/PINGREQ locally so Home Assistant
+        keeps full read + control; the controller keeps self-reporting getDevSta
+        on its own heartbeat, so state stays fresh with nobody polling. The app
+        can't reach the cloud while it's down either, so nothing is lost.
+        Periodically re-checks the cloud and, when it returns, ends local mode so
+        the controller reconnects into full relay (restoring app control)."""
+        from .mqtt_parser import (
+            parse_packets, build_connack, build_suback, build_puback,
+            build_pingresp, MQTT_CONNECT, MQTT_SUBSCRIBE, MQTT_PUBLISH,
+            MQTT_PINGREQ, MQTT_DISCONNECT,
+        )
+        buf = b""
+        last_probe = time.monotonic()
+        while True:
+            try:
+                data = await asyncio.wait_for(client_reader.read(65536), timeout=15)
+            except asyncio.TimeoutError:
+                data = b""
+            except Exception:
+                return
+            if data:
+                buf += data
+                packets, buf = parse_packets(buf)
+                out = bytearray()
+                for pkt in packets:
+                    if pkt.packet_type == MQTT_CONNECT and pkt.client_id:
+                        sess = self._bind_local(pkt.client_id, client_writer, peer)
+                        session_ref[0] = sess
+                        sess.publish_availability("online")
+                        out += build_connack()
+                    elif pkt.packet_type == MQTT_SUBSCRIBE:
+                        sess = session_ref[0]
+                        if sess is not None:
+                            for t in (pkt.topics or []):
+                                p = t.split("/")
+                                if (len(p) >= 6 and p[0] == "SF" and p[1] == "GGS"
+                                        and p[3] == "API" and p[4] == "DOWN"
+                                        and p[2] and sess.down_topic_prefix != p[2]):
+                                    sess.down_topic_prefix = p[2]
+                        out += build_suback(pkt.packet_id or 0, pkt.sub_qos or [0])
+                    elif pkt.packet_type == MQTT_PUBLISH:
+                        sess = session_ref[0]
+                        if sess is not None:
+                            try:
+                                _process_publish(sess, pkt, self.mqtt_client)
+                            except Exception as exc:
+                                _LOGGER.exception(
+                                    "[local] frame processing failed (continues)")
+                                DIAG.error(sess.mac, "local frame failed", exc)
+                        if pkt.qos == 1 and pkt.packet_id is not None:
+                            out += build_puback(pkt.packet_id)
+                    elif pkt.packet_type == MQTT_PINGREQ:
+                        out += build_pingresp()
+                    elif pkt.packet_type == MQTT_DISCONNECT:
+                        return
+                if out:
+                    client_writer.write(bytes(out))
+                    await client_writer.drain()
+            elif client_reader.at_eof():
+                return
+            # Block-cloud is a deliberate air-gap — stay local forever. Only the
+            # outage-driven fallback hands back to relay when the cloud returns.
+            now = time.monotonic()
+            if not self.block_cloud and now - last_probe >= _UPSTREAM_PROBE_INTERVAL:
+                last_probe = now
+                if await self._upstream_reachable():
+                    _LOGGER.info(
+                        "Cloud reachable again — ending LOCAL mode for %s "
+                        "(controller will reconnect to full relay)", peer)
+                    return
+
     async def handle_client(
         self,
         client_reader: asyncio.StreamReader,
@@ -733,13 +853,35 @@ class MITMProxy:
         session_ref: list = [None]   # mutable cell shared with the inspectors
 
         try:
+            if self.block_cloud:
+                # Deliberate local-only mode — never touch the cloud.
+                _LOGGER.info("Block-cloud on — serving %s locally (no relay)", peer)
+                await self._serve_local(client_reader, client_writer, peer,
+                                        session_ref)
+                return
             ssl_ctx = await self.async_build_upstream_ssl_ctx()
-            upstream_reader, upstream_writer = await asyncio.open_connection(
-                self.config["proxy"]["upstream_host"],
-                self.config["proxy"]["upstream_port"],
-                ssl=ssl_ctx,
-                server_hostname=self.config["proxy"]["upstream_host"],
-            )
+            try:
+                upstream_reader, upstream_writer = await asyncio.wait_for(
+                    asyncio.open_connection(
+                        self.config["proxy"]["upstream_host"],
+                        self.config["proxy"]["upstream_port"],
+                        ssl=ssl_ctx,
+                        server_hostname=self.config["proxy"]["upstream_host"],
+                    ),
+                    timeout=_UPSTREAM_CONNECT_TIMEOUT,
+                )
+            except (OSError, asyncio.TimeoutError, ssl.SSLError) as exc:
+                # Cloud unreachable (internet down / DNS fail): serve this
+                # controller locally so HA keeps full read + control. The app
+                # can't reach the cloud either while it's down, so nothing is
+                # lost. Self-heals to full relay when the cloud returns.
+                _LOGGER.warning(
+                    "Cloud unreachable (%s) — serving %s in LOCAL-ONLY mode",
+                    exc, peer,
+                )
+                await self._serve_local(client_reader, client_writer, peer,
+                                        session_ref)
+                return
 
             def bind_session(client_id: str) -> ProxySession:
                 mac_addr = _mac(client_id)
@@ -845,15 +987,7 @@ class MITMProxy:
         except Exception as exc:
             _LOGGER.error("Connection error from %s: %s", peer, exc)
         finally:
-            sess = session_ref[0]
-            if sess:
-                if sess.initial_poll_task and not sess.initial_poll_task.done():
-                    sess.initial_poll_task.cancel()
-                if self._sessions.get(sess.mac) is sess:
-                    # Only mark offline if no newer session replaced this one.
-                    self._sessions.pop(sess.mac, None)
-                    sess.publish_availability("offline")
-                    DIAG.session(sess.mac, "DISCONNECT")
+            self._teardown_session(session_ref[0], client_writer)
             for w in (upstream_writer, client_writer):
                 if w is not None:
                     try:
@@ -861,6 +995,29 @@ class MITMProxy:
                     except Exception:
                         pass
             _LOGGER.info("Connection from %s closed", peer)
+
+    def _teardown_session(self, sess, client_writer) -> None:
+        """Release a controller connection when its relay ends.
+
+        A reconnecting controller reuses the SAME ProxySession object —
+        bind_session just refreshes its writers to the new socket — so
+        ``self._sessions[mac] is sess`` stays true even after a newer connection
+        has taken over. If THIS (old) connection's writer has already been
+        replaced, a newer connection is live: do not evict the session or publish
+        "offline". Doing so was the bug that left a device stuck **offline** in HA
+        (its availability latched on the stale "offline") while getDevSta frames
+        kept relaying fine on the new socket. Only the connection that still owns
+        the session's client writer performs teardown."""
+        if sess is None:
+            return
+        if sess._client_writer is not client_writer:
+            return  # superseded by a newer connection — leave the live session
+        if sess.initial_poll_task and not sess.initial_poll_task.done():
+            sess.initial_poll_task.cancel()
+        if self._sessions.get(sess.mac) is sess:
+            self._sessions.pop(sess.mac, None)
+            sess.publish_availability("offline")
+            DIAG.session(sess.mac, "DISCONNECT")
 
     async def _pump(self, reader, writer, inspect) -> None:
         """Forward every byte from ``reader`` to ``writer`` unchanged, decoding

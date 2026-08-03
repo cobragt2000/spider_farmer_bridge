@@ -110,6 +110,31 @@ async def test_strip_misslotted_as_dp_is_healed(hass: HomeAssistant):
     assert bus.get_slot(PS5, "ps5") == "ac5"
 
 
+async def test_indicator_light_survives_prune_blocks(hass: HomeAssistant):
+    """3.19.97: with keep-offline OFF, prune_blocks must not delete the strip's
+    device-level Indicator Light (it isn't tied to a reported block)."""
+    PS5, PS5_LC = "0A1B2C3D4E20", "0a1b2c3d4e20"
+    entry = await _setup(hass, options={
+        "keep_offline_entities": False,
+        "device_slots": {PS5_LC: "ac5"},
+    })
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+    cfg = {"mac": PS5, "type": "ps5"}
+    bus.register_device(cfg)
+    evidence = {"sensor:temp", "sensor:humi"}
+    bus.blocks_seen(PS5, evidence, cfg)
+    await hass.async_block_till_done()
+    assert f"ggs_{PS5_LC}_indicator_light" in _uids(hass, entry)
+
+    # Prune leftovers for never-reported blocks — must keep the LED, but still
+    # remove a genuine phantom (light_1, since no light block was reported).
+    bus.prune_blocks(PS5, evidence, cfg)
+    await hass.async_block_till_done()
+    uids = _uids(hass, entry)
+    assert f"ggs_{PS5_LC}_indicator_light" in uids
+    assert f"ggs_{PS5_LC}_light_1" not in uids
+
+
 async def test_migration_carries_card_hide_light2(hass: HomeAssistant):
     entry = MockConfigEntry(
         domain=DOMAIN, unique_id=DOMAIN, data={"listen_port": 18975},

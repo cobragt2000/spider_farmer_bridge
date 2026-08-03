@@ -15,8 +15,18 @@ def _fields(defs):
     return {d.field for d in defs}
 
 
-def test_toggleable_blocks_are_exactly_light2_and_fan():
-    assert set(TOGGLEABLE_BLOCKS) == {"light2", "fan"}
+def test_toggleable_blocks_are_light1_light2_and_fan():
+    assert set(TOGGLEABLE_BLOCKS) == {"light", "light2", "fan"}
+
+
+def test_light1_can_be_hidden():
+    """Fan-only setups: unchecking Light 1 removes the primary light too."""
+    defs = build_device_entities(CFG, toggles={"light": False})
+    fields = _fields(defs)
+    assert "light_1" not in fields
+    assert not any(f.startswith("light_1_") for f in fields)
+    assert "fan" in fields          # other accessories untouched
+    assert "light_2" in fields
 
 
 def test_no_toggles_creates_everything():

@@ -3,58 +3,108 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.100
+
+### Changed
+- **Card: smaller Indicator Light toggle in the Outlets tab.** The status-LED
+  switch beside the strip name was noticeably taller than its "Indicator light"
+  label; it's now sized to sit inline with that text. (Card v0.18.1.)
+
+## 3.19.99
+
+### Fixed
+- **Device stuck "offline" in HA after a controller reconnect.** Controllers drop
+  and re-open their connection periodically. Because a reconnect reuses the same
+  internal session, the *old* connection's teardown could still fire and publish
+  "offline" — evicting the live session — even though the controller was already
+  back and reporting on its new connection. The device then latched unavailable in
+  HA (all entities greyed out) and never recovered until a reload, while its data
+  kept flowing underneath. Teardown now only runs for the connection that still
+  owns the session, so a reconnect no longer knocks the device offline.
+
+## 3.19.98
+
+### Added
+- **Block cloud / local-only toggle (air-gap).** A new Settings switch forces every controller onto the
+  proxy's built-in local broker and never opens an upstream connection to the Spider Farmer cloud. It
+  applies at the proxy, so it covers both hotspot (Wi-Fi AP) and NAT'd devices in one switch. Control
+  and state keep working locally; the phone app loses its cloud path while this is on. Flip it live from
+  Settings — active sessions reconnect into local mode without a reload.
+
+## 3.19.97
+
+### Fixed
+- **Indicator Light switch missing on AC5/AC10 when "keep offline devices" is unchecked.** The strip's
+  Indicator Light is a device-level entity (not tied to a reported data block), so the phantom-cleanup
+  pass (`prune_blocks`, which only runs with keep-offline off) deleted it moments after it was created.
+  Cleanup now never removes an entity that's valid under the device's current evidence, so the LED
+  switch — and its card toggle in the Outlets tab — appears as intended.
+
+## 3.19.96
+
+### Added
+- **Local-only fallback — control keeps working with no internet.** The integration is normally a
+  transparent relay to the Spider Farmer cloud, so an outage used to drop every controller offline in
+  HA. Now, when the cloud is unreachable, the proxy serves each controller **itself** as a minimal MQTT
+  broker — answering its CONNECT/SUBSCRIBE/ping and processing the state it self-reports — so Home
+  Assistant keeps full visibility and control with no cloud connection. Nothing is lost: the phone app
+  can't reach the cloud during an outage either. When the internet returns, the proxy detects it and
+  hands the controller back to full relay (restoring app control) automatically. (Your grow gear also
+  keeps running its on-device schedules regardless — this is about HA staying in the loop.)
+
+## 3.19.95
+
+### Added
+- **Feeds real device names to the Spider Farmer Hotspot add-on.** The integration writes a
+  `mac → friendly name` map to `/config` (`sf_hotspot_devices.json`), so the hotspot add-on's
+  connected-clients page (v0.7.0+) can show the real device name (e.g. "SF Power Strip AC10") instead
+  of the DHCP hostname or "(unknown)". Debounced — only rewritten when the device set changes; harmless if the add-on isn't
+  installed.
+
+## 3.19.94
+
+### Fixed
+- **Reloading the integration no longer needs a full HA restart to reconnect.** On reload the listen
+  socket wasn't fully released, so the re-setup couldn't rebind the port and devices stayed
+  disconnected until HA restarted. The listener is now closed and awaited (`wait_closed`) on unload,
+  with explicit address reuse on bind, so a reload cleanly re-establishes the connection.
+
+### Added
+- **Light 1 is now a per-device toggle too (Configure → Device accessories).** The step lists every
+  device with Light 1, Light 2, and Fan checkboxes, always shown, so it's clear what each device
+  reports vs what's toggled off. Useful for a fan-only strip where the light channel should be hidden.
+  Checked = allow (created when reported); unchecked = hide and tear down.
+- **Indicator Light (status LED) control for AC5/AC10.** A `switch.sf_<strip>_indicator_light` entity
+  toggles the strip's physical LED (writes the top-level `["outlet","led"]` the SF app uses), and the
+  card shows it in the Outlets tab, on the right of each strip's name bar.
+
+### Changed
+- **Card: all tabs show by default.** Environment, Calibration, Alerts, Log, and Settings always
+  appear (each with a friendly empty state when the device hasn't reported that data yet); only the
+  Outlets tab is gated on outlets being present. The Settings tab is no longer tied to Alerts. Card
+  bumped to **v0.18.0**.
+
 ## 3.19.93
 
 ### Fixed
-- **Standalone AC5/AC10 outlet control now actually switches the outlet.** Confirmed from an SF-app
-  capture: a strip with no host panel controls its outlets through the **top-level `["outlet","O{n}"]`**
-  config path — exactly what the app sends. Every prior build addressed it under `["device",…]`
-  (`device.outlet`, then `device.ps5`/`ps10`), which the firmware *accepted* (200 OK, config saved) but
-  never applied to the live outlet — so the toggle bounced back. HA now sends the top-level path for
-  standalone strips (and polls/read-modify-writes it too); CB-hosted strips keep the `["device","ps5"/
-  "ps10",…]` path that already worked. Outlet on/off, mode, and schedule writes are all covered. It was
-  never the `modeType` — `modeType:0` (manual) is correct; only the keyPath prefix was wrong.
-
-## 3.19.92
-
-### Fixed
-- **AC5/AC10 mis-slotted as dp3/dp4 (shown as extra Display Panels).** When a strip reported an
-  operations-log, alarm, or sensor block *before* it was fully typed, those entity-creation paths fell
-  back to a panel (`cb`) type and grabbed a `dp` slot, which then stuck. Those paths now wait until the
-  device is typed, and `get_slot()` self-heals a strip already stored on a `dp` slot by re-slotting it
-  to the correct `ac5`/`ac10` (entity IDs re-align automatically). Strips that were showing as dp3/dp4
-  move back to ac5/ac10 on the next connect.
+- **Standalone AC5/AC10 outlet control now actually switches the outlet.** A power strip with no host
+  panel controls its outlets through the **top-level `["outlet","O{n}"]`** config path (matching the SF
+  app); addressing it under `["device",…]` saved the config but never flipped the live outlet, so the
+  toggle bounced back. HA now uses the top-level path for standalone strips (commands, polling, mode,
+  and schedule writes); CB-hosted strips keep the `["device","ps5"/"ps10",…]` path.
 
 ### Notes
 - **AC5/AC10 control requires "Smart Mode."** The strips have a Standalone mode (local only, ignores
-  app/HA commands) and a Smart Mode (app/HA controlled). Toggles only take effect in Smart Mode; the
-  `ps5`/`ps10` outlet-block routing fix (3.19.90) applies once the strip is in Smart Mode.
+  app/HA commands) and a Smart Mode (app/HA controlled). Outlet toggles only take effect in Smart Mode.
 
 ## 3.19.91
 
-### Changed
-- **Reverted confirm-first onboarding — devices auto-add again.** Back to the smoother flow: when a
-  device connects it appears in Home Assistant with all its entities right away, no "Confirm new
-  device" Repair to click through. Light 2 and Fan are created automatically like everything else; if
-  one is a phantom, hide it afterwards under **Configure → Device accessories** (which tears down the
-  entity and keeps it hidden). The device-confirm Repair, the `confirmed_devices` gate, and
-  `repairs.py` were removed.
-
 ### Fixed
 - **Power-strip Environment device was mislabeled "Display Panel".** The Environment sub-device for an
-  AC5/AC10 now takes the strip's real name (e.g. "SF Power Strip AC10 …FB30 Environment") instead of a
+  AC5/AC10 now takes the strip's real name (e.g. "SF Power Strip AC10 Environment") instead of a
   hardcoded "Display Panel" label. Entity IDs are unchanged — display name only.
 
 ## 3.19.90
-
-### Fixed
-- **AC5/AC10 outlets/settings no longer snap back off (standalone strips).** A standalone power strip
-  stores its per-outlet config under its own type block — `device.ps5` / `device.ps10` — not the
-  sparse `device.outlet` block earlier builds wrote to. The firmware accepted the `device.outlet`
-  write (200 OK) but never acted on it, so the outlet reverted on the next poll. Outlet commands,
-  polling, and schedule writes now route to the strip's `ps5`/`ps10` block whether it's standalone or
-  hosted by a display panel. (Reported on AC5+AC10 with sensors attached; wants a quick on-hardware
-  confirm.)
 
 ### Added
 - **Environment setpoints on AC5/AC10.** The strips carry the same `target` block as the display
@@ -64,14 +114,6 @@ Each section below is ready to paste into the matching GitHub release.
   type-agnostic normalizer/command paths, and the target block is polled for strips too. (Air-sensor
   calibration entities were already type-agnostic and appear once the strip reports a calibration
   block.)
-- **Confirm-first onboarding — every new device must be confirmed before it's added.** Previously
-  devices appeared in Home Assistant immediately and only Light 2 / Fan were deferred. Now a brand-new
-  device (display panel, AC5/AC10, or SE light) creates **no** entities — not even its device row —
-  until you approve it. A fixable Repair ("Confirm new device: …") is raised for each; it deep-links to
-  a confirm step where you also tick which phantom-prone accessories (Light 2 / Fan) are really
-  attached. Everything else (blower, sensors, outlets) is added automatically once confirmed. Existing
-  installs are seamless: an upgrade auto-confirms every device that already has entities, so nothing
-  vanishes and nothing re-prompts. Stored per-MAC in `options["confirmed_devices"]`.
 
 ### Changed
 - **Diagnostic log: one toggle instead of two.** The separate "Enable diagnostic log" switch is gone;
@@ -92,7 +134,7 @@ Each section below is ready to paste into the matching GitHub release.
 ### Added
 - **Per-device accessory selection for Light 2 and Fan (supersedes 3.19.87's Hide Light 2).**
   The controllers report a second light (`light2`) and an add-on fan (`fan`) unreliably — a panel
-  with neither can still surface a phantom tile (e.g. `…F478` reports a `fan` block with no fan
+  with neither can still surface a phantom tile (e.g. a panel reports a `fan` block with no fan
   attached). These two are now the only manually-gated accessories; everything else (blower, the
   primary light, humidifier, sensors, outlets) stays fully auto-detected. Manage them under
   **Settings → Devices & services → Spider Farmer Bridge → Configure → "Device accessories"** — one

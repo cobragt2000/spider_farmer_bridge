@@ -38,9 +38,10 @@ class MQTTPacket:
     message: Optional[bytes] = None      # PUBLISH application payload
     qos: int = 0                         # PUBLISH
     retain: bool = False                 # PUBLISH
-    packet_id: Optional[int] = None      # PUBLISH (QoS > 0)
+    packet_id: Optional[int] = None      # PUBLISH (QoS > 0) / SUBSCRIBE id
     client_id: Optional[str] = None      # CONNECT
     topics: Optional[List[str]] = None   # SUBSCRIBE topic filters
+    sub_qos: Optional[List[int]] = None  # SUBSCRIBE requested QoS per filter
 
 
 class _Cursor:
@@ -192,17 +193,20 @@ def _decode_connect(pkt: MQTTPacket, body: bytes) -> None:
 
 def _decode_subscribe(pkt: MQTTPacket, body: bytes) -> None:
     """SUBSCRIBE (MQTT section 3.8): 2-byte packet id, then one or more
-    (topic filter string, requested-QoS byte) pairs."""
+    (topic filter string, requested-QoS byte) pairs. The packet id and per-
+    filter QoS are captured so the local-fallback broker can build a SUBACK."""
     filters: List[str] = []
+    qoss: List[int] = []
     try:
         cur = _Cursor(body)
-        cur.u16()  # packet id
+        pkt.packet_id = cur.u16()
         while cur.remaining() >= 2:
             filters.append(cur.mqtt_str())
-            cur.u8()  # requested QoS
+            qoss.append(cur.u8() & 0x03)  # requested QoS
     except IndexError:
         pass
     pkt.topics = filters
+    pkt.sub_qos = qoss
 
 
 def build_publish(topic: str, message: bytes, qos: int = 0, retain: bool = False,
@@ -219,3 +223,29 @@ def build_publish(topic: str, message: bytes, qos: int = 0, retain: bool = False
     flags = (qos << 1) | (1 if retain else 0)
     header = bytes([(MQTT_PUBLISH << 4) | flags])
     return header + _encode_varint(len(variable)) + bytes(variable)
+
+
+# ── Broker-side response builders (local-only fallback, no cloud) ────────────
+
+def build_connack(session_present: bool = False, return_code: int = 0) -> bytes:
+    """CONNACK (MQTT 3.2): accept the controller's connection locally."""
+    return bytes([MQTT_CONNACK << 4, 0x02,
+                  1 if session_present else 0, return_code & 0xFF])
+
+
+def build_suback(packet_id: int, granted_qos: List[int]) -> bytes:
+    """SUBACK (MQTT 3.9): one return code per requested filter (grant its QoS)."""
+    variable = int(packet_id).to_bytes(2, "big") + bytes(
+        min(int(q), 2) for q in (granted_qos or [0])
+    )
+    return bytes([MQTT_SUBACK << 4]) + _encode_varint(len(variable)) + variable
+
+
+def build_puback(packet_id: int) -> bytes:
+    """PUBACK (MQTT 3.4): acknowledge a QoS-1 PUBLISH from the controller."""
+    return bytes([MQTT_PUBACK << 4, 0x02]) + int(packet_id).to_bytes(2, "big")
+
+
+def build_pingresp() -> bytes:
+    """PINGRESP (MQTT 3.13): answer the controller's keep-alive ping."""
+    return bytes([MQTT_PINGRESP << 4, 0x00])

@@ -46,6 +46,16 @@ def test_standalone_outlet_is_top_level():
     assert off["params"]["O10"]["mOnOff"] == 0
 
 
+def test_indicator_light_command():
+    """The strip status LED writes top-level ["outlet","led"] = 0/1."""
+    on = translate_command("indicator_light", "ON", PS10_MAC, "u1")
+    assert on["method"] == "setConfigField"
+    assert on["params"]["keyPath"] == ["outlet", "led"]
+    assert on["params"]["led"] == 1
+    off = translate_command("indicator_light", "OFF", PS10_MAC, "u1")
+    assert off["params"]["led"] == 0
+
+
 def test_cb_hosted_outlet_is_device_rooted():
     """A CB-hosted strip addresses its outlets under the panel's device tree."""
     cmd = translate_command(

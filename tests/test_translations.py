@@ -10,6 +10,7 @@ def test_settings_options_all_labeled():
     labels = tr["options"]["step"]["settings"]["data"]
     expected = {
         "listen_port", "upstream_host", "upstream_port", "allow_control",
+        "block_cloud",
         "keep_offline_entities", "environment_entities", "preserve_on_remove",
         "diagnostic_log_path", "diagnostic_log_days",
         "diagnostic_log_per_boot",

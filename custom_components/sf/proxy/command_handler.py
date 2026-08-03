@@ -291,6 +291,12 @@ def translate_command(
     if field == "se_mode":
         return _cmd_se_mode(mac, uid, value)
 
+    if field == "indicator_light":
+        # Strip status LED — top-level ["outlet","led"] = 0/1 (matches the app).
+        return {"method": "setConfigField", "pid": mac,
+                "params": {"keyPath": ["outlet", "led"], "led": _onoff(value)},
+                "msgId": _msg_id(), "uid": uid}
+
     if outlet_num is not None:
         return _cmd_outlet(mac, uid, value, outlet_num, outlet_block,
                            outlet_subfield, outlet_cfg, state)

@@ -18,7 +18,7 @@ from .cert_manager import ensure_certs, cert_paths, upstream_ca_path
 from .const import (
     DOMAIN, CONF_LISTEN_PORT, CONF_UPSTREAM_HOST, CONF_UPSTREAM_PORT,
     DEFAULT_LISTEN_PORT, DEFAULT_UPSTREAM_HOST, DEFAULT_UPSTREAM_PORT,
-    CONF_ALLOW_CONTROL, CONF_DIAG_PER_BOOT, CONF_ENV_ENTITIES,
+    CONF_ALLOW_CONTROL, CONF_BLOCK_CLOUD, CONF_DIAG_PER_BOOT, CONF_ENV_ENTITIES,
     CONF_KEEP_OFFLINE, DATA_BUS,
     DATA_PROXY, DATA_PROXY_TASK, PLATFORMS,
     CONF_DIAG_LOG, CONF_DIAG_PATH, DEFAULT_DIAG_PATH,
@@ -132,6 +132,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     }
     proxy = MITMProxy(config=proxy_config, mqtt_client=bus, config_path=None)
     proxy.allow_control = bool(cfg.get(CONF_ALLOW_CONTROL, False))
+    proxy.block_cloud = bool(cfg.get(CONF_BLOCK_CLOUD, False))
     bus.proxy = proxy
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
@@ -200,6 +201,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             host="0.0.0.0",
             port=listen_port,
             ssl=server_ssl_ctx,
+            reuse_address=True,   # rebind cleanly on reload (3.19.94)
         )
     except OSError as exc:
         _LOGGER.error(
@@ -229,6 +231,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id].update({
         DATA_PROXY_TASK: proxy_task,
         "stop_event":    stop_event,
+        "server":        server,
     })
 
     # Remove the card's internal "Apply" write-channel entities left over
@@ -758,6 +761,16 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
             "Spider Farmer Bridge: device control %s",
             "enabled" if new_allow else "disabled",
         )
+    new_block = bool(cfg.get(CONF_BLOCK_CLOUD, False))
+    if proxy.block_cloud != new_block:
+        proxy.block_cloud = new_block
+        _LOGGER.info(
+            "Spider Farmer Bridge: block cloud %s — reconnecting devices",
+            "enabled (local-only)" if new_block else "disabled (relay to cloud)",
+        )
+        # Mode is chosen at connect time — sever sessions so each controller
+        # reconnects into the new (local-only or relay) path within seconds.
+        proxy.close_all_sessions()
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -809,6 +822,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     stop: asyncio.Event | None = data.get("stop_event")
     if stop:
         stop.set()
+    # Release the listen port NOW (3.19.94): close the listener and wait for
+    # it to fully release, otherwise a reload's start_server hits "address
+    # already in use" and the integration can't rebind until HA is restarted.
+    server = data.get("server")
+    if server is not None:
+        server.close()
+        try:
+            await server.wait_closed()
+        except Exception:  # noqa: BLE001 — never block unload on socket teardown
+            pass
     task = data.get(DATA_PROXY_TASK)
     if task and not task.done():
         task.cancel()

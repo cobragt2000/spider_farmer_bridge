@@ -813,6 +813,11 @@ def normalize_outlet_config(mac: str, block: Dict[str, Any]) -> Dict[str, str]:
     topics so app-side changes flow back into HA."""
     e = _mac(mac)
     out: Dict[str, str] = {}
+    # Strip status LED lives at the block's top level (outlet.led / ps10.led).
+    if "led" in block:
+        out[f"ggs/ha/{e}/indicator_light/state"] = (
+            "ON" if _on(block.get("led")) else "OFF"
+        )
     for ok, o in block.items():
         if not (ok.startswith("O") and ok[1:].isdigit()) or not isinstance(o, dict):
             continue

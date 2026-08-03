@@ -196,6 +196,7 @@ class SfBus:
         self._soil_cache: dict[str, str] = {}        # serial -> soil slot
         self._soil_attach: dict[str, str] = {}       # serial -> mac (this run)
         self.device_display: dict[str, tuple[str, str]] = {}  # mac -> (name, model)
+        self._hotspot_map_blob: str = ""             # last-written hotspot device map
         self._outlet_mode: dict[str, str] = {}       # "{mac}_{n}" -> mode name
         self._soil_type: dict[str, str] = {}         # serial -> "Pro" | "Basic"
         self._soil_label: dict[str, str] = {}        # serial -> app label (senConfig)
@@ -563,6 +564,32 @@ class SfBus:
             )
         return removed
 
+    @callback
+    def _write_hotspot_map(self) -> None:
+        """Publish a mac -> friendly-name map to /config for the Spider Farmer
+        Hotspot add-on, so its connected-clients page shows real device names
+        instead of the DHCP hostname ("GGS-CB") or "(unknown)". Debounced —
+        only rewrites when the set of devices/names changes."""
+        import json as _json
+        data = {
+            mac: {"name": name, "model": model}
+            for mac, (name, model) in self.device_display.items()
+        }
+        blob = _json.dumps(data, sort_keys=True)
+        if blob == self._hotspot_map_blob:
+            return
+        self._hotspot_map_blob = blob
+        path = self.hass.config.path("sf_hotspot_devices.json")
+
+        def _write() -> None:
+            try:
+                with open(path, "w") as f:
+                    f.write(blob)
+            except Exception:  # noqa: BLE001 — add-on integration is best-effort
+                pass
+
+        self.hass.async_add_executor_job(_write)
+
     # ── Device / entity registration (called via ha/discovery.py shim) ────
 
     @callback
@@ -582,6 +609,7 @@ class SfBus:
         self.device_display[_mac(device_cfg.get("mac", ""))] = (
             _device_name(device_cfg), _device_model(device_cfg)
         )
+        self._write_hotspot_map()
         self._repair_if_retyped(device_cfg)
         # Re-evaluate power-strip nesting every discovery cycle (this runs
         # ~every 60s via ensure_discovery), so a strip that connected before
@@ -1378,12 +1406,25 @@ class SfBus:
         registry = er.async_get(self.hass)
         from .const import DOMAIN
         removed = 0
+        # Entities the device legitimately has given its CURRENT evidence —
+        # never prune these. Covers device-level entities that aren't tied to a
+        # single block (e.g. a strip's Indicator Light), which otherwise appear
+        # in every per-block build below and get wrongly deleted (3.19.97).
+        toggles = self._toggles_for(mac_raw)
+        keep = {
+            d.unique_id for d in build_device_entities(
+                device_cfg, include_outlets=False,
+                blocks=set(evidence) & set(EVIDENCE_BLOCKS), toggles=toggles,
+            )
+        }
         for block in EVIDENCE_BLOCKS:
             if block in evidence:
                 continue
             for d in build_device_entities(
                 device_cfg, include_outlets=False, blocks={block}
             ):
+                if d.unique_id in keep:
+                    continue  # valid under current evidence — not a phantom
                 self._pruned.add(d.unique_id)
                 entity_id = registry.async_get_entity_id(
                     d.platform, DOMAIN, d.unique_id

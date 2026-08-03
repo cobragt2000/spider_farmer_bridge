@@ -27,6 +27,7 @@ async def async_setup_entry(
         async_add_entities(
             SfClimateSwitch(bus, d) if d.kind == "climate"
             else SfToggleSwitch(bus, d) if d.kind == "toggle"
+            else SfLedSwitch(bus, d) if d.kind == "led"
             else SfOutletSwitch(bus, d)
             for d in defs
         )
@@ -58,6 +59,33 @@ class SfOutletSwitch(SfEntity, SwitchEntity):
 
     # Non-optimistic: send the command and
     # wait for the controller's next getDevSta report to confirm the state.
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._command("ON")
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._command("OFF")
+
+
+class SfLedSwitch(SfEntity, SwitchEntity):
+    """The strip's physical indicator LED. State from the top-level
+    ``outlet.led`` field; command writes ``["outlet","led"] = 0/1`` (3.19.94)."""
+
+    _attr_device_class = SwitchDeviceClass.SWITCH
+
+    def __init__(self, bus: SfBus, d: SfDef) -> None:
+        super().__init__(bus, d)
+        self._attr_is_on = None
+
+    @callback
+    def _handle_payload(self, topic: str, payload: str) -> None:
+        payload = (payload or "").strip().upper()
+        if payload in ("ON", "OFF"):
+            self._attr_is_on = payload == "ON"
+
+    @callback
+    def _restore(self, last) -> None:
+        self._attr_is_on = last.state == "on"
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self._command("ON")
 

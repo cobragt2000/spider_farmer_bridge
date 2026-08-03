@@ -16,6 +16,7 @@ from .const import (
     DEFAULT_UPSTREAM_HOST,
     DEFAULT_UPSTREAM_PORT,
     CONF_ALLOW_CONTROL,
+    CONF_BLOCK_CLOUD,
     CONF_DIAG_PER_BOOT,
     CONF_ENV_ENTITIES,
     CONF_KEEP_OFFLINE,
@@ -146,6 +147,10 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
 
         # Ports + Spider Farmer cloud host/port (host/port are read-only).
         schema = _base_schema(current).extend({
+            vol.Required(
+                CONF_BLOCK_CLOUD,
+                default=current.get(CONF_BLOCK_CLOUD, False),
+            ): bool,
             vol.Required(
                 CONF_INSTALL_CARD,
                 default=current.get(CONF_INSTALL_CARD, False),
@@ -496,39 +501,33 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
 # ── Accessory-decision helpers for the "Device accessories" options step ────
 
 def toggleable_candidates(hass, entry, only_mac=None, extra=None):
-    """Return sorted [(mac, block)] pairs for the two toggleable accessories
-    (Light 2, Fan) worth offering: any device that currently has such an
-    entity, has a stored decision, or (via `extra` = {mac: [blocks]}) was just
-    reported to us — the repair deep-link path passes the reported blocks so a
-    brand-new device with nothing created yet still shows up."""
+    """Return [(mac, block)] pairs — EVERY controller device paired with all
+    three toggleable accessories (Light 1, Light 2, Fan), always shown so it's
+    clear at a glance what each device reports vs what's toggled off. SE lights
+    are excluded (no light1/2/fan model). Ordered by device, accessories in
+    Light 1 / Light 2 / Fan order (tree-style grouping in the flat list)."""
     from homeassistant.helpers import entity_registry as er_mod
     from .entity_defs import TOGGLEABLE_BLOCKS
 
     ent_reg = er_mod.async_get(hass)
-    found: dict[str, set] = {}
+    slots = (entry.options or {}).get("device_slots", {})
+    macs: set[str] = set()
     for e in er_mod.async_entries_for_config_entry(ent_reg, entry.entry_id):
         uid = e.unique_id or ""
-        if not uid.startswith("ggs_"):
-            continue
-        mac, _, tail = uid[4:].partition("_")
-        if tail.startswith("light_2"):
-            found.setdefault(mac, set()).add("light2")
-        elif tail.startswith("fan"):
-            found.setdefault(mac, set()).add("fan")
-    for mac, dec in (entry.options or {}).get("components", {}).items():
-        for b in TOGGLEABLE_BLOCKS:
-            if b in (dec or {}):
-                found.setdefault(mac, set()).add(b)
-    for mac, blocks in (extra or {}).items():
-        found.setdefault(mac, set()).update(
-            b for b in blocks if b in TOGGLEABLE_BLOCKS
-        )
+        if uid.startswith("ggs_"):
+            macs.add(uid[4:].partition("_")[0])
+    macs |= set((entry.options or {}).get("components", {}).keys())
+    macs |= set(slots.keys())
+    macs |= set(extra or {})
 
+    order = {b: i for i, b in enumerate(TOGGLEABLE_BLOCKS)}
     pairs = []
-    for mac in sorted(found):
+    for mac in sorted(macs, key=lambda m: slots.get(m, m)):
         if only_mac and mac != only_mac:
             continue
-        for b in sorted(found[mac]):
+        if str(slots.get(mac, "")).startswith("se"):
+            continue  # SE light — different device model
+        for b in sorted(TOGGLEABLE_BLOCKS, key=lambda x: order[x]):
             pairs.append((mac, b))
     return pairs
 
@@ -554,13 +553,15 @@ def component_pair_labels(hass, entry, pairs):
 
 
 def component_enabled(entry, mac, block) -> bool:
-    """Current stored decision for one accessory (missing => not enabled)."""
-    return bool(
+    """Whether the accessory checkbox shows as checked. Accessories are
+    default-ON (created when reported) unless explicitly hidden, so a missing
+    decision reads as checked; only an explicit False is unchecked."""
+    return (
         (entry.options or {})
         .get("components", {})
         .get(mac, {})
-        .get(block, False)
-    )
+        .get(block, True)
+    ) is not False
 
 
 def apply_component_decisions(hass, entry, decisions) -> None:

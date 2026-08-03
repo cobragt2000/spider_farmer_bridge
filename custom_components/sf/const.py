@@ -10,6 +10,7 @@ DEFAULT_LISTEN_PORT   = 8000
 DEFAULT_UPSTREAM_HOST = "sf.mqtt.spider-farmer.com"
 DEFAULT_UPSTREAM_PORT = 8883   # real Spider Farmer cloud port (unchanged)
 CONF_ALLOW_CONTROL = "allow_control"
+CONF_BLOCK_CLOUD = "block_cloud"
 CONF_KEEP_OFFLINE = "keep_offline_entities"
 CONF_ENV_ENTITIES = "environment_entities"
 CONF_PRESERVE_ON_REMOVE = "preserve_on_remove"

@@ -49,7 +49,7 @@ def test_build_se_schedule_roundtrips_and_preserves_meta():
     ]
     se_cfg = {"label": "light", "scroff": 0, "modeType": 1,
               "timePeriod": [{"enabled": 1, "weekmask": 127}]}
-    msg = build_se_schedule("80F1B2C07CEC", "u1", periods, se_cfg)
+    msg = build_se_schedule("0A1B2C3D5E01", "u1", periods, se_cfg)
     assert msg["method"] == "setConfigFile"
     light = msg["params"]["configFile"]["light"]
     # label/scroff/modeType preserved from the cached config

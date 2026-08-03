@@ -183,8 +183,8 @@ EVIDENCE_BLOCKS = (
 # decision instead of pure evidence: undecided => defer creation (and prompt),
 # True => create when reported, False => never create. Everything else
 # (blower, primary light, humidifier, sensors, outlets…) stays auto-detected.
-TOGGLEABLE_BLOCKS = ("light2", "fan")
-COMPONENT_LABELS = {"light2": "Light 2", "fan": "Fan"}
+TOGGLEABLE_BLOCKS = ("light", "light2", "fan")
+COMPONENT_LABELS = {"light": "Light 1", "light2": "Light 2", "fan": "Fan"}
 
 
 def build_device_entities(
@@ -282,6 +282,11 @@ def build_device_entities(
             defs.append(
                 d("switch", f"outlet_{n}", f"Outlet {n}", device_class="outlet")
             )
+
+    # ── Indicator Light (physical status LED on the strip) ───────────────
+    if caps["hasOutlets"]:
+        defs.append(d("switch", "indicator_light", "Indicator Light",
+                      icon="mdi:led-on", kind="led"))
 
     # ── Light 1 — all device types ────────────────────────────────────────
     if want("light"):

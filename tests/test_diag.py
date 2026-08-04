@@ -7,6 +7,31 @@ import pytest
 from custom_components.sf.diag import SfDiag
 
 
+def test_retention_sweeps_old_perboot_files(tmp_path):
+    """Retention deletes diagnostic files older than N days across ALL per-boot
+    files + dated backups — not just the current handler's own backups."""
+    import os
+    d = tmp_path
+    active = d / "diagnostic-3.19.113-20260804-120000.log"
+    old_boot = d / "diagnostic-3.19.100-20260601-120000.log"
+    old_dated = d / "diagnostic-3.19.100-20260601-120000.log.2026-06-01"
+    recent = d / "diagnostic-3.19.112-20260803-120000.log"
+    for f in (active, old_boot, old_dated, recent):
+        f.write_text("x")
+    old = time.time() - 40 * 86400
+    os.utime(old_boot, (old, old))
+    os.utime(old_dated, (old, old))
+    rec = time.time() - 2 * 86400
+    os.utime(recent, (rec, rec))
+
+    SfDiag._sweep_old_logs(str(active), 30)
+
+    assert active.exists()          # the file we're about to write — kept
+    assert recent.exists()          # within 30 days — kept
+    assert not old_boot.exists()    # >30 days — deleted
+    assert not old_dated.exists()   # >30 days dated backup — deleted
+
+
 def _read(path):
     deadline = time.time() + 2
     while time.time() < deadline:

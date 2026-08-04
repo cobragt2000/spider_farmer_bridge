@@ -3,6 +3,104 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.113
+
+### Fixed
+- **Diagnostic log retention now really keeps N days.** Each restart writes a new
+  per-boot log file, but the rotating handler only pruned its *own* file's dated
+  backups — so old per-boot files from earlier restarts were never cleaned up and
+  the "keep N days" setting wasn't enforced across them (files piled up, and the
+  newest file looked empty/"reset"). Startup now sweeps the whole diagnostic-log
+  set and deletes anything older than the retention window. The per-boot + midnight
+  rotation behaviour is unchanged (new file on restart, and a fresh file at the
+  midnight crossover).
+
+## 3.19.112
+
+### Fixed
+- **Indicator Light switch stayed stale after toggling.** The LED confirm poll is a
+  targeted `getConfigField ["outlet","led"]`, so the device replies with a bare
+  `{"led": N}` (no `outlet` wrapper) — which the config-response handler skipped, so
+  the switch didn't reflect the change even though the device applied it. The bare
+  `led` value now drives the Indicator Light state. (Found during the live QA pass.)
+
+## 3.19.111
+
+### Fixed
+- **Multi-field Apply on the Environment/Calibration tabs.** Changing more than one
+  target (e.g. temp AND humidity) and applying together only kept the last one —
+  each field's write rebuilt the whole config block from the cached copy, so the
+  second write reverted the first ("only 1 at a time"). The proxy now folds each
+  read-modify-write block back into the session cache before injecting, so
+  back-to-back writes build on each other. Covers env targets, air + soil
+  calibration, and alarm blocks.
+- **Unsaved edits linger across tabs.** Switching tabs with a pending change (a
+  Settings colour edit, an env/calibration input, an alerts edit) left the Apply
+  bar waiting when you came back. Leaving a tab now discards its un-applied edits.
+
+### Changed
+- **Card: Leaf VPD target moved above the VPD kPa readout** on the Environment tab.
+  (Card v0.20.3.)
+
+## 3.19.110
+
+### Fixed
+- **Dead-zone band marker always visible.** When a reading sat well outside its band
+  (e.g. Air Temp far above target) the marker clamped to the edge and got clipped, so
+  it vanished on some tiles. The band scale now always includes the current value, and
+  the marker is centred on its position — so it's shown on every tile and its distance
+  past the band reads at a glance.
+
+### Changed
+- **Range shown for any colour source.** The band + subline now follow "Colour by":
+  Targets shows the target band, **Alarms shows the alarm min/max range** ("range 16–32°F"),
+  Both prefers the target and falls back to the alarm range — so the healthy range is
+  legible at a glance in every mode, including metrics that only have alarms (soil, PPFD).
+- **New Settings toggle: "Target / range line"** (Overview extras) to hide the
+  target/range subline on tiles. On by default. (Card v0.20.2.)
+
+## 3.19.109
+
+### Changed
+- **Richer tap-for-graph.** The inline history graph now shows the current value
+  (coloured by state), min / avg / max and the target band over the window, y-axis
+  range labels, start/now time labels, the amber near-edge margin behind the line, a
+  soft area fill, and blue/red dots marking the 6-hour min and max. (Card v0.20.1.)
+
+## 3.19.108
+
+### Added
+- **Amber near-edge + trend arrows + dead-zone band + tap-for-graph (Overview).**
+  - **Amber near-edge** — target colouring is now 4-state: green in the band, **amber**
+    in a margin just outside it (margin = the dead zone), then red/blue beyond. A new
+    "Near edge" colour swatch sets the amber.
+  - Target colouring, the band, and the graph now also cover **VPD Air** (its implied
+    range from the active day/night temp + humidity targets) and **VPD Leaf** (its
+    min/max band, which always colours since it has no device alarm).
+  - **Trend arrows** — an up/down/flat arrow per tile from recent readings (in-memory,
+    no recorder query). Toggle in Settings → Overview extras.
+  - **Dead-zone band** — a small band under each tile showing the healthy band + amber
+    margin with a marker at the live value. Toggle in Settings.
+  - **Tap for graph** — tap any Overview tile to open an inline 6-hour history sparkline
+    (from HA history) with the target band shaded behind it.
+  (Card v0.20.0.)
+
+## 3.19.107
+
+### Added
+- **Target-aware tile colouring — "Colour by: Alarms / Targets / Both".** A new
+  Settings control chooses what drives the overview tile highlight:
+  - **Alarms** (default, unchanged) — the controller's alarm thresholds (Alerts tab).
+  - **Targets** — the environment day/night **target ± dead zone** for Temp / Humidity /
+    CO2. Above the band colours like "above max", below like "below min", in-band like
+    in-range. Tiles also gain a small "target 72°F · ±2" subline.
+  - **Both** — an active alarm wins (stays red/blue); targets colour everything else.
+
+  Reuses the existing Tile / Text / No-color highlight styles and the out-of-range /
+  in-range colours, follows the active day/night period, and persists per panel (syncs
+  across devices, survives upgrades). Defaults to Alarms so nothing changes until you opt
+  in. (Card v0.19.0.)
+
 ## 3.19.106
 
 ### Fixed

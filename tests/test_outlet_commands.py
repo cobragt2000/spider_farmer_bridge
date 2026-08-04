@@ -172,6 +172,62 @@ def _devsta(mac, data):
     )
 
 
+async def test_indicator_led_confirm_updates_state(hass: HomeAssistant):
+    """The LED confirm poll is a *targeted* getConfigField ["outlet","led"], so
+    the device answers with a bare {"led": N} (no "outlet" wrapper). That must
+    still drive the Indicator Light switch — otherwise it stays stale after a
+    toggle even though the device applied it (v3.19.112)."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Spider Farmer Bridge",
+        data={"listen_port": 18903, "upstream_host": "sf.mqtt.spider-farmer.com",
+              "upstream_port": 8883, "allow_control": True},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+    proxy = hass.data[DOMAIN][entry.entry_id][DATA_PROXY]
+    proxy.allow_control = True
+
+    session = ProxySession(PS10_MAC, bus)
+    session._client_writer = _FakeWriter(bytearray())
+    proxy._sessions[PS10_MAC_LC] = session
+    for _ in range(3):
+        _process_publish(session, MQTTPacket(
+            packet_type=MQTT_PUBLISH, flags=0, payload=b"",
+            topic=f"SF/GGS/CB/API/UP/{PS10_MAC}",
+            message=json.dumps({"method": "getDevSta", "uid": "u1",
+                                "data": PS10_DATA}).encode()), bus)
+    if session.initial_poll_task:
+        session.initial_poll_task.cancel()
+    await hass.async_block_till_done()
+    assert session.device_type == "ps10"
+
+    topic = f"ggs/ha/{PS10_MAC_LC}/indicator_light/state"
+
+    def _led_confirm(v):
+        return MQTTPacket(
+            packet_type=MQTT_PUBLISH, flags=0, payload=b"",
+            topic=f"SF/GGS/CB/API/UP/{PS10_MAC}",
+            message=json.dumps({"method": "getConfigField", "uid": "u1",
+                                "data": {"led": v}}).encode())
+
+    # A bare {"led": 1} confirm response must publish the Indicator Light state.
+    _process_publish(session, _led_confirm(1), bus)
+    await hass.async_block_till_done()
+    assert bus.cached(topic) == "ON"
+
+    _process_publish(session, _led_confirm(0), bus)
+    await hass.async_block_till_done()
+    assert bus.cached(topic) == "OFF"
+
+    if session.initial_poll_task:
+        session.initial_poll_task.cancel()
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
 async def test_outlet_routes_via_cb_when_hosted(hass: HomeAssistant):
     """When a CB hosting the strip is connected, the outlet command goes to
     the CB's MAC with the ps10 block keyPath (confirmed app format)."""

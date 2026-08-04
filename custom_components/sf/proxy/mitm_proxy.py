@@ -639,6 +639,24 @@ class MITMProxy:
             senconfig=cmd_sess.senconfig or None,
         )
         if payload:
+            # Optimistically fold a read-modify-write block back into the session
+            # cache *before* injecting. A multi-field Apply fires one write per
+            # field; each rebuilds the whole block from the cached copy, so
+            # without this the second write reads the pre-write cache and clobbers
+            # the first (only the last field applied stuck). Updating the cache in
+            # this synchronous window (no await before it) means whichever write
+            # runs second builds on the first. Covers env target / air+soil
+            # calibration / alarm blocks. (v3.19.111)
+            params = payload.get("params") or {}
+            kp = params.get("keyPath")
+            if kp == ["target"] and isinstance(params.get("target"), dict):
+                cmd_sess.env_cfg = params["target"]
+            elif kp == ["calibration"] and isinstance(params.get("calibration"), dict):
+                cmd_sess.cal_cfg = params["calibration"]
+            elif kp == ["alarm"] and isinstance(params.get("alarm"), dict):
+                cmd_sess.alarm_cfg = params["alarm"]
+            elif kp == ["device", "senConfig"] and isinstance(params.get("senConfig"), list):
+                cmd_sess.senconfig = params["senConfig"]
             await cmd_sess.inject(payload)
 
     async def write_se_schedule(self, mac: str, periods: list) -> bool:
@@ -1547,6 +1565,16 @@ def _process_publish(
                         n = int(ok[1:])
                         set_mode(target_mac, n, ov.get("modeType"),
                                  {"mac": target_mac, "type": strip_type})
+        # The Indicator Light confirm poll is a *targeted* getConfigField
+        # ["outlet","led"], so the device answers with a bare {"led": N} — no
+        # "outlet" wrapper, so the block loop above misses it and the switch
+        # stayed stale after a toggle. Drive it from the bare led here. (v3.19.112)
+        if ("led" in cfgd
+                and not any(k in cfgd for k in ("outlet", "ps5", "ps10"))):
+            from .normalizer import normalize_outlet_config
+            for topic, val in normalize_outlet_config(
+                    session.mac_raw, {"led": cfgd["led"]}).items():
+                mqtt_client.publish(topic, val, retain=True, qos=0)
 
     # ── SE light config file (schedule/sunrise) ──────────────────────────
     if method == "getConfigFile":

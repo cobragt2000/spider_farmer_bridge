@@ -189,6 +189,57 @@ async def test_env_write_reaches_wire(hass: HomeAssistant):
     await hass.async_block_till_done()
 
 
+async def test_env_multi_field_apply_no_clobber(hass: HomeAssistant):
+    """Two env target fields changed and applied back-to-back must BOTH stick.
+    Each write rebuilds the whole ["target"] block from the session cache, so
+    the proxy must fold each write into the cache before the next reads it —
+    otherwise the second write reverts the first (the 'only 1 at a time' bug)."""
+    import asyncio
+    entry = await _setup(hass)
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+    proxy = hass.data[DOMAIN][entry.entry_id][DATA_PROXY]
+    proxy.allow_control = True
+
+    session = ProxySession(CB_MAC, bus)
+    captured = bytearray()
+    class _W:
+        def write(self, d): captured.extend(d)
+        async def drain(self): pass
+    session._client_writer = _W()
+    session.confirm_delay = 0.01
+    proxy._sessions[CB_MAC_LC] = session
+    for _ in range(3):
+        _process_publish(session, _pkt("getDevSta", CB_FRAME), bus)
+    _process_publish(session, _pkt("getConfigField", {"target": TARGET}), bus)
+    await hass.async_block_till_done()
+
+    captured.clear()
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": "number.sf_dp1_env_temp_day", "value": 70}, blocking=True)
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": "number.sf_dp1_env_humi_day", "value": 50}, blocking=True)
+    await asyncio.sleep(0.05)
+
+    pkts, _ = parse_packets(bytes(captured))
+    tgts = [json.loads(p.message)["params"]["target"] for p in pkts if p.message
+            and json.loads(p.message).get("method") == "setConfigField"
+            and json.loads(p.message)["params"].get("keyPath") == ["target"]]
+    assert len(tgts) >= 2, "expected two target writes"
+    # The last write (humidity) must still carry the temperature change (70°F).
+    assert abs(tgts[-1]["temp"]["targetDay"] - 21.1111) < 0.02
+    assert tgts[-1]["humi"]["targetDay"] == 50
+    # And the session cache holds both, so a third edit builds on them.
+    assert abs(session.env_cfg["temp"]["targetDay"] - 21.1111) < 0.02
+    assert session.env_cfg["humi"]["targetDay"] == 50
+
+    if session.initial_poll_task:
+        session.initial_poll_task.cancel()
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
 async def test_env_entities_disabled_option(hass: HomeAssistant):
     """With the Environment option off, no env device/entities are created."""
     entry = MockConfigEntry(

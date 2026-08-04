@@ -114,6 +114,12 @@ class SfDiag:
         days = max(1, min(30, int(days)))
         try:
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            # Retention across ALL diagnostic files, not just this handler's own
+            # dated backups. Each restart writes a new per-boot file, so the
+            # handler's backupCount never cleaned up prior boots' files — "keep N
+            # days" wasn't actually enforced and old logs piled up. Sweep the
+            # whole set here so the setting is honoured. (v3.19.113)
+            self._sweep_old_logs(path, days)
             file_handler = logging.handlers.TimedRotatingFileHandler(
                 path, when="midnight", backupCount=days, encoding="utf-8"
             )
@@ -144,6 +150,33 @@ class SfDiag:
         except Exception as exc:
             _LOGGER.error("SF diagnostic log setup failed for %s: %s", path, exc)
             self.enabled = False
+
+    @staticmethod
+    def _sweep_old_logs(path: str, days: int) -> None:
+        """Delete every diagnostic log file — any per-boot file plus its dated
+        midnight backups — older than `days` days. The rotating handler only
+        prunes its *own* file's backups, so without this the per-boot files from
+        earlier restarts were never removed and "keep N days" wasn't enforced."""
+        import glob
+        import re
+        import time
+        directory = os.path.dirname(path) or "."
+        stem = os.path.basename(os.path.splitext(path)[0])
+        # per-boot name is "<base>-<version>-<YYYYMMDD>-<HHMMSS>"; recover <base>.
+        base = re.sub(r"-.+-\d{8}-\d{6}$", "", stem) or stem
+        cutoff = time.time() - days * 86400
+        try:
+            candidates = glob.glob(os.path.join(directory, base + "*"))
+        except OSError:
+            return
+        for f in candidates:
+            try:
+                if (os.path.abspath(f) != os.path.abspath(path)
+                        and os.path.isfile(f)
+                        and os.path.getmtime(f) < cutoff):
+                    os.remove(f)
+            except OSError:
+                pass
 
     def shutdown(self) -> None:
         if self._logger is not None:

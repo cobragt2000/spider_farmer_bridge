@@ -159,20 +159,55 @@ class SfLeafVpdSensor(SfSensor):
         return []  # computed from sibling entities, not a device topic
 
     @property
-    def _sibling_ids(self) -> tuple[str, str, str]:
-        base = f"sf_{self.d.slot}"
-        return (
+    def _base(self) -> str:
+        return f"sf_{self.d.slot}"
+
+    @property
+    def _tracked_ids(self) -> list[str]:
+        """Entities whose changes force a recompute: air temp, humidity, both
+        (day + night) leaf offsets, and the day/night schedule flag so the
+        offset switches the moment the controller crosses its cycle boundary."""
+        base = self._base
+        return [
             f"sensor.{base}_temperature",
             f"sensor.{base}_humidity",
             f"number.{base}_leaf_offset",
-        )
+            f"number.{base}_leaf_offset_night",
+            f"binary_sensor.{base}_daytime_schedule",
+        ]
+
+    def _is_day(self) -> bool:
+        """True during the controller's day cycle. Prefer its own schedule flag
+        (the `is_day_env_target` binary sensor, whose id is name-derived to
+        `<base>_daytime_schedule`); fall back to the configured Day Cycle window
+        vs. local time. Unknown → day, matching the card and prior behaviour."""
+        base = self._base
+        sched = self.hass.states.get(f"binary_sensor.{base}_daytime_schedule")
+        if sched is not None and sched.state in ("on", "off"):
+            return sched.state == "on"
+
+        def _hhmm(state) -> "int | None":
+            try:
+                hh, mm = state.state.split(":")
+                return int(hh) * 60 + int(mm)
+            except (AttributeError, ValueError):
+                return None
+
+        s = _hhmm(self.hass.states.get(f"text.{base}_env_day_start"))
+        e = _hhmm(self.hass.states.get(f"text.{base}_env_day_end"))
+        if s is None or e is None:
+            return True
+        from homeassistant.util import dt as dt_util
+        now = dt_util.now()
+        m = now.hour * 60 + now.minute
+        return (s <= m < e) if s <= e else (m >= s or m < e)
 
     async def async_added_to_hass(self) -> None:
         from homeassistant.helpers.event import async_track_state_change_event
         await super().async_added_to_hass()
         self.async_on_remove(
             async_track_state_change_event(
-                self.hass, list(self._sibling_ids), self._sources_changed
+                self.hass, list(self._tracked_ids), self._sources_changed
             )
         )
         self._recompute()
@@ -190,9 +225,12 @@ class SfLeafVpdSensor(SfSensor):
     def _recompute(self) -> None:
         if self.hass is None:
             return
-        temp_id, humi_id, off_id = self._sibling_ids
-        t = self.hass.states.get(temp_id)
-        h = self.hass.states.get(humi_id)
+        base = self._base
+        t = self.hass.states.get(f"sensor.{base}_temperature")
+        h = self.hass.states.get(f"sensor.{base}_humidity")
+        day = self._is_day()
+        off_id = (f"number.{base}_leaf_offset" if day
+                  else f"number.{base}_leaf_offset_night")
         o = self.hass.states.get(off_id)
         try:
             air = float(t.state)
@@ -205,7 +243,8 @@ class SfLeafVpdSensor(SfSensor):
             offset = float(o.state)
             off_unit = o.attributes.get("unit_of_measurement")
         except (AttributeError, ValueError, TypeError):
-            offset, off_unit = -2.0, t.attributes.get("unit_of_measurement")
+            offset = -2.0 if day else 0.0
+            off_unit = t.attributes.get("unit_of_measurement")
         leaf_c = air_c + _delta_to_c(offset, off_unit)
         vpd = _svp(leaf_c) - (rh / 100.0) * _svp(air_c)
         self._attr_native_value = f"{max(0.0, vpd):.2f}"

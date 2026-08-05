@@ -3,6 +3,41 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.116
+
+### Changed
+- **The 5-reading leaf calibrator now fills either Day or Night.** The
+  "Calibrate from 5 readings" box gained a Day/Night selector, so the same box
+  calibrates whichever offset you're setting — measure under the light and pick
+  Day, or lights-off and pick Night, then Apply. The "Use" button labels the
+  target it will fill. Card 0.20.6.
+
+## 3.19.115
+
+### Added
+- **Separate Day and Night leaf offset for Leaf VPD.** Leaves run well below air
+  temperature under the light (transpiration cooling) but settle close to air
+  once it's off, so a single offset misreads Leaf VPD at night. The Leaf Offset
+  control in the Calibration tab is now split into **Day** and **Night**, and the
+  Leaf VPD sensor picks the active one from the controller's day cycle — flipping
+  the instant the schedule crosses (it prefers the controller's own day/night
+  flag, falling back to the Day Cycle start/stop times). The existing Leaf Offset
+  keeps its value as the Day offset (no reset); Night defaults to 0.0 (leaf ≈ air)
+  — adjust it in Calibration. The Leaf VPD target band stays a single range, since
+  VPD targets track growth stage, not time of day. Card 0.20.5.
+
+## 3.19.114
+
+### Fixed
+- **Tiles now follow the day/night cycle when picking targets.** The tile target
+  (and the Air VPD healthy range) read a binary sensor that doesn't exist
+  (`is_day_env_target`), so the lookup always fell through to "day" — tiles kept
+  showing the day target even after the controller switched to its night cycle,
+  while the header badge correctly showed "Night Cycle". Tiles now use the same
+  day/night source as the badge (the `daytime_schedule` sensor, falling back to
+  the Day Cycle start/stop times), so the target shown always matches the active
+  cycle. Card 0.20.4.
+
 ## 3.19.113
 
 ### Fixed

@@ -116,3 +116,54 @@ async def test_leaf_vpd_computed_and_offset_control(hass: HomeAssistant):
         session.initial_poll_task.cancel()
     await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+async def test_leaf_vpd_day_night_offset(hass: HomeAssistant):
+    """The leaf-VPD sensor uses the Day offset during the day cycle and the
+    Night offset at night, switching the instant the schedule flag flips."""
+    entry = await _setup(hass)
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+
+    session = ProxySession(CB_MAC, bus)
+    for _ in range(3):
+        _process_publish(session, _pkt("getDevSta", FULL_CB), bus)
+    await hass.async_block_till_done()
+
+    # The night offset entity exists alongside the day one, default 0.0.
+    offn = hass.states.get("number.sf_dp1_leaf_offset_night")
+    assert offn is not None and float(offn.state) == 0.0
+
+    # Give day and night clearly different offsets.
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": "number.sf_dp1_leaf_offset", "value": -2.0}, blocking=True)
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": "number.sf_dp1_leaf_offset_night", "value": -6.0},
+        blocking=True)
+    await hass.async_block_till_done()
+
+    t = hass.states.get("sensor.sf_dp1_temperature")
+    unit = t.attributes.get("unit_of_measurement") or "°C"
+    air_c = _to_c(float(t.state), unit)
+    rh = 60.9
+
+    # Day cycle → day offset (−2.0).
+    hass.states.async_set("binary_sensor.sf_dp1_daytime_schedule", "on")
+    await hass.async_block_till_done()
+    leaf_day = float(hass.states.get("sensor.sf_dp1_leaf_vpd").state)
+    exp_day = _svp(air_c + _delta_c(-2.0, unit)) - (rh / 100.0) * _svp(air_c)
+    assert abs(leaf_day - round(max(0.0, exp_day), 2)) < 0.02
+
+    # Night cycle → night offset (−6.0): cooler leaf → lower leaf VPD.
+    hass.states.async_set("binary_sensor.sf_dp1_daytime_schedule", "off")
+    await hass.async_block_till_done()
+    leaf_night = float(hass.states.get("sensor.sf_dp1_leaf_vpd").state)
+    exp_night = _svp(air_c + _delta_c(-6.0, unit)) - (rh / 100.0) * _svp(air_c)
+    assert abs(leaf_night - round(max(0.0, exp_night), 2)) < 0.02
+    assert leaf_night < leaf_day
+
+    if session.initial_poll_task and not session.initial_poll_task.done():
+        session.initial_poll_task.cancel()
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()

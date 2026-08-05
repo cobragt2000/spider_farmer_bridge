@@ -263,10 +263,21 @@ def build_device_entities(
             defs.append(d("sensor", "leaf_vpd", "VPD Leaf",
               unit="kPa", state_class="measurement", icon="mdi:leaf",
               precision=2, kind="leaf_vpd", object_id=f"sf_{slot}_leaf_vpd"))
-            defs.append(d("number", "leaf_offset", "Leaf Offset",
+            # Day/night leaf offsets: leaves run well below air under the light
+            # (transpiration cooling) but sit close to air temp once it's off, so
+            # the leaf-VPD sensor picks the active one from the day cycle. The Day
+            # entity keeps the legacy `leaf_offset` id (pinned object_id) so its
+            # stored value and any customisations carry over unchanged.
+            defs.append(d("number", "leaf_offset", "Leaf Offset (Day)",
               icon="mdi:thermometer-minus", num_mode="box",
               min_value=-10, max_value=5, step=0.1, default_value=-2.0,
-              kind="leaf_offset", entity_category="config"))
+              kind="leaf_offset", entity_category="config",
+              object_id=f"sf_{slot}_leaf_offset"))
+            defs.append(d("number", "leaf_offset_night", "Leaf Offset (Night)",
+              icon="mdi:thermometer-minus", num_mode="box",
+              min_value=-10, max_value=5, step=0.1, default_value=0.0,
+              kind="leaf_offset", entity_category="config",
+              object_id=f"sf_{slot}_leaf_offset_night"))
             defs.append(d("number", "leaf_vpd_min", "Leaf VPD Min",
               unit="kPa", icon="mdi:arrow-collapse-down", num_mode="box",
               min_value=0, max_value=4, step=0.05, default_value=0.8,

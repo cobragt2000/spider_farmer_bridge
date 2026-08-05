@@ -44,19 +44,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception:  # noqa: BLE001 — never block setup on a unit read
         pass
 
-    # One-time migration: the diagnostic log default has moved twice
-    # (sf_bridge/ -> sf/logs/ -> custom_components/sf/logs/). Rewrite only
-    # stale *defaults* — never a path the user set deliberately.
+    # One-time migration: move legacy/doomed diagnostic-log defaults onto the
+    # current one (sf/logs/, i.e. /config/sf/logs — outside custom_components/ so
+    # updates can't wipe it). The previous default lived INSIDE the integration
+    # folder and was replaced on every update. IMPORTANT: sf/logs/diagnostic.log
+    # is now the live default and must NOT be in this list — rewriting it is what
+    # clobbered a user's deliberate /config/sf/logs path straight back into the
+    # update-wiped custom_components folder.
     if (entry.options or {}).get(CONF_DIAG_PATH) in (
         "sf_bridge/diagnostic.log",
-        "sf/logs/diagnostic.log",
+        "custom_components/sf/logs/diagnostic.log",
     ):
         hass.config_entries.async_update_entry(
             entry,
             options={**entry.options, CONF_DIAG_PATH: DEFAULT_DIAG_PATH},
         )
         _LOGGER.info(
-            "Migrated diagnostic log path to %s", DEFAULT_DIAG_PATH
+            "Migrated diagnostic log path to %s (out of the update-wiped "
+            "integration folder)", DEFAULT_DIAG_PATH
         )
 
     # 3.19.90: the two diagnostic-log toggles collapsed into one. The

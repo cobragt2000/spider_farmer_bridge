@@ -16,7 +16,10 @@ CONF_ENV_ENTITIES = "environment_entities"
 CONF_PRESERVE_ON_REMOVE = "preserve_on_remove"
 CONF_DIAG_LOG      = "diagnostic_log"
 CONF_DIAG_PATH     = "diagnostic_log_path"
-DEFAULT_DIAG_PATH  = "custom_components/sf/logs/diagnostic.log"  # relative to /config
+# Kept OUTSIDE custom_components/ — that folder is replaced on every integration
+# update (HACS/manual), which was wiping the log history. /config/sf/logs also
+# lets a user point the log there without the migration clobbering it back.
+DEFAULT_DIAG_PATH  = "sf/logs/diagnostic.log"      # relative to /config → /config/sf/logs
 CONF_DIAG_DAYS     = "diagnostic_log_days"
 CONF_DIAG_PER_BOOT = "diagnostic_log_per_boot"
 DEFAULT_DIAG_DAYS  = 7                             # daily files kept, 1-30

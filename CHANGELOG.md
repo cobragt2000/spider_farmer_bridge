@@ -3,6 +3,29 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.118
+
+### Changed
+- **Hotspot device-name map moved to `/config/sf/ap/`.** The integration now
+  writes `sf_hotspot_devices.json` (the mac→friendly-name map the Wi-Fi AP add-on
+  reads) to `/config/sf/ap/` instead of bare `/config`, keeping the integration's
+  shared files together under `/config/sf/`. Pairs with Spider Farmer Hotspot
+  add-on 0.8.1, which reads the new location and falls back to the old path so
+  names keep working during the update.
+
+## 3.19.117
+
+### Fixed
+- **Diagnostic log now lives at `/config/sf/logs/` and honours a custom path.**
+  The default log location moved out of `custom_components/sf/logs/` — that folder
+  is replaced on every integration update, which was wiping the log history. The
+  default is now `sf/logs/diagnostic.log` (i.e. `/config/sf/logs/`), outside the
+  integration, so updates can't delete it. Also fixes a bug where deliberately
+  pointing the log at `/config/sf/logs` was silently rewritten back into the
+  update-wiped folder on each reload, so the file was never created there. Existing
+  installs on the old default are migrated out automatically; a path you set
+  yourself is left alone. Point-of-truth for retention is unchanged.
+
 ## 3.19.116
 
 ### Changed

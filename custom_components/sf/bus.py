@@ -601,10 +601,14 @@ class SfBus:
         if blob == self._hotspot_map_blob:
             return
         self._hotspot_map_blob = blob
-        path = self.hass.config.path("sf_hotspot_devices.json")
+        # Under /config/sf/ap so the hotspot's shared files sit alongside the
+        # rest of the integration's /config/sf data (logs, etc.).
+        path = self.hass.config.path("sf/ap/sf_hotspot_devices.json")
 
         def _write() -> None:
             try:
+                import os
+                os.makedirs(os.path.dirname(path), exist_ok=True)
                 with open(path, "w") as f:
                     f.write(blob)
             except Exception:  # noqa: BLE001 — add-on integration is best-effort

@@ -518,6 +518,44 @@ async def test_soil_numbering_is_per_cb(hass: HomeAssistant):
     await hass.async_block_till_done()
 
 
+async def _setup_with_diag_path(hass: HomeAssistant, path: str) -> MockConfigEntry:
+    from custom_components.sf.const import CONF_DIAG_PATH
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Spider Farmer Bridge",
+        data={"listen_port": 18889, "upstream_host": "sf.mqtt.spider-farmer.com",
+              "upstream_port": 8883, "allow_control": False},
+        options={CONF_DIAG_PATH: path},
+        unique_id=DOMAIN,
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry
+
+
+async def test_diag_path_user_sf_logs_not_clobbered(hass: HomeAssistant):
+    """A deliberate /config/sf/logs path must survive setup. The migration used
+    to list this as a 'stale default' and rewrite it back into the update-wiped
+    custom_components folder, so the user's log was never created there."""
+    from custom_components.sf.const import CONF_DIAG_PATH
+    entry = await _setup_with_diag_path(hass, "sf/logs/diagnostic.log")
+    assert entry.options[CONF_DIAG_PATH] == "sf/logs/diagnostic.log"
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_diag_path_legacy_custom_components_migrated_out(hass: HomeAssistant):
+    """The old in-integration default is migrated OUT to /config/sf/logs, where
+    an integration update can't wipe the history."""
+    from custom_components.sf.const import CONF_DIAG_PATH, DEFAULT_DIAG_PATH
+    entry = await _setup_with_diag_path(
+        hass, "custom_components/sf/logs/diagnostic.log")
+    assert entry.options[CONF_DIAG_PATH] == DEFAULT_DIAG_PATH
+    assert DEFAULT_DIAG_PATH == "sf/logs/diagnostic.log"
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
 async def test_mappings_flow_cb_scoped_soil(hass: HomeAssistant):
     """The mappings form displays cb-scoped soil values (dp1_soil1), accepts
     both scoped and bare input, allows soil1 on BOTH CBs, and rejects a

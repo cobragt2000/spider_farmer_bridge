@@ -3,6 +3,41 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.123
+
+### Changed
+- Settings: the "Custom outlet names" toggle sits with the other tile toggles and
+  keeps its description; the tile-display group is named "Tile extras". Card 0.20.11.
+
+## 3.19.121
+
+### Added
+- **Custom layout (Phase 1): overall scale + tiles per row.** Settings → Layout has
+  a "Custom layout" toggle; turn it on and you get a **Scale** slider (70–150%,
+  default 100%) that zooms the whole card together — tiles, text, icons, graphs —
+  and a **Tiles per row** selector (2–5). Both save to the controller (survive
+  upgrades, sync across devices) and are per panel. Storage is a single layout blob
+  so drag-to-reorder can be added later without another option. Card 0.20.9.
+
+## 3.19.120
+
+### Changed
+- **Outlet name edits are now gated by Apply / Discard**, like every other outlet
+  control. Typing a name stages it (the row shows the pending-edit highlight and
+  the Apply bar activates); it's only saved on Apply and dropped on Discard or when
+  you leave the tab — consistent with mode/power/schedule edits. Card 0.20.8.
+
+## 3.19.119
+
+### Added
+- **Custom outlet names.** Outlet names aren't stored on the controller (the app
+  keeps them cloud-side and never sends them to the device), so they can't be read
+  through the bridge. Instead the card now lets you name outlets yourself: a
+  "Custom outlet names" toggle in Settings → Outlet names, and once on, a Name
+  field on each outlet in the Outlets tab that replaces "Outlet 1/2/…". Names are
+  saved to the controller via the card-options store, so they survive upgrades and
+  sync to your other devices. Card 0.20.7.
+
 ## 3.19.118
 
 ### Changed

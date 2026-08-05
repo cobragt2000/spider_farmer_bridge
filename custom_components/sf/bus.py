@@ -649,7 +649,7 @@ class SfBus:
         # the same Environment entities; their state/writes flow through the
         # type-agnostic normalizer/command paths.
         if self.env_entities and (device_cfg.get("type", "") or "").lower() in (
-            "cb", "ps5", "ps10"
+            "cb", "ps5", "ps10", "st"
         ):
             mac = _mac(device_cfg.get("mac", ""))
             if f"ggs_{mac}_env_temp_day" not in self._registered:

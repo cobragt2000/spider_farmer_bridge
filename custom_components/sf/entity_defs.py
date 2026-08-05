@@ -27,14 +27,16 @@ HA_STATUS_TOPIC = "ggs/ha/status"
 _TYPE_LABELS = {
     "ps5":  "Power Strip AC5",
     "ps10": "Power Strip AC10",
+    "st":   "S-Station",
     "cb":   "Display Panel",
     "lc":   "Light Controller",
     "se":   "SE Light",
 }
 
 # HA entity-id slot prefix per wire type. Also decoupled from the wire codes:
-# a Display Panel's entities are sf_dp1_*, a strip's are sf_ac5_* / sf_ac10_*.
-_SLOT_PREFIX = {"cb": "dp", "ps5": "ac5", "ps10": "ac10"}
+# a Display Panel's entities are sf_dp1_*, a strip's are sf_ac5_* / sf_ac10_*,
+# and a single-plug S-Station's are sf_st1_*.
+_SLOT_PREFIX = {"cb": "dp", "ps5": "ac5", "ps10": "ac10", "st": "st"}
 
 _PRIMARY_TYPE = "cb"
 
@@ -81,20 +83,25 @@ def _device_model(device_cfg: dict) -> str:
 
 # Types that can host the full accessory set (v3.4.0: the AC5/AC10
 # strips take lights, climate gear, air sensors, and soil probes too)
-_FULL_TYPES = ("cb", "ps5", "ps10")
+# st (S-Station single-plug) carries the same config surface as the AC5/AC10
+# strips (env target, alarms, calibration, outlet modes) — just one outlet.
+_FULL_TYPES = ("cb", "ps5", "ps10", "st")
 
 
 def _capabilities(dtype: str) -> dict:
     dtype = dtype.lower()
     return {
-        "hasOutlets": dtype in ("ps5", "ps10"),   # outlets = strips only
+        "hasOutlets": dtype in ("ps5", "ps10", "st"),   # outlets = strips + S-Station
         "hasFan":     dtype in _FULL_TYPES,
-        "hasLight2":  dtype in ("cb", "ps5", "ps10", "lc"),
+        "hasLight2":  dtype in ("cb", "ps5", "ps10", "lc", "st"),
     }
 
 
 def _outlet_count(dtype: str) -> int:
-    return 10 if dtype.lower() in ("ps10", "cb") else 5
+    dtype = dtype.lower()
+    if dtype == "st":
+        return 1                      # S-Station is a single smart plug
+    return 10 if dtype in ("ps10", "cb") else 5
 
 
 # ── Entity descriptor ─────────────────────────────────────────────────────────

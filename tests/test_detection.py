@@ -286,6 +286,73 @@ async def test_ps5_upgrades_to_ps10(hass: HomeAssistant):
     await hass.async_block_till_done()
 
 
+async def test_single_outlet_detects_st(hass: HomeAssistant):
+    """A single-outlet device is the S-Station smart plug — typed `st`, slotted
+    st1 (not ac5), and shown as "S-Station"."""
+    from custom_components.sf.entity_defs import _device_model, _device_name
+    assert _device_model({"type": "st"}) == "S-Station"
+    assert "S-Station" in _device_name({"type": "st", "mac": "0A1B2C3E4E5A"})
+
+    entry = await _setup(hass)
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+    mac = "0A1B2C3E4E5A"
+    session = ProxySession(mac, bus)
+
+    def frame(data):
+        pkt = MQTTPacket(
+            packet_type=MQTT_PUBLISH, flags=0, payload=b"",
+            topic=f"SF/GGS/CB/API/UP/{mac}",
+            message=json.dumps({"method": "getDevSta", "uid": "u1", "data": data}).encode(),
+        )
+        _process_publish(session, pkt, bus)
+
+    for _ in range(3):
+        frame({"outlet": {"O1": {"mOnOff": 0}}})
+    await hass.async_block_till_done()
+    assert session.device_type == "st"
+    assert hass.states.get("switch.sf_st1_outlet_1") is not None
+    # NOT misdetected as a strip
+    assert hass.states.get("switch.sf_ac5_outlet_1") is None
+    assert hass.states.get("switch.sf_st1_outlet_2") is None   # single plug
+
+    if session.initial_poll_task:
+        session.initial_poll_task.cancel()
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_st_retypes_to_ps5_when_more_outlets(hass: HomeAssistant):
+    """A strip whose early frame reports only O1 must not stay stuck as st —
+    once O2+ appear it retypes to ps5 (st is a tentative type)."""
+    entry = await _setup(hass)
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+    mac = "0A1B2C3E4E5B"
+    session = ProxySession(mac, bus)
+
+    def frame(data):
+        pkt = MQTTPacket(
+            packet_type=MQTT_PUBLISH, flags=0, payload=b"",
+            topic=f"SF/GGS/CB/API/UP/{mac}",
+            message=json.dumps({"method": "getDevSta", "uid": "u1", "data": data}).encode(),
+        )
+        _process_publish(session, pkt, bus)
+
+    for _ in range(3):
+        frame({"outlet": {"O1": {"mOnOff": 0}}})
+    await hass.async_block_till_done()
+    assert session.device_type == "st"
+
+    frame({"outlet": {f"O{n}": {"mOnOff": 0} for n in range(1, 6)}})
+    await hass.async_block_till_done()
+    assert session.device_type == "ps5"
+    assert hass.states.get("switch.sf_ac5_outlet_5") is not None
+
+    if session.initial_poll_task:
+        session.initial_poll_task.cancel()
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
 async def test_evidence_based_groups_and_phantom_prune(hass: HomeAssistant):
     """v3.0.12: a lights-only CB (M4E02) gets ONLY light entities, and
     pre-existing phantom entities for unreported blocks are pruned."""

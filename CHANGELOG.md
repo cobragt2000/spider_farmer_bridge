@@ -3,6 +3,27 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.124
+
+### Added
+- **S-Station single-plug support.** The new Spider Farmer S-Station (a 1-outlet
+  WiFi/Bluetooth smart plug) was being detected as an AC5 power strip. It's now
+  recognised as its own device type — a single-outlet device types as **st**,
+  shows as **"S-Station"** with `sf_st1_*` entities, and gets the same controls as
+  the AC5/AC10 (outlet with modes, environment targets, alarms, calibration). The
+  card recognises `st` panels and labels them S-Station. Detection is safe: a strip
+  that happens to report only its first outlet early still upgrades to AC5/AC10
+  once the rest appear. Card 0.20.12.
+  (Built from the product listing + a menu screenshot — no device log yet, so
+  mode-label wording may need a small tweak once a real S-Station log is captured.)
+
+### Fixed
+- **Card editor no longer lists a standalone strip as its own nested outlet
+  device.** For a card whose panel *is* the AC5/AC10/S-Station, the "Outlet devices"
+  list used to show that same strip (a redundant self-reference). Its outlets always
+  render directly now, so the list only shows strips genuinely nested under a
+  Display Panel.
+
 ## 3.19.123
 
 ### Changed

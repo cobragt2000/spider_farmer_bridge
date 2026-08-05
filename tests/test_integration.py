@@ -214,7 +214,9 @@ async def test_commands(hass: HomeAssistant):
             topic=f"SF/GGS/CB/API/UP/{ps_raw}",
             message=json.dumps({
                 "method": "getDevSta", "uid": "u1",
-                "data": {"outlet": {"O1": {"mOnOff": 1}}},
+                # Five outlets → typed ps5 (AC5); a single outlet would now be an
+                # S-Station (st). Command routing is identical either way.
+                "data": {"outlet": {f"O{n}": {"mOnOff": 1} for n in range(1, 6)}},
             }).encode(),
         )
         _process_publish(ps_session, pkt, bus)

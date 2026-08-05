@@ -95,8 +95,13 @@ def _classify_evidence(evidence: set, max_outlet: int) -> tuple[Optional[str], b
         return "se", True       # flat SE-light schema — nothing else has it
     if max_outlet > 5:
         return "ps10", True     # nothing else has >5 outlets
-    if max_outlet >= 1:
-        return "ps5", False     # tentative: may grow into a ps10
+    if max_outlet > 1:
+        return "ps5", False     # 2–5 outlets: tentative, may grow into a ps10
+    if max_outlet == 1:
+        # A single outlet is the S-Station smart plug. Tentative: if a strip
+        # reports its first outlet before the rest, later frames revealing O2+
+        # retype this to ps5/ps10 via the standard tentative-retype path.
+        return "st", False
     if evidence & _ACCESSORY_MARKERS:
         return "cb", False      # tentative: a strip's outlets may be late
     if "light" in evidence or "light2" in evidence:
@@ -413,14 +418,14 @@ class MITMProxy:
         # Outlet config: poll the whole block(s) this device exposes so the
         # cache stays fresh for read-modify-write mode changes.
         outlet_blocks = []
-        if sess.device_type in ("ps5", "ps10"):
-            # Standalone strip: poll the TOP-LEVEL "outlet" block — the one the
-            # firmware acts on and the app read-modify-writes (v3.19.93).
+        if sess.device_type in ("ps5", "ps10", "st"):
+            # Standalone strip / S-Station: poll the TOP-LEVEL "outlet" block —
+            # the one the firmware acts on and the app read-modify-writes (v3.19.93).
             outlet_blocks = ["outlet"]
         ev = getattr(sess, "evidence", set())
         outlet_blocks += [b for b in ("ps5", "ps10") if b in ev and b not in outlet_blocks]
         # Panels AND strips hold the environment target block (v3.19.90).
-        if sess.device_type in ("cb", "ps5", "ps10"):
+        if sess.device_type in ("cb", "ps5", "ps10", "st"):
             try:
                 await sess.inject({
                     "method": "getConfigField", "pid": sess.mac_raw,
@@ -432,7 +437,7 @@ class MITMProxy:
         # Alarm/notification history (v3.19.41): the device only reports the
         # log when asked (the app's Notification screen). Poll it so HA's
         # Alarms sensor backfills without the app.
-        if sess.device_type in ("cb", "ps5", "ps10"):
+        if sess.device_type in ("cb", "ps5", "ps10", "st"):
             try:
                 # Cursor paging (v3.19.50): seed from the high-water id. On a
                 # fresh session alarm_hw is 0, so this backfills the whole
@@ -450,7 +455,7 @@ class MITMProxy:
         # reliably. The device does NOT answer targeted getConfigField reads
         # for ["calibration"] or ["device","senConfig"] — only the (app- or
         # here integration-triggered) getConfigFile returns them.
-        if sess.device_type in ("cb", "ps5", "ps10"):
+        if sess.device_type in ("cb", "ps5", "ps10", "st"):
             try:
                 await sess.inject({
                     "method": "getConfigFile", "pid": sess.mac_raw,
@@ -1371,7 +1376,7 @@ def _process_publish(
                 # Pull the full config file once at connect so air/soil
                 # calibration, substrate and soil names populate promptly
                 # instead of waiting up to config_poll_interval (~10 min).
-                if session.device_type in ("cb", "ps5", "ps10"):
+                if session.device_type in ("cb", "ps5", "ps10", "st"):
                     try:
                         await session.inject({
                             "method": "getConfigFile", "pid": session.mac_raw,
@@ -1468,7 +1473,8 @@ def _process_publish(
     ):
         caps = _capabilities(session.device_type)
         if caps["hasOutlets"]:
-            max_outlet = 10 if session.device_type in ("ps10", "cb") else 5
+            max_outlet = (1 if session.device_type == "st"
+                          else 10 if session.device_type in ("ps10", "cb") else 5)
             for n in range(1, max_outlet + 1):
                 if n not in session.outlets_seen:
                     unpublish_outlet_discovery(mqtt_client, session.mac_raw, n)

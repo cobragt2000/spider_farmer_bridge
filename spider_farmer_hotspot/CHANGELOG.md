@@ -4,6 +4,15 @@ All notable changes to the **Spider Farmer Hotspot** add-on. The Supervisor
 offers an update whenever the `version` in `config.yaml` increases; the notes
 below are shown on the add-on's Changelog tab.
 
+## 0.8.1
+
+### Changed
+- **Device-name map read from `/config/sf/ap/`.** The connected-clients page now
+  reads friendly names from `/config/sf/ap/sf_hotspot_devices.json` (where the
+  integration now writes it), falling back to the old `/config/sf_hotspot_devices.json`
+  so names keep showing if the integration hasn't updated yet. Needs Spider Farmer
+  Bridge 3.19.118+ to write the new location. No configuration change required.
+
 ## 0.8.0
 
 ### Changed

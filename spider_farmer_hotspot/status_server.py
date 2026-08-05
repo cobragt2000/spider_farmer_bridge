@@ -16,8 +16,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 OPTIONS = "/data/options.json"
 LEASES = "/data/dnsmasq.leases"
 # The Spider Farmer Bridge integration writes this map (mac -> friendly name)
-# into HA's /config, which this add-on mounts read-write.
-DEVICE_MAP = "/config/sf_hotspot_devices.json"
+# into HA's /config, which this add-on mounts read-write. Current location is
+# /config/sf/ap; the bare /config path is the pre-3.x fallback.
+DEVICE_MAP = "/config/sf/ap/sf_hotspot_devices.json"
+DEVICE_MAP_LEGACY = "/config/sf_hotspot_devices.json"
 PORT = int(os.environ.get("INGRESS_PORT", "8099"))
 
 
@@ -30,10 +32,16 @@ def opts():
 
 
 def device_names():
-    """mac (lower, no separators) -> friendly name, from the integration."""
+    """mac (lower, no separators) -> friendly name, from the integration.
+    Reads the current /config/sf/ap location, falling back to the legacy
+    /config path so names keep working if only one side has updated."""
     try:
-        with open(DEVICE_MAP) as f:
-            raw = json.load(f)
+        try:
+            with open(DEVICE_MAP) as f:
+                raw = json.load(f)
+        except FileNotFoundError:
+            with open(DEVICE_MAP_LEGACY) as f:
+                raw = json.load(f)
         out = {}
         for k, v in raw.items():
             mac = re.sub(r"[^0-9a-f]", "", str(k).lower())

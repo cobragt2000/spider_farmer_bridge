@@ -5,6 +5,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege: every job here only reads the repo (checkout, tests, HACS
+# and hassfest validation). Declaring this at the top level silences GitHub's
+# "workflow does not contain permissions" warning and drops the token's default
+# write scopes.
+permissions:
+  contents: read
+
 jobs:
   tests:
     runs-on: ubuntu-latest

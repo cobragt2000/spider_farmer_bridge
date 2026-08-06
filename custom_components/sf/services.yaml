@@ -48,6 +48,34 @@ set_outlet_schedule:
       required: true
       example: >-
         [{"days": [1, 3, 5], "start": "08:00", "end": "20:00"}]
+
+set_outlet_config:
+  name: Set outlet mode + config
+  description: >-
+    Set an outlet's mode and its config fields (Cycle timings, device dropdown)
+    in one atomic write, so picking a mode and configuring it commits together.
+    Used by the tent card's Outlets tab.
+  fields:
+    entity_id:
+      name: Outlet
+      description: Any entity of the outlet (e.g. its switch or mode select).
+      required: true
+      selector:
+        entity:
+          integration: sf
+    mode:
+      name: Mode
+      description: >-
+        Outlet mode: Manual, Time Slot, Cycle, Temperature, Humidity, CO2.
+      required: true
+      example: Cycle
+    config:
+      name: Config
+      description: >-
+        Mapping of the mode's config subfields to values, e.g. for Cycle:
+        {"cycle_start": "12:00", "cycle_run": 5, "cycle_off": 7, "cycle_times": 3}.
+      required: false
+      example: '{"cycle_run": 5, "cycle_off": 7, "cycle_times": 3}'
       selector:
         object:
 

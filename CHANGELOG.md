@@ -3,6 +3,93 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.132
+
+### Added
+- **Outlet mode config shows on selection — configure and apply in one step.**
+  Picking a mode (Cycle, Temperature, Humidity, CO2) in the Outlets tab now shows
+  that mode's settings immediately — Cycle timings (start / run / off / times), or
+  the device dropdown for the environment modes — instead of the old two-step
+  "apply, then the fields appear, then configure and apply again". Apply commits the
+  mode and its settings in one atomic write (new `sf.set_outlet_config` service).
+  Card 0.20.18.
+
+## 3.19.131
+
+### Fixed
+- **Switching an outlet to a config mode now sticks.** Changing an outlet to Cycle
+  / Time Slot / etc. sent a minimal `{modeType, mOnOff}` block with no `cycleTime` /
+  `timePeriod`, which the firmware rejected — the outlet snapped back to Manual.
+  The mode write now always includes a complete, valid config block (verified: the
+  bare write in the log came back `modeType:0`).
+- **Card no longer shows a stale mode after the device rejects it.** An optimistic
+  mode pick that the controller doesn't confirm within a few seconds is now dropped,
+  so the dropdown falls back to the real state instead of showing a mode the device
+  never entered. Card 0.20.17.
+
+## 3.19.130
+
+### Changed
+- **Fan Speed dropdown shows gears 1–10.** The fan is gear-based, so its Manual
+  Speed dropdown now lists levels 1–10 instead of percentages (blower stays a
+  25–100% list, light Brightness 11–100%). Card 0.20.16.
+
+## 3.19.129
+
+### Changed
+- **Manual Speed / Brightness dropdowns use 1% steps.** Fan/blower Speed and light
+  Brightness dropdowns now list every 1%, matching the old slider's granularity —
+  fan Speed Off + 1–100%, blower Speed 25–100% (its hardware floor), light
+  Brightness 11–100%. Card 0.20.15.
+
+## 3.19.128
+
+### Fixed
+- **Outlet sub-settings applied together no longer clobber.** Changing an outlet's
+  mode plus its cycle timings / device dropdowns in one Apply issued separate
+  read-modify-writes that each read a stale cache, so only the last field stuck.
+  The proxy now folds each outlet write back into its cache (same fix as env /
+  fan / blower), so all the changes merge into the final block.
+
+### Changed
+- **Manual-mode Brightness is now a dropdown too.** Like the Speed control (3.19.127),
+  the light's Manual Brightness is a percentage dropdown (5% steps) instead of a
+  slider. Card 0.20.14.
+
+## 3.19.127
+
+### Changed
+- **Manual-mode Speed is now a dropdown, not a slider.** The fan/blower Manual
+  Speed control is a percentage dropdown (Off + 5% steps), easier to set an exact
+  value than dragging a slider. Card 0.20.13.
+
+## 3.19.126
+
+### Fixed
+- **Config-mode settings no longer clobbered by a base power/level change (full
+  fix).** 3.19.125 fixed the blower power toggle but missed the **percentage/level**
+  write path and leaked live-only keys into writes; a mode change (e.g. Manual →
+  Environment) could still revert on reload. Now every bare power/brightness/level
+  change on a **fan, blower, light, heater, humidifier, or dehumidifier** read-
+  modify-writes the cached config block — preserving `modeType`, speeds, PPFD/Time
+  Slot and Cycle settings — and strips live-only fields. The proxy also folds every
+  `["device",<module>]` write back into its cache, so consecutive writes in one
+  Apply build on each other regardless of order (verified against a device log).
+
+## 3.19.125
+
+### Fixed
+- **Blower/fan Environment-mode speeds no longer wiped by the power toggle.** When
+  a blower (or fan) was in a config mode (Environment / Cycle / Time Slot), applying
+  changes fired two writes back-to-back — the mode + speed bundle, then the power
+  toggle — and the power write sent a bare manual block that overwrote
+  `modeType`/`maxSpeed`/`minSpeed`, so Running Speed reverted to blank and Standby
+  Speed to Off right after Apply. The power toggle now read-modify-writes the cached
+  config block (preserving the mode's speed settings), and the proxy folds
+  `["device","fan"]`/`["device","blower"]` writes back into its cache so consecutive
+  writes in one Apply build on each other (same fix as the environment "only 1 at a
+  time" bug).
+
 ## 3.19.124
 
 ### Added

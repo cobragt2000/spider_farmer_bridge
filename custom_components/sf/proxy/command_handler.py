@@ -514,8 +514,15 @@ def _cmd_outlet(mac, uid, value, n, block, sub, outlet_cfg, state):
         obj["mOnOff"] = _onoff(value)
         return emit(obj)
 
-    # Sub-setting: read-modify-write the full outlet object.
-    obj = copy.deepcopy(outlet_cfg if isinstance(outlet_cfg, dict) else _OUTLET_DEFAULT)
+    # Sub-setting: read-modify-write the full outlet object. Start from the full
+    # default (valid cycleTime + 12-slot timePeriod) and overlay the cached values,
+    # so switching to a config mode ALWAYS sends a complete block. A minimal cache
+    # (a Manual outlet reports just {modeType,mOnOff}) otherwise produced e.g.
+    # {"modeType":2,"mOnOff":0} for a Cycle switch — no cycleTime — which the
+    # firmware rejects, reverting the outlet to Manual. (v3.19.131)
+    obj = copy.deepcopy(_OUTLET_DEFAULT)
+    if isinstance(outlet_cfg, dict):
+        obj.update(copy.deepcopy(outlet_cfg))
     obj.pop("on", None)
 
     if sub == "mode":
@@ -530,28 +537,42 @@ def _cmd_outlet(mac, uid, value, n, block, sub, outlet_cfg, state):
         # stale schedule/level from activating the outlet the moment you switch.
         obj["mOnOff"] = 0
         return emit(obj)
-    if sub == "temp_device":
-        v = _OUTLET_TEMP_DEVICE.get(str(value))
-        if v is None:
-            return None
-        obj["tempAdd"] = v
+    if _apply_outlet_subfield(obj, sub, value):
         return emit(obj)
-    if sub == "humidity_device":
-        v = _OUTLET_HUMI_DEVICE.get(str(value))
-        if v is None:
-            return None
-        obj["humiAdd"] = v
-        return emit(obj)
-    if sub == "co2_device":
-        v = _OUTLET_CO2_DEVICE.get(str(value))
-        if v is None:
-            return None
-        obj["co2Add"] = v
-        return emit(obj)
-    if sub in ("cycle_start", "cycle_run", "cycle_off", "cycle_times"):
-        ct = obj.setdefault("cycleTime", dict(_OUTLET_DEFAULT["cycleTime"]))
-        ct.setdefault("weekmask", 127)
-        try:
+
+    # Drip advanced config (sensor bind, periods, emergency) not yet modeled
+    # as entities — stored in HA only.
+    logger.info("outlet %s %s=%s stored in HA only (not yet modeled)",
+                ok, sub, value)
+    return None
+
+
+def _apply_outlet_subfield(obj, sub, value) -> bool:
+    """Apply one outlet config subfield into ``obj`` in place. Returns True when
+    the field was recognised and applied, False for an unknown subfield or a bad
+    value. Shared by the per-field write path and the atomic mode+config write."""
+    try:
+        if sub == "temp_device":
+            v = _OUTLET_TEMP_DEVICE.get(str(value))
+            if v is None:
+                return False
+            obj["tempAdd"] = v
+            return True
+        if sub == "humidity_device":
+            v = _OUTLET_HUMI_DEVICE.get(str(value))
+            if v is None:
+                return False
+            obj["humiAdd"] = v
+            return True
+        if sub == "co2_device":
+            v = _OUTLET_CO2_DEVICE.get(str(value))
+            if v is None:
+                return False
+            obj["co2Add"] = v
+            return True
+        if sub in ("cycle_start", "cycle_run", "cycle_off", "cycle_times"):
+            ct = obj.setdefault("cycleTime", dict(_OUTLET_DEFAULT["cycleTime"]))
+            ct.setdefault("weekmask", 127)
             if sub == "cycle_start":
                 ct["startTime"] = _hhmm_to_seconds(value)
             elif sub == "cycle_run":
@@ -560,29 +581,47 @@ def _cmd_outlet(mac, uid, value, n, block, sub, outlet_cfg, state):
                 ct["closeDur"] = max(0, int(float(value))) * 60
             elif sub == "cycle_times":
                 ct["times"] = max(1, min(100, int(float(value))))
-        except (ValueError, TypeError):
-            return None
-        return emit(obj)
-    if sub in ("ts_start", "ts_stop", "ts_type"):
-        tp = obj.setdefault("timePeriod", [])
-        if not tp or not isinstance(tp[0], dict):
-            tp.insert(0, {"enabled": 1, "weekmask": 127})
-        tp0 = tp[0]
-        tp0["enabled"] = 1
-        tp0.setdefault("weekmask", 127)
-        if sub == "ts_start":
-            tp0["startTime"] = _hhmm_to_seconds(value)
-        elif sub == "ts_stop":
-            tp0["endTime"] = _hhmm_to_seconds(value)
-        elif sub == "ts_type" and str(value) == "Daily":
-            tp0["weekmask"] = 127        # Custom keeps the existing mask
-        return emit(obj)
+            return True
+        if sub in ("ts_start", "ts_stop", "ts_type"):
+            tp = obj.setdefault("timePeriod", [])
+            if not tp or not isinstance(tp[0], dict):
+                tp.insert(0, {"enabled": 1, "weekmask": 127})
+            tp0 = tp[0]
+            tp0["enabled"] = 1
+            tp0.setdefault("weekmask", 127)
+            if sub == "ts_start":
+                tp0["startTime"] = _hhmm_to_seconds(value)
+            elif sub == "ts_stop":
+                tp0["endTime"] = _hhmm_to_seconds(value)
+            elif sub == "ts_type" and str(value) == "Daily":
+                tp0["weekmask"] = 127        # Custom keeps the existing mask
+            return True
+    except (ValueError, TypeError):
+        return False
+    return False
 
-    # Drip advanced config (sensor bind, periods, emergency) not yet modeled
-    # as entities — stored in HA only.
-    logger.info("outlet %s %s=%s stored in HA only (not yet modeled)",
-                ok, sub, value)
-    return None
+
+def build_outlet_config(mac, uid, n, block, mode, config, outlet_cfg):
+    """One atomic setConfigField that sets an outlet's mode AND its config fields
+    (Cycle timings / device dropdown) together — so picking a mode and configuring
+    it in the card commits in a single write instead of the two-step
+    apply-then-configure. ``config`` maps card subfields -> values."""
+    mt = _OUTLET_MODE_TO_TYPE.get(str(mode))
+    if mt is None:
+        return None
+    ok = f"O{n}"
+    obj = copy.deepcopy(_OUTLET_DEFAULT)
+    if isinstance(outlet_cfg, dict) and outlet_cfg:
+        obj.update(copy.deepcopy(outlet_cfg))
+    obj.pop("on", None)
+    obj["modeType"] = mt
+    obj["mOnOff"] = 0
+    for subf, val in (config or {}).items():
+        _apply_outlet_subfield(obj, str(subf), val)
+    keypath = ["outlet", ok] if block == "outlet" else ["device", block, ok]
+    return {"method": "setConfigField", "pid": mac,
+            "params": {"keyPath": keypath, ok: obj},
+            "msgId": _msg_id(), "uid": uid}
 
 
 # ── Lights ───────────────────────────────────────────────────────────────────
@@ -609,6 +648,17 @@ def _cmd_light(mac, uid, field, value, subfield, state, light_state, last):
         if on == 1 and level == 0:       # OFF->ON restores last brightness
             level = int(last.get(field, 100))
     level = _light_pct(level, on_floor=(on == 1)) or 0
+    # RMW the cached config block so a brightness/power change never drops the
+    # light's PPFD / Time-Slot config set in the same Apply. (v3.19.126)
+    cached = light_state.get(field)
+    if cached:
+        blk = _strip_live(dict(cached))
+        blk["mOnOff"] = on
+        blk["mLevel"] = level
+        if "effect" in cmd:
+            blk["modeType"] = _LIGHT_EFFECT_TO_MODE.get(
+                cmd.get("effect"), blk.get("modeType", 0))
+        return _config_field(mac, uid, "device", field, blk)
     return _config_field(mac, uid, "device", field, {
         "modeType": _LIGHT_EFFECT_TO_MODE.get(cmd.get("effect"), 0),
         "lastAutoModeType": cur.get("lastAutoModeType", 0),
@@ -708,8 +758,21 @@ def _cmd_fan(mac, uid, field, value, subfield, state, fan_state, last):
         return _cmd_fan_config(mac, uid, field, value, subfield, state, fan_state)
 
     cur = state.get(field, {})
+    # A bare power/percentage change must NOT drop the config-mode fields
+    # (modeType/maxSpeed/minSpeed/closeCO2/schedule) set by the same Apply, so
+    # read-modify-write the cached config block when we have one. _strip_live
+    # removes live-only keys (on/level) so they never leak into the write.
+    # Falls back to a minimal manual block only when nothing is cached. (v3.19.126)
+    cached = fan_state.get(field)
+    base = _strip_live(dict(cached)) if cached else None
+
     if subfield is None:
         on = _onoff(value)
+        if base is not None:
+            base["mOnOff"] = on
+            if on == 1 and int(_field_of(base, "level", "mLevel", default=0)) == 0:
+                base["mLevel"] = int(last.get(field, 50 if field == "blower" else 5))
+            return _config_field(mac, uid, "device", field, base)
         level = int(_field_of(cur, "level", "mLevel"))
         if on == 1 and level == 0:
             level = int(last.get(field, 50 if field == "blower" else 5))
@@ -725,6 +788,10 @@ def _cmd_fan(mac, uid, field, value, subfield, state, fan_state, last):
             level = max(1, min(hi, int(value)))
         except ValueError:
             return None
+        if base is not None:
+            base["mLevel"] = level
+            base.setdefault("mOnOff", int(_field_of(cur, "on", "mOnOff", default=1)))
+            return _config_field(mac, uid, "device", field, base)
         obj = {"mOnOff": _field_of(cur, "on", "mOnOff", default=1),
                "mLevel": level, "natural": 0, "timePeriod": _TIME_PERIOD}
         if field == "fan":
@@ -864,7 +931,15 @@ def _cmd_climate_level(mac, uid, field, value, state):
     if level is None:
         return None
     cur = state.get(field, {})
-    # Setting a level does not toggle the accessory: mOnOff stays put.
+    # Setting a level does not toggle the accessory: mOnOff stays put. RMW the
+    # cached block so modeType/schedule/cycle survive a level change in a config
+    # mode (v3.19.126); fall back to a minimal block when nothing is cached.
+    if cur:
+        blk = _strip_live(dict(cur))
+        blk["mLevel"] = level
+        blk.setdefault("mOnOff", int(_field_of(cur, "on", "mOnOff")))
+        blk.setdefault("timePeriod", _TIME_PERIOD)
+        return _config_field(mac, uid, "device", field, blk)
     return _config_field(mac, uid, "device", field, _strip_live({
         "mOnOff": int(_field_of(cur, "on", "mOnOff")),
         "mLevel": level,
@@ -945,6 +1020,14 @@ def _cmd_climate_onoff(mac, uid, field, value, state, last):
     # to the last running level (or the minimum). Dehumidifier 0 = Low, real.
     if on and level == 0 and field in ("heater", "humidifier"):
         level = int(last.get(field, 1) or 1)
+    # RMW the cached block so a power toggle in a config mode (Time Slot / Cycle /
+    # Temperature) keeps modeType/schedule/cycle instead of reverting to Manual.
+    if cur:
+        blk = _strip_live(dict(cur))
+        blk["mOnOff"] = on
+        blk["mLevel"] = level
+        blk.setdefault("timePeriod", _TIME_PERIOD)
+        return _config_field(mac, uid, "device", field, blk)
     return _config_field(mac, uid, "device", field, {
         "mOnOff": on,
         "mLevel": level,

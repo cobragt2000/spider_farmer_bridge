@@ -595,6 +595,11 @@ _SCHEDULE_SCHEMA = vol.Schema({
     vol.Required("entity_id"): cv.entity_ids,
     vol.Required("periods"): [dict],
 })
+_OUTLET_CONFIG_SCHEMA = vol.Schema({
+    vol.Required("entity_id"): cv.entity_ids,
+    vol.Required("mode"): cv.string,
+    vol.Optional("config", default=dict): dict,
+})
 _ALARM_SETTINGS_SCHEMA = vol.Schema({
     vol.Required("entity_id"): cv.entity_ids,
     vol.Required("settings"): dict,
@@ -656,6 +661,23 @@ def _async_register_services(hass: HomeAssistant) -> None:
             proxy = _proxy_for_entity(hass, ent)
             if proxy is not None:
                 await proxy.write_outlet_schedule(m.group(1), int(m.group(2)), periods)
+
+    async def _set_outlet_config(call: ServiceCall) -> None:
+        """Commit an outlet's mode + its config fields in one atomic write, so a
+        freshly-picked mode and its settings land together (no two-step)."""
+        mode = str(call.data.get("mode") or "")
+        config = call.data.get("config") or {}
+        ent_reg = er.async_get(hass)
+        for eid in call.data.get("entity_id", []):
+            ent = ent_reg.async_get(eid)
+            m = re.match(r"^ggs_([0-9a-f]+)_outlet_(\d+)_", ent.unique_id or "" if ent else "")
+            if not m:
+                _LOGGER.warning("set_outlet_config: %s is not an outlet entity", eid)
+                continue
+            proxy = _proxy_for_entity(hass, ent)
+            if proxy is not None:
+                await proxy.write_outlet_config(
+                    m.group(1), int(m.group(2)), mode, config)
 
     async def _set_alarm_settings(call: ServiceCall) -> None:
         settings = call.data.get("settings") or {}
@@ -740,6 +762,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
     if not hass.services.has_service(DOMAIN, "set_outlet_schedule"):
         hass.services.async_register(
             DOMAIN, "set_outlet_schedule", _set_outlet_schedule, schema=_SCHEDULE_SCHEMA)
+    if not hass.services.has_service(DOMAIN, "set_outlet_config"):
+        hass.services.async_register(
+            DOMAIN, "set_outlet_config", _set_outlet_config, schema=_OUTLET_CONFIG_SCHEMA)
     if not hass.services.has_service(DOMAIN, "set_alarm_settings"):
         hass.services.async_register(
             DOMAIN, "set_alarm_settings", _set_alarm_settings, schema=_ALARM_SETTINGS_SCHEMA)

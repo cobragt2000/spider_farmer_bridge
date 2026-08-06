@@ -46,6 +46,63 @@ def test_standalone_outlet_is_top_level():
     assert off["params"]["O10"]["mOnOff"] == 0
 
 
+def test_outlet_mode_switch_sends_full_config_block():
+    """Switching an outlet to Cycle from a minimal cache (a Manual outlet reports
+    just {modeType,mOnOff}) must still send a complete block with a valid cycleTime
+    + 12-slot timePeriod — the firmware rejects a bare {modeType:2,mOnOff:0} and
+    reverts to Manual. (v3.19.131)"""
+    cmd = translate_command(
+        "outlet_4", "Cycle", PS10_MAC, "u1", outlet_num=4,
+        outlet_block="outlet", outlet_subfield="mode",
+        outlet_cfg={"modeType": 0, "mOnOff": 1},   # minimal Manual cache
+    )
+    blk = cmd["params"]["O4"]
+    assert cmd["params"]["keyPath"] == ["outlet", "O4"]
+    assert blk["modeType"] == 2                     # Cycle
+    assert isinstance(blk.get("cycleTime"), dict)
+    assert blk["cycleTime"].get("openDur")          # a real (non-zero) duration
+    assert isinstance(blk.get("timePeriod"), list) and len(blk["timePeriod"]) == 12
+
+
+def test_build_outlet_config_atomic_mode_plus_settings():
+    """set_outlet_config commits an outlet's mode + its config in ONE block, so
+    picking a mode and configuring it lands together (v3.19.132)."""
+    from custom_components.sf.proxy.command_handler import build_outlet_config
+    cmd = build_outlet_config(
+        PS10_MAC, "u1", 4, "outlet", "Cycle",
+        {"cycle_run": 5, "cycle_off": 7, "cycle_times": 3},
+        {"modeType": 0, "mOnOff": 1},        # minimal Manual cache
+    )
+    blk = cmd["params"]["O4"]
+    assert cmd["params"]["keyPath"] == ["outlet", "O4"]
+    assert blk["modeType"] == 2                       # Cycle
+    assert blk["cycleTime"]["openDur"] == 300         # run 5 min
+    assert blk["cycleTime"]["closeDur"] == 420        # off 7 min
+    assert blk["cycleTime"]["times"] == 3
+    assert len(blk["timePeriod"]) == 12
+
+    # A device-dropdown mode (Temperature) carries its selection too.
+    t = build_outlet_config(PS10_MAC, "u1", 2, "outlet", "Temperature",
+                            {"temp_device": "Cooling"}, {})
+    assert t["params"]["O2"]["modeType"] == 3
+    assert t["params"]["O2"]["tempAdd"] == 2
+
+
+def test_build_outlet_config_cb_hosted_routes_via_device_tree():
+    """When an AC5/AC10 is driven through a Display Panel (CB-hosted), the outlet
+    write must use ["device", ps5/ps10, "O{n}"] — NOT the standalone ["outlet"]
+    keyPath. The mode + config still lands atomically. (block == "ps10" here.)"""
+    from custom_components.sf.proxy.command_handler import build_outlet_config
+    cmd = build_outlet_config(
+        PS10_MAC, "u1", 4, "ps10", "Cycle",
+        {"cycle_run": 5, "cycle_times": 2}, {"modeType": 0, "mOnOff": 1},
+    )
+    assert cmd["params"]["keyPath"] == ["device", "ps10", "O4"]
+    blk = cmd["params"]["O4"]
+    assert blk["modeType"] == 2
+    assert blk["cycleTime"]["openDur"] == 300 and blk["cycleTime"]["times"] == 2
+
+
 def test_indicator_light_command():
     """The strip status LED writes top-level ["outlet","led"] = 0/1."""
     on = translate_command("indicator_light", "ON", PS10_MAC, "u1")

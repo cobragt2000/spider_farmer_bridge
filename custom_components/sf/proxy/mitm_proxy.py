@@ -662,6 +662,32 @@ class MITMProxy:
                 cmd_sess.alarm_cfg = params["alarm"]
             elif kp == ["device", "senConfig"] and isinstance(params.get("senConfig"), list):
                 cmd_sess.senconfig = params["senConfig"]
+            elif (isinstance(kp, list) and len(kp) == 2 and kp[0] == "device"
+                    and isinstance(params.get(kp[1]), dict)):
+                # Any per-module device block (fan/blower/light/light2/heater/
+                # humidifier/dehumidifier). Fold each write back into the caches the
+                # command builder reads, so a follow-up write in the same Apply (e.g.
+                # a power toggle after the config bundle) builds on the merged block
+                # instead of clobbering modeType/speeds/schedule. (v3.19.125/126)
+                module, blk = kp[1], params[kp[1]]
+                if module in ("fan", "blower"):
+                    cmd_sess.fan_state.setdefault(module, {}).update(blk)
+                elif module in ("light", "light2"):
+                    cmd_sess.light_state.setdefault(module, {}).update(blk)
+                # Climate reads the live device_state; merge there too (optimistic
+                # until the device echoes back) so mode/level/schedule persist.
+                cmd_sess.device_state.setdefault(module, {}).update(blk)
+            elif (isinstance(kp, list) and len(kp) in (2, 3)
+                    and isinstance(kp[-1], str) and kp[-1][:1] == "O"
+                    and kp[-1][1:].isdigit()
+                    and isinstance(params.get(kp[-1]), dict)):
+                # A single outlet block: ["outlet","O{n}"] (standalone strip) or
+                # ["device",ps5/ps10,"O{n}"] (CB-hosted). Fold into outlet_cfg so
+                # outlet sub-settings applied together in one Apply (mode + cycle
+                # timings + device dropdowns) merge instead of clobbering. (v3.19.128)
+                ok = kp[-1]
+                blk_name = kp[1] if (len(kp) == 3 and kp[0] == "device") else "outlet"
+                cmd_sess.outlet_cfg.setdefault(f"{blk_name}/{ok}", {}).update(params[ok])
             await cmd_sess.inject(payload)
 
     async def write_se_schedule(self, mac: str, periods: list) -> bool:
@@ -698,6 +724,30 @@ class MITMProxy:
         await cmd_sess.inject(payload)
         _LOGGER.info("set_outlet_schedule: wrote %d slot(s) to %s O%s (block %s)",
                      len(periods), mac, n, block)
+        return True
+
+    async def write_outlet_config(self, mac: str, n: int, mode: str,
+                                  config: dict) -> bool:
+        """Write an outlet's mode AND its config fields (Cycle timings / device
+        dropdown) in one atomic setConfigField — used when the card commits a
+        freshly-picked mode together with its settings, so a mode change and its
+        config land in a single valid block."""
+        sess = self._sessions.get(_mac(mac))
+        if sess is None:
+            _LOGGER.warning("set_outlet_config: no active session for mac=%s", mac)
+            return False
+        cmd_sess, block = self._outlet_route(sess)
+        outlet_cfg = cmd_sess.outlet_cfg.get(f"{block}/O{n}")
+        from .command_handler import build_outlet_config
+        payload = build_outlet_config(
+            cmd_sess.mac_raw, cmd_sess.uid, n, block, mode, config, outlet_cfg)
+        if not payload:
+            return False
+        cmd_sess.outlet_cfg.setdefault(f"{block}/O{n}", {}).update(
+            payload["params"][f"O{n}"])
+        await cmd_sess.inject(payload)
+        _LOGGER.info("set_outlet_config: wrote mode=%s (%d field(s)) to %s O%s "
+                     "(block %s)", mode, len(config or {}), mac, n, block)
         return True
 
     async def write_alarm_settings(self, mac: str, settings: dict) -> bool:

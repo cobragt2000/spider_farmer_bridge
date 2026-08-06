@@ -25,6 +25,38 @@ from custom_components.sf.proxy.mqtt_parser import (
 CB_MAC = "0A1B2C3D4E01"
 CB_MAC_LC = "0a1b2c3d4e01"
 
+
+def test_blower_power_toggle_preserves_env_config():
+    """v3.19.125: toggling a fan/blower that is in a config mode (Environment)
+    must preserve modeType/maxSpeed/minSpeed. The bug (from the device log): the
+    power write sent a bare manual block that wiped the speed settings set 1ms
+    earlier, so Running/Standby Speed reverted to blank/Off after Apply."""
+    from custom_components.sf.proxy.command_handler import translate_command
+
+    # Cache carries live-only keys (level/on) that must be stripped from writes.
+    env = {"blower": {"modeType": 4, "mOnOff": 0, "mLevel": 90,
+                      "maxSpeed": 90, "minSpeed": 40, "closeCO2": 0,
+                      "level": 5, "on": 1,
+                      "timePeriod": [{"weekmask": 127}]}}
+
+    # Power toggle preserves modeType/speeds.
+    blk = translate_command("blower", "ON", CB_MAC, "u1",
+                            fan_state=env)["params"]["blower"]
+    assert blk["mOnOff"] == 1 and blk["maxSpeed"] == 90
+    assert blk["minSpeed"] == 40 and blk["modeType"] == 4
+    assert "level" not in blk and "on" not in blk   # live keys stripped
+
+    # Percentage change ALSO preserves modeType/speeds (the path 3.19.125 missed).
+    b2 = translate_command("blower", "50", CB_MAC, "u1",
+                           subfield="percentage", fan_state=env)["params"]["blower"]
+    assert b2["mLevel"] == 50 and b2["modeType"] == 4
+    assert b2["maxSpeed"] == 90 and b2["minSpeed"] == 40
+
+    # No cache → still a valid minimal manual block.
+    cmd3 = translate_command("blower", "OFF", CB_MAC, "u1", fan_state={})
+    assert cmd3["params"]["blower"]["mOnOff"] == 0
+    assert "maxSpeed" not in cmd3["params"]["blower"]
+
 CB_DATA = {
     "sensor": {"temp": 24.5, "humi": 61.0},
     "light": {"mOnOff": 1, "mLevel": 80},

@@ -3,6 +3,13 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.147
+
+### Fixed
+- **Heater/humidifier/dehumidifier tiles show "Manual" in the summary** when in
+  Manual mode, matching the blower, fan, and light tiles (they were showing a
+  blank summary instead). Card 0.20.29.
+
 ## 3.19.146
 
 ### Fixed

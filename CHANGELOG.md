@@ -3,6 +3,151 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.146
+
+### Fixed
+- **Auto-mode heater/humidifier/dehumidifier tiles now turn off when they stop.**
+  The controller reports these accessories turning *on* in its status frames but
+  never reports the *off* — it just keeps saying they're enabled. The bridge now
+  reads the on/off from the controller's operation log (which records both the
+  start and the stop) and polls it directly, so the tile matches the app when an
+  auto-mode heater, dehumidifier, or humidifier cycles off.
+- **Leaf VPD target is Apply/Discard gated again.** The Leaf VPD min/max on the
+  Environment tab were writing live instead of staging behind the tab's Apply /
+  Discard bar; they now stage like every other Environment control. Card 0.20.28.
+
+### Changed
+- **Device mode summary now shows on the light and fan tiles too** (their mode,
+  plus schedule window / gear), and an offline tile no longer shows a stray
+  "unavailable" line.
+
+## 3.19.145
+
+### Fixed
+- **Climate device tiles now show off when idle, and their level when on.** A
+  heater/humidifier/dehumidifier in an auto mode reports "on" while it's enabled
+  but not actually running, so the tile stayed on even though the app showed it
+  off. The tile now follows the real running output, and disabling the accessory
+  turns the tile off promptly. The heater and humidifier tiles also show their
+  level (e.g. "L3"), and the dehumidifier shows Low/High, while running.
+
+## 3.19.144
+
+### Fixed
+- **Device mode dropdowns no longer blank out.** The Mode (and other) dropdowns
+  could render empty even though the device had a valid mode — a stale-value
+  glitch where the select's value got stuck at "" after re-renders. The selects
+  now force-sync their value, so they always show the real mode/selection.
+- **Auto/gear now shows on the climate tiles.** The heater/humidifier/dehumidifier
+  gear (Automatic / level / Low-High) was being decoded from the wrong (live)
+  frames, so it stayed "unknown" and the tile summary and gear dropdown were
+  blank. It's now decoded from the controller's config responses, so the tile
+  shows e.g. "Temp · Auto" / "Humid · High" and the gear dropdown fills in.
+- **Blower/Fan Standby speed selectable when running is Automatic.** With the
+  running speed set to Automatic, the Standby dropdown offered only "Off"; it now
+  offers the full range (e.g. 39%).
+
+## 3.19.142
+
+### Fixed
+- **Environment "Automatic" now shows as Auto on the tile.** The running-speed
+  entities (Blower Running Speed, Fan Schedule Gear) had a minimum above 0, so
+  the Automatic value (0) was dropped as "unknown" — the tile couldn't show it.
+  Their minimum is now 0, so Automatic reads back correctly: the tile mode
+  summary shows "Auto" and the Gear/Running Speed selector shows "Automatic".
+
+## 3.19.141
+
+### Fixed
+- **Fan / blower "Automatic" running speed now actually sends Automatic.** The
+  card sends `0` for the Automatic option, but the write clamped it up to the
+  minimum speed (so the blower ran at 1% instead of auto-ramping). `0` now
+  correctly writes `maxSpeed:0` (Automatic), and it no longer zeroes the stored
+  level. Verified against the app on the wire.
+
+## 3.19.140
+
+### Changed
+- **Device mode summary moved up and onto 2–3 lines.** The mode summary now sits
+  right under the tile's expand arrow (the main on/off/level stays at the bottom)
+  and is split into short, abbreviated lines instead of one long line — e.g.
+  "Enviro · Pri Temp" / "55% · Stby 20%", "Cycle" / "5m on · 7m off" / "L4 · Stby
+  Off", "Temp · Auto", "Humid · High". Card 0.20.24.
+
+## 3.19.139
+
+### Added
+- **"Automatic" gear for the heater, fan, and blower; Low/High for the
+  dehumidifier.** Following the humidifier, the other auto-capable devices now
+  expose their full gear choices in their auto/Environment mode, matching the SF
+  app:
+  - **Heater** (Temperature mode): Automatic (controller picks the level) or a
+    fixed level 1–10 — device `level` field (0 = Automatic).
+  - **Fan** (Environment): Automatic or a fixed gear 1–10 — device `maxSpeed`
+    field (0 = Automatic).
+  - **Blower** (Environment): Automatic or a fixed running % (25–100) — device
+    `maxSpeed` field (0 = Automatic).
+  - **Dehumidifier** (Humidity mode): Low or High — device `level` field
+    (0 = Low, 1 = High); "auto" for the dehumidifier is simply the Humidity mode.
+
+  The tile mode summary shows these too (e.g. "Temperature · Auto",
+  "Environment · Prioritize humidity · Auto", "Humidity · High"). Card 0.20.23.
+
+## 3.19.138
+
+### Added
+- **Humidifier "Automatic" gear.** In Humidity mode the gear now offers
+  **Automatic** (the controller picks the level from your day/night humidity
+  targets) in addition to fixed levels 1–4 — matching the SF app. Automatic is
+  stored in the device's `level` field (0 = Automatic); the tile keeps showing
+  the actual running level. Card 0.20.22.
+- **Device mode summary on tiles (Settings toggle).** A new "Device mode summary"
+  toggle under Settings → Tile extras (Apply/Discard like the others). When on,
+  each device tile shows a small line with its mode and key settings without
+  opening it — e.g. blower "Environment · Prioritize humidity · 90/40%",
+  humidifier "Humidity · Auto", a light "Schedule". Manual tiles are unchanged.
+
+## 3.19.137
+
+### Added
+- **Automatic clock sync — controllers no longer drift.** When a controller
+  connects, the bridge re-sends the current time and timezone (the same
+  `setDevTimezone` the SF app uses), so schedules, cycles, and day/night windows
+  always fire at the right wall-clock time. The timezone comes straight from Home
+  Assistant's own configuration (including the correct DST rules), and the UTC
+  clock is refreshed on every connect. It happens automatically for every
+  controller — new or existing — whenever control is enabled; no app interaction
+  needed.
+
+## 3.19.135
+
+### Fixed
+- **Cycle Run/Off Duration is now an elapsed-time spinner, not a clock.** The
+  Run Duration and Off Duration fields (blower, fan, heater, humidifier,
+  dehumidifier Cycle mode) used a native time picker, which shows an AM/PM clock
+  instead of a duration. They're now h / min / s number boxes matching the SF
+  app's "00h 00min 00s" — Run Duration is how long it runs after it starts, Off
+  Duration is how long it stays off before the next execution. Start Time stays a
+  clock. Card 0.20.21.
+
+## 3.19.134
+
+### Fixed
+- **Device mode selects now track the controller's real mode — no more reverting.**
+  The Blower / Fan / Heater / Humidifier / Dehumidifier "Mode Set" selects were
+  subscribed to the read-only Mode *sensor* topic, whose verbose label (e.g.
+  "Environment: Prioritize Humi") never matches one of the four select options,
+  so the select silently kept its last value — usually "Manual" — while the device
+  was really in Environment/Cycle/etc. Changing a mode or saving settings then
+  appeared to "revert." Two fixes: the controller's true `modeType` (which arrives
+  in config responses and the full startup/reconnect snapshot) is now decoded into
+  a properly collapsed Mode Set value plus the Environment Run Mode; and each Mode
+  Set select now listens to its own topic. The card now reads the device's real
+  current settings.
+- **The card no longer auto-reverts a mode you picked.** A staged mode change now
+  stays put until it's confirmed by the controller, or until you press Discard or
+  leave the tab — there is no longer any time-based revert. Card 0.20.20.
+
 ## 3.19.132
 
 ### Added

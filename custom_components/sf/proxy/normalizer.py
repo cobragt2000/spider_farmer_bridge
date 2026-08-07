@@ -410,6 +410,16 @@ def _decode_sys(out, e, sys_block):
             "ON" if eth.get("isConnect") else "OFF")
 
 
+def decode_oplog(data: Any) -> list:
+    """getDevOpLog response data {list:[...]} -> list of decoded op entries
+    (newest handling is done by the bus). Mirrors decode_alarm_log."""
+    d = data.get("data", data) if isinstance(data, dict) else {}
+    lst = d.get("list") if isinstance(d, dict) else None
+    if not isinstance(lst, list):
+        return []
+    return [e for e in (_decode_oplog_entry(a) for a in lst) if e]
+
+
 def _decode_oplog_entry(a: Any) -> Optional[dict]:
     """One operation-log entry {id, epoch, opType, modeType, devType, subidx,
     env} -> HA dict. Codes are raw until label tables are captured."""
@@ -645,18 +655,18 @@ def _decode_soil(out, e, sensors):
 
 def _climate_on(mod):
     """Definite on/off for a climate accessory (heater/humidifier/dehumidifier).
-    These blocks never carry an ``on`` field (unlike fan/light): config frames
-    carry the ``mOnOff`` setpoint, live getDevSta frames carry the running
-    ``level`` (>0 = on). A bare ``mLevel`` is the remembered setpoint, not the
-    on/off state, so it defaults to off. Always returns a bool — never "unknown"
-    (which left the switch stuck and HA drew it as flash buttons instead of a
-    toggle)."""
+    The tile should show whether the accessory is actually RUNNING. Auto-mode
+    accessories (Temperature/Humidity) report ``on:1`` while enabled but idle, so
+    ``on`` overstates — the real running state is the output ``level`` (0 = not
+    actuating = off). So prefer ``level`` first; fall back to the ``mOnOff``
+    setpoint (config frames) / ``on`` when there's no running level. Always
+    returns a bool. (v3.19.145)"""
+    if "level" in mod:
+        return int(mod.get("level") or 0) > 0
     if "mOnOff" in mod:
         return _on(mod.get("mOnOff"))
     if "on" in mod:
         return _on(mod.get("on"))
-    if "level" in mod:
-        return int(mod.get("level") or 0) > 0
     return False
 
 
@@ -670,6 +680,9 @@ def _decode_humidifier(out, e, mod):
     out[f"ggs/ha/{e}/humidifier_mode/state"] = _CLIMATE_MODE_MAP.get(
         mod.get("modeType"), "Manual"
     )
+    # (Humidity-mode gear is decoded from config responses in
+    # normalize_config_response, not here — a live frame's `level` is the
+    # running output, not the gear.)
     # Alarm on a humidifier means the reservoir is dry.
     out[f"ggs/ha/{e}/humidifier_water/state"] = "Empty" if _alarm(mod) else "Full"
 
@@ -686,6 +699,8 @@ def _decode_dehumidifier(out, e, mod):
     out[f"ggs/ha/{e}/dehumidifier_mode/state"] = _CLIMATE_MODE_MAP.get(
         mod.get("modeType"), "Manual"
     )
+    # (Humidity-mode gear Low/High is decoded from config responses in
+    # normalize_config_response, not here.)
     # Alarm on a dehumidifier means the collection tank is full.
     out[f"ggs/ha/{e}/dehumidifier_tank/state"] = "Full" if _alarm(mod) else "Empty"
 
@@ -700,6 +715,8 @@ def _decode_heater(out, e, mod):
     out[f"ggs/ha/{e}/heater_mode/state"] = _CLIMATE_MODE_MAP.get(
         mod.get("modeType"), "Manual"
     )
+    # (Temperature-mode gear is decoded from config responses in
+    # normalize_config_response, not here.)
     out[f"ggs/ha/{e}/heater_status/state"] = "Alarm" if _alarm(mod) else "OK"
 
 
@@ -716,9 +733,20 @@ def normalize_config_response(mac: str, data: Dict[str, Any]) -> Dict[str, str]:
         if not isinstance(block, dict) or not block:
             continue
         if "modeType" in block:
-            out[f"ggs/ha/{e}/{mode_field}/state"] = _FAN_MODE_MAP.get(
-                block.get("modeType"), "Manual"
-            )
+            mt = block.get("modeType")
+            out[f"ggs/ha/{e}/{mode_field}/state"] = _FAN_MODE_MAP.get(mt, "Manual")
+            # The command select + Environment run-mode only ever learn the
+            # device's real modeType from these config responses (live status
+            # frames rarely carry it). Publish them here too, so the card reads
+            # the controller's ACTUAL current mode instead of a stale echo of
+            # the last value the user set. Without this the select sat on the
+            # old mode and the card's optimistic pick "reverted". (v3.19.133)
+            if mt is not None:
+                out[f"ggs/ha/{e}/{module}_mode_set/state"] = \
+                    _FAN_SIMPLE_MODE_MAP.get(int(mt), "Manual")
+                if int(mt) in _FAN_RUN_MODE_MAP:
+                    out[f"ggs/ha/{e}/{module}_run_mode/state"] = \
+                        _FAN_RUN_MODE_MAP[int(mt)]
         if module == "fan":
             if "shakeLevel" in block:
                 out[f"ggs/ha/{e}/fan_oscillation/state"] = str(
@@ -732,9 +760,33 @@ def normalize_config_response(mac: str, data: Dict[str, Any]) -> Dict[str, str]:
     for module in ("heater", "humidifier", "dehumidifier"):
         block = d.get(module, {})
         if isinstance(block, dict) and block and "modeType" in block:
-            out[f"ggs/ha/{e}/{module}_mode/state"] = _CLIMATE_MODE_MAP.get(
-                block.get("modeType"), "Manual"
-            )
+            mt = block.get("modeType")
+            out[f"ggs/ha/{e}/{module}_mode/state"] = _CLIMATE_MODE_MAP.get(mt, "Manual")
+            # Same fix for the climate command selects: keep them synced to the
+            # controller's real mode so the card never shows / reverts a stale
+            # mode. (v3.19.133)
+            if mt is not None:
+                out[f"ggs/ha/{e}/{module}_mode_set/state"] = \
+                    _CLIMATE_MODE_SET_MAP.get(int(mt), "Manual")
+            # Auto-mode gear from the config `level` field. Config responses are
+            # the authoritative source (a live getDevSta frame's `level` is the
+            # running output, not the gear) — so decode it here, not in the live
+            # decoders. heater/humidifier: 0 = Automatic, 1-N = fixed level;
+            # dehumidifier: 0 = Low, 1 = High (no Automatic). (v3.19.143)
+            if "level" in block:
+                g = int(block.get("level") or 0)
+                if module == "dehumidifier":
+                    out[f"ggs/ha/{e}/dehumidifier_gear/state"] = \
+                        {0: "Low", 1: "High"}.get(g, "Low")
+                else:
+                    out[f"ggs/ha/{e}/{module}_gear/state"] = \
+                        "Automatic" if g == 0 else str(g)
+            # Disabling the accessory (mOnOff 0) turns the tile off promptly —
+            # config frames are frequent, live running frames are rare. Only ever
+            # publish OFF here; the ON/idle running state stays with the live
+            # `level` (a config mOnOff:1 just means "enabled", not "running"). (v3.19.145)
+            if "mOnOff" in block and int(block.get("mOnOff") or 0) == 0:
+                out[f"ggs/ha/{e}/{module}_active/state"] = "OFF"
     return out
 
 

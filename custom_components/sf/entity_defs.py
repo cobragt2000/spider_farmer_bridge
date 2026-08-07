@@ -375,7 +375,7 @@ def build_device_entities(
               icon="mdi:clock-end", command_field="blower",
               command_subfield="schedule_end"),
             d("number", "blower_running_speed", "Blower Running Speed", unit="%",
-              icon="mdi:speedometer", num_mode="box", min_value=25, max_value=100,
+              icon="mdi:speedometer", num_mode="box", min_value=0, max_value=100,
               command_field="blower", command_subfield="schedule_speed"),
             d("number", "blower_standby_speed", "Blower Standby Speed", unit="%",
               icon="mdi:speedometer-slow", num_mode="box", min_value=0, max_value=100,
@@ -437,7 +437,7 @@ def build_device_entities(
               icon="mdi:clock-end", command_field="fan",
               command_subfield="schedule_end"),
             d("number", "fan_schedule_gear", "Fan Schedule Gear",
-              icon="mdi:speedometer", num_mode="box", min_value=1, max_value=10,
+              icon="mdi:speedometer", num_mode="box", min_value=0, max_value=10,
               command_field="fan", command_subfield="schedule_speed"),
             d("number", "fan_standby_speed", "Fan Standby Speed",
               icon="mdi:speedometer-slow", num_mode="box", min_value=0, max_value=10,
@@ -547,6 +547,12 @@ def build_device_entities(
             d("select", "humidifier_mode_set", "Humidifier Mode Set", icon="mdi:cog",
               options=["Manual", "Time Slot", "Cycle", "Humidity"],
               command_field="humidifier", command_subfield="mode"),
+            # Humidity-mode gear: "Automatic" (device picks the level from the
+            # humidity target) or a fixed start level 1-4. Stored in the device
+            # `level` field (0 = Automatic), distinct from the running level.
+            d("select", "humidifier_gear", "Humidifier Gear", icon="mdi:water-percent",
+              options=["Automatic", "1", "2", "3", "4"],
+              command_field="humidifier", command_subfield="auto_gear"),
             d("text", "humidifier_schedule_start", "Humidifier Schedule Start",
               icon="mdi:clock-start", command_field="humidifier",
               command_subfield="schedule_start"),
@@ -585,6 +591,12 @@ def build_device_entities(
             d("select", "dehumidifier_mode_set", "Dehumidifier Mode Set", icon="mdi:cog",
               options=["Manual", "Time Slot", "Cycle", "Humidity"],
               command_field="dehumidifier", command_subfield="mode"),
+            # Humidity-mode gear: Low / High (no Automatic — the mode itself is
+            # the auto behaviour). Stored in the device `level` field (0=Low,
+            # 1=High).
+            d("select", "dehumidifier_gear", "Dehumidifier Gear",
+              icon="mdi:air-humidifier-off", options=["Low", "High"],
+              command_field="dehumidifier", command_subfield="auto_gear"),
             d("text", "dehumidifier_schedule_start", "Dehumidifier Schedule Start",
               icon="mdi:clock-start", command_field="dehumidifier",
               command_subfield="schedule_start"),
@@ -621,6 +633,12 @@ def build_device_entities(
             d("select", "heater_mode_set", "Heater Mode Set", icon="mdi:cog",
               options=["Manual", "Time Slot", "Cycle", "Temperature"],
               command_field="heater", command_subfield="mode"),
+            # Temperature-mode gear: Automatic (controller picks the level from
+            # the temp target) or a fixed level 1-10. Device `level` field
+            # (0 = Automatic), like the humidifier.
+            d("select", "heater_gear", "Heater Gear", icon="mdi:fire",
+              options=["Automatic"] + [str(i) for i in range(1, 11)],
+              command_field="heater", command_subfield="auto_gear"),
             d("text", "heater_schedule_start", "Heater Schedule Start",
               icon="mdi:clock-start", command_field="heater",
               command_subfield="schedule_start"),

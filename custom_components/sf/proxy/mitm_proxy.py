@@ -216,6 +216,9 @@ class ProxySession:
         # up. alarm_pages bounds a single backfill walk.
         self.alarm_hw: int = 0
         self.alarm_pages: int = 0
+        # Operation-log cursor paging (v3.19.146) — same scheme as the alarm log.
+        self.oplog_hw: int = 0
+        self.oplog_pages: int = 0
 
     def set_upstream(self, writer: asyncio.StreamWriter) -> None:
         self._upstream_writer = writer
@@ -450,6 +453,19 @@ class MITMProxy:
                 })
             except Exception as exc:
                 _LOGGER.debug("alarm log poll failed: %s", exc)
+        # Operation log (v3.19.146): the controller reports auto-mode climate
+        # accessories turning ON in getDevSta but never the OFF — only the op log
+        # records both. oplogLast pushes are incomplete, so poll getDevOpLog with
+        # the same cursor paging as the alarm log to catch every on/off.
+        if sess.device_type in ("cb", "ps5", "ps10", "st"):
+            try:
+                await sess.inject({
+                    "method": "getDevOpLog", "pid": sess.mac_raw,
+                    "params": {"limit": 50, "id": sess.oplog_hw},
+                    "msgId": str(int(time.time() * 1000)), "uid": sess.uid,
+                })
+            except Exception as exc:
+                _LOGGER.debug("op log poll failed: %s", exc)
         # Panels/strips: pull the whole config file so senConfig (soil names,
         # calibration, substrate) and the top-level air calibration arrive
         # reliably. The device does NOT answer targeted getConfigField reads
@@ -763,6 +779,71 @@ class MITMProxy:
         await sess.inject(payload)
         _LOGGER.info("set_alarm_settings: wrote alarm thresholds to %s", mac)
         return True
+
+    # ── Device clock / timezone sync ──────────────────────────────────────
+    # Controllers keep their own real-time clock; if it drifts, schedules and
+    # cycle timers fire at the wrong wall-clock time. On connect the bridge
+    # re-sends Home Assistant's current time + timezone (the same setDevTimezone
+    # the SF app uses), so every controller stays in step with HA. The timezone
+    # comes straight from HA's configuration — no app interaction needed.
+    @staticmethod
+    def _posix_tz_string(tzname: str) -> Optional[str]:
+        """The trailing POSIX TZ rule (e.g. 'CST6CDT,M3.2.0,M11.1.0') from the
+        IANA tz database entry — what the controller's setDevTimezone expects.
+        Read from the bundled `tzdata` package, falling back to the system
+        zoneinfo dir. None if it can't be resolved."""
+        if not tzname:
+            return None
+        raw = None
+        try:
+            import importlib.resources as ir
+            res = ir.files("tzdata").joinpath("zoneinfo", *tzname.split("/"))
+            raw = res.read_bytes()
+        except Exception:
+            raw = None
+        if raw is None:
+            try:
+                import os
+                for base in ("/usr/share/zoneinfo", "/etc/zoneinfo"):
+                    p = os.path.join(base, tzname)
+                    if os.path.exists(p):
+                        with open(p, "rb") as f:
+                            raw = f.read()
+                        break
+            except Exception:
+                raw = None
+        if not raw or raw[:4] != b"TZif":
+            return None
+        # TZif v2+ appends the POSIX rule as the final newline-wrapped line.
+        nl = raw.rfind(b"\n")
+        if nl <= 0:
+            return None
+        prev = raw.rfind(b"\n", 0, nl)
+        if prev < 0:
+            return None
+        tz = raw[prev + 1:nl].decode("ascii", "ignore").strip()
+        return tz or None
+
+    def build_tz_sync_command(self, sess) -> Optional[dict]:
+        """A setDevTimezone command carrying HA's timezone and the current UTC,
+        or None if HA's timezone can't be resolved."""
+        hass = getattr(self.mqtt_client, "hass", None)
+        tzname = getattr(getattr(hass, "config", None), "time_zone", None)
+        if not tzname:
+            return None
+        # gmtoff is sent as 0 to match the SF app exactly — the controller reads
+        # the offset/DST rules from the POSIX TZ string, not gmtoff.
+        params = {"timezone": tzname, "UTC": int(time.time()), "gmtoff": 0}
+        posix = self._posix_tz_string(tzname)
+        if posix:
+            params["TZ"] = posix
+        return {
+            "method": "setDevTimezone",
+            "params": params,
+            "pid": sess.mac_raw,
+            "msgId": str(int(time.time() * 1000)),
+            "uid": sess.uid,
+        }
 
     def close_session(self, mac: str) -> bool:
         """Sever one device's connection (used by device deletion). The
@@ -1224,6 +1305,38 @@ def _process_publish(
                     session.alarm_pages = 0
         return
 
+    # ── Operation log (getDevOpLog response) — same cursor paging as alarms.
+    # Drives the auto-mode climate accessories' on/off (opType 1 = on, absent =
+    # off), which getDevSta never reports for the OFF. (v3.19.146)
+    if method == "getDevOpLog":
+        from .normalizer import decode_oplog
+        d_op = data.get("data", {})
+        events = decode_oplog(d_op)
+        apply = getattr(mqtt_client, "apply_oplog", None)
+        if apply is not None and events:
+            apply(session.mac_raw, events)
+        lst = d_op.get("list") if isinstance(d_op, dict) else None
+        ids = [a.get("id") for a in (lst or []) if isinstance(a.get("id"), int)]
+        if ids:
+            mx = max(ids)
+            if mx > session.oplog_hw:
+                session.oplog_hw = mx
+                full_page = len(lst or []) >= 50
+                if full_page and session.oplog_pages < 80:
+                    session.oplog_pages += 1
+                    nxt = {
+                        "method": "getDevOpLog", "pid": session.mac_raw,
+                        "params": {"limit": 50, "id": mx},
+                        "msgId": str(int(time.time() * 1000)), "uid": session.uid,
+                    }
+                    try:
+                        asyncio.create_task(session.inject(nxt))
+                    except RuntimeError:
+                        pass
+                else:
+                    session.oplog_pages = 0
+        return
+
     if method not in ("getDevSta", "getConfigField", "getConfigFile"):
         return
 
@@ -1394,6 +1507,19 @@ def _process_publish(
             # Schedule initial config poll after 3s (once per session)
             async def _initial_poll():
                 await asyncio.sleep(3)
+                # Sync the controller clock to HA on connect so schedules and
+                # cycle timers fire at the right wall-clock time. Replays the
+                # timezone the app set, with a fresh UTC. It's a device write,
+                # so honour the control-enable gate.
+                try:
+                    prox = getattr(mqtt_client, "proxy", None)
+                    if prox is not None and getattr(prox, "allow_control", False):
+                        tzcmd = prox.build_tz_sync_command(session)
+                        if tzcmd is not None:
+                            await session.inject(tzcmd)
+                            await asyncio.sleep(0.5)
+                except Exception:
+                    pass
                 if session.device_type == "se":
                     try:
                         await session.inject({
@@ -1443,6 +1569,17 @@ def _process_publish(
                         await session.inject({
                             "method": "getAlarmLog", "pid": session.mac_raw,
                             "params": {"limit": 50, "id": session.alarm_hw},
+                            "msgId": str(int(time.time() * 1000)),
+                            "uid": session.uid,
+                        })
+                    except Exception:
+                        pass
+                    # Backfill the operation log too, so the auto-mode climate
+                    # accessories' current on/off is known at connect. (v3.19.146)
+                    try:
+                        await session.inject({
+                            "method": "getDevOpLog", "pid": session.mac_raw,
+                            "params": {"limit": 50, "id": session.oplog_hw},
                             "msgId": str(int(time.time() * 1000)),
                             "uid": session.uid,
                         })
@@ -1641,6 +1778,20 @@ def _process_publish(
             from .normalizer import normalize_se_configfile
             for topic, value in normalize_se_configfile(
                 session.mac_raw, light_cfg
+            ).items():
+                mqtt_client.publish(topic, value, retain=True, qos=0)
+        # The full config document also carries the controller's own
+        # fan/blower/climate blocks (configFile.device.*) with the
+        # authoritative modeType. Decode them so the mode selects sync from the
+        # controller's real state on a full read (startup / reconnect), not
+        # only on targeted getConfigField polls. normalize_config_response is
+        # config-safe: it publishes mode / mode_set / run_mode / oscillation /
+        # natural only — never on/off/level, which the live frames own. (v3.19.133)
+        dev_blocks = (cfg or {}).get("device") if isinstance(cfg, dict) else None
+        if isinstance(dev_blocks, dict):
+            from .normalizer import normalize_config_response
+            for topic, value in normalize_config_response(
+                session.mac_raw, {"data": dev_blocks}
             ).items():
                 mqtt_client.publish(topic, value, retain=True, qos=0)
         return

@@ -64,10 +64,21 @@ class SfLevelSelect(SfEntity, SelectEntity):
 
     @property
     def state_topics(self) -> list[str]:
-        # Outlet Mode selector: subscribe to the device-decoded mode topic so
-        # a mode changed from the SF app flows back into HA (display only —
-        # dynamic visibility is driven by the bus from the config poll).
-        return [f"ggs/ha/{self.d.mac}/{self._state_field}/state"]
+        # Subscribe to this select's OWN state topic first. For the fan/blower/
+        # climate "_mode_set" selects the normalizer publishes a value collapsed
+        # to the 4 select options (Manual / Time Slot / Cycle / Environment |
+        # Temperature | Humidity); the read-only "_mode" sensor it used to strip
+        # to carries a verbose label ("Environment: Prioritize Humi") that never
+        # matches an option, so the select stayed stuck on its last value. Also
+        # keep the stripped read-only topic as a fallback: its non-matching
+        # payloads are ignored by _handle_payload, while the SE light's se_mode
+        # topic (which DOES match "Manual"/"Automatic") still flows through, and
+        # a mode changed from the SF app flows back in. (v3.19.133)
+        topics = [f"ggs/ha/{self.d.mac}/{self.d.field}/state"]
+        stripped = self._state_field
+        if stripped != self.d.field:
+            topics.append(f"ggs/ha/{self.d.mac}/{stripped}/state")
+        return topics
 
     @callback
     def _handle_payload(self, topic: str, payload: str) -> None:

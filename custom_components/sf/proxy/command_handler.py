@@ -871,10 +871,22 @@ def _apply_fan_subfield(block, subfield, value, speed_max):
     elif subfield == "schedule_end":
         _fan_tp0(block)["endTime"] = _hhmm_to_seconds(value)
     elif subfield == "schedule_speed":
-        # Active speed lives in different fields by mode; write both.
-        v = max(1, min(speed_max, int(float(value))))
+        # Active speed lives in different fields by mode. In Environment mode the
+        # running gear/speed also accepts "Automatic" (maxSpeed 0 = the
+        # controller picks the speed). The card sends "0" for Automatic, so treat
+        # both the string and 0 as Automatic. (v3.19.141)
+        s = str(value).strip().lower()
+        if s in ("automatic", "auto"):
+            v = 0
+        else:
+            n = int(float(value))
+            v = 0 if n <= 0 else max(1, min(speed_max, n))
         block["maxSpeed"] = v
-        block["mLevel"] = v
+        # A numeric gear also mirrors into mLevel (other modes read it there).
+        # Automatic (maxSpeed 0) must NOT zero mLevel — the app keeps the last
+        # level there, and mLevel 0 would read as OFF.
+        if v > 0:
+            block["mLevel"] = v
     elif subfield == "standby_speed":
         block["minSpeed"] = max(0, min(speed_max, int(float(value))))
     elif subfield == "cycle_start":
@@ -994,13 +1006,38 @@ def _cmd_climate_config(mac, uid, field, value, subfield, state):
         "timePeriod": [tp0],
         "cycleTime": ct,
     }
+    # Humidity-mode gear (Automatic / 1-4) is stored in the device `level`
+    # field — normally a read-only echo that _strip_live drops from writes.
+    # Capture it and re-add it after the strip so the gear actually commits,
+    # matching the SF app (Automatic -> level 0, fixed -> level 1-4). (v3.19.138)
+    gear = None
+    _gear_cap = {"heater": 10, "humidifier": 4, "dehumidifier": 1}.get(field, 10)
+
+    def _gear_val(v):
+        # heater / humidifier: 0 = Automatic, 1..N = fixed level.
+        # dehumidifier: no Automatic — Low = 0, High = 1 (its `level` field in
+        # Humidity mode, matching the manual Low/High convention).
+        s = str(v).strip().lower()
+        if s in ("automatic", "auto"):
+            return 0
+        if s == "low":
+            return 0
+        if s == "high":
+            return 1
+        return max(0, min(_gear_cap, int(float(v))))
+
     try:
         if subfield == "apply_bundle":
             payload = json.loads(value)
             if not isinstance(payload, dict):
                 return None
             for k, v in payload.items():
-                _apply_climate_subfield(block, str(k), v, field)
+                if str(k) == "auto_gear":
+                    gear = _gear_val(v)
+                else:
+                    _apply_climate_subfield(block, str(k), v, field)
+        elif subfield == "auto_gear":
+            gear = _gear_val(value)
         else:
             _apply_climate_subfield(block, subfield, value, field)
     except (ValueError, TypeError):
@@ -1009,7 +1046,12 @@ def _cmd_climate_config(mac, uid, field, value, subfield, state):
     if isinstance(tp, list) and tp and isinstance(tp[0], dict):
         tp[0].setdefault("enabled", 1)
         tp[0].setdefault("weekmask", 127)
-    return _config_field(mac, uid, "device", field, _strip_live(block))
+    result = _strip_live(block)
+    if gear is not None:
+        result["level"] = gear
+        # mLevel stays the real manual setpoint, not the gear echo.
+        result["mLevel"] = int(cur.get("mLevel", 1) or 1)
+    return _config_field(mac, uid, "device", field, result)
 
 
 def _cmd_climate_onoff(mac, uid, field, value, state, last):

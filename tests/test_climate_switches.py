@@ -274,3 +274,196 @@ async def test_climate_switch_control_gate(hass: HomeAssistant):
 
     await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+def test_humidifier_auto_gear_writes_level_field():
+    """v3.19.138: the Humidity-mode gear (Automatic / 1-4) writes the device
+    `level` field (Automatic -> 0), which is normally stripped from writes, while
+    mLevel stays the real setpoint — matching the SF app exactly."""
+    import json
+    from custom_components.sf.proxy.command_handler import _cmd_climate_config
+
+    state = {"humidifier": {"modeType": 4, "mOnOff": 0, "mLevel": 1, "level": 1,
+                            "timePeriod": [{"enabled": 1, "weekmask": 127}],
+                            "cycleTime": {"weekmask": 127, "startTime": 0,
+                                          "openDur": 0, "closeDur": 0, "times": 1}}}
+
+    msg = _cmd_climate_config(
+        "MAC", "UID", "humidifier",
+        json.dumps({"mode": "Humidity", "auto_gear": "Automatic"}),
+        "apply_bundle", state)
+    blk = msg["params"]["humidifier"]
+    assert blk["level"] == 0        # Automatic
+    assert blk["mLevel"] == 1       # real setpoint preserved, not the gear
+    assert blk["modeType"] == 4     # Humidity
+
+    msg2 = _cmd_climate_config(
+        "MAC", "UID", "humidifier", json.dumps({"auto_gear": "4"}),
+        "apply_bundle", state)
+    blk2 = msg2["params"]["humidifier"]
+    assert blk2["level"] == 4       # fixed level 4
+    assert blk2["mLevel"] == 1
+
+
+def test_humidifier_gear_decoded_from_config_response():
+    """v3.19.143: the gear is decoded from CONFIG responses (config `level`,
+    0 -> Automatic, 1-4), not the live decoder — a live getDevSta frame's `level`
+    is the running output, not the gear."""
+    from custom_components.sf.proxy.normalizer import (
+        normalize_config_response, _decode_humidifier)
+
+    r = normalize_config_response(
+        "0A1B2C3D4E01", {"data": {"humidifier": {"modeType": 4, "level": 0}}})
+    assert r["ggs/ha/0a1b2c3d4e01/humidifier_gear/state"] == "Automatic"
+    r = normalize_config_response(
+        "0A1B2C3D4E01", {"data": {"humidifier": {"modeType": 4, "level": 4}}})
+    assert r["ggs/ha/0a1b2c3d4e01/humidifier_gear/state"] == "4"
+
+    # The live decoder must NOT publish a gear (its `level` is the running level).
+    out = {}
+    _decode_humidifier(out, "0a1b2c3d4e01", {"modeType": 4, "mOnOff": 0, "level": 3})
+    assert "ggs/ha/0a1b2c3d4e01/humidifier_gear/state" not in out
+
+
+def test_heater_and_dehumidifier_auto_gear_write_level():
+    """v3.19.139: heater gear = level (0=Automatic, 1-10); dehumidifier gear =
+    level (0=Low, 1=High, no Automatic). Both via the auto_gear subfield."""
+    import json
+    from custom_components.sf.proxy.command_handler import _cmd_climate_config
+
+    hstate = {"heater": {"modeType": 3, "mOnOff": 0, "mLevel": 1, "level": 1,
+                         "timePeriod": [{"enabled": 1, "weekmask": 127}],
+                         "cycleTime": {"weekmask": 127, "startTime": 0,
+                                       "openDur": 0, "closeDur": 0, "times": 1}}}
+    m = _cmd_climate_config("MAC", "UID", "heater",
+                            json.dumps({"auto_gear": "Automatic"}), "apply_bundle", hstate)
+    assert m["params"]["heater"]["level"] == 0
+    m = _cmd_climate_config("MAC", "UID", "heater",
+                            json.dumps({"auto_gear": "5"}), "apply_bundle", hstate)
+    assert m["params"]["heater"]["level"] == 5
+
+    dstate = {"dehumidifier": {"modeType": 4, "mOnOff": 0, "mLevel": 0, "level": 0,
+                               "timePeriod": [{"weekmask": 127}],
+                               "cycleTime": {"weekmask": 127, "startTime": 0,
+                                             "openDur": 0, "closeDur": 0, "times": 1}}}
+    m = _cmd_climate_config("MAC", "UID", "dehumidifier",
+                            json.dumps({"auto_gear": "Low"}), "apply_bundle", dstate)
+    assert m["params"]["dehumidifier"]["level"] == 0
+    m = _cmd_climate_config("MAC", "UID", "dehumidifier",
+                            json.dumps({"auto_gear": "High"}), "apply_bundle", dstate)
+    assert m["params"]["dehumidifier"]["level"] == 1
+
+
+def test_fan_environment_running_speed_automatic():
+    """v3.19.139: fan/blower Environment running gear/speed accepts Automatic
+    (maxSpeed 0 = the controller picks it)."""
+    import json
+    from custom_components.sf.proxy.command_handler import _cmd_fan_config
+
+    fan_state = {"fan": {"modeType": 3, "mOnOff": 1, "mLevel": 1, "maxSpeed": 5,
+                         "minSpeed": 0, "natural": 0, "shakeLevel": 0,
+                         "timePeriod": [{"enabled": 1, "weekmask": 127}],
+                         "cycleTime": {"weekmask": 127}}}
+    # The card sends "0" for Automatic (via autoOpts) AND the string form; both
+    # must resolve to maxSpeed 0 — and must NOT zero mLevel (0 reads as OFF).
+    for auto in ("Automatic", "0"):
+        m = _cmd_fan_config("MAC", "UID", "fan",
+                            json.dumps({"schedule_speed": auto}), "apply_bundle", {}, fan_state)
+        assert m["params"]["fan"]["maxSpeed"] == 0, auto
+        assert m["params"]["fan"]["mLevel"] == 1, auto   # preserved, not zeroed
+    m = _cmd_fan_config("MAC", "UID", "fan",
+                        json.dumps({"schedule_speed": "5"}), "apply_bundle", {}, fan_state)
+    assert m["params"]["fan"]["maxSpeed"] == 5
+    assert m["params"]["fan"]["mLevel"] == 5
+
+
+def test_heater_dehumidifier_gear_decode_from_config_response():
+    """v3.19.143: heater/dehumidifier gears decode from CONFIG responses."""
+    from custom_components.sf.proxy.normalizer import normalize_config_response
+    M, m = "0A1B2C3D4E01", "0a1b2c3d4e01"
+    r = normalize_config_response(M, {"data": {"heater": {"modeType": 3, "level": 0}}})
+    assert r[f"ggs/ha/{m}/heater_gear/state"] == "Automatic"
+    r = normalize_config_response(M, {"data": {"heater": {"modeType": 3, "level": 5}}})
+    assert r[f"ggs/ha/{m}/heater_gear/state"] == "5"
+    r = normalize_config_response(M, {"data": {"dehumidifier": {"modeType": 4, "level": 0}}})
+    assert r[f"ggs/ha/{m}/dehumidifier_gear/state"] == "Low"
+    r = normalize_config_response(M, {"data": {"dehumidifier": {"modeType": 4, "level": 1}}})
+    assert r[f"ggs/ha/{m}/dehumidifier_gear/state"] == "High"
+
+
+def test_climate_on_prefers_running_level():
+    """v3.19.145: an auto-mode accessory reports on:1 while idle, so the running
+    output `level` is the real on/off (level 0 = off), not `on`."""
+    from custom_components.sf.proxy.normalizer import _climate_on
+    assert _climate_on({"on": 1, "level": 0}) is False   # enabled but idle
+    assert _climate_on({"on": 1, "level": 3}) is True     # running
+    assert _climate_on({"mOnOff": 0}) is False            # config: disabled
+    assert _climate_on({"mOnOff": 1}) is True             # config: no level
+
+
+def test_climate_config_frame_turns_tile_off_when_disabled():
+    """A config frame with mOnOff 0 turns the tile off promptly; mOnOff 1 must
+    NOT force it on (the running state stays with live frames)."""
+    from custom_components.sf.proxy.normalizer import normalize_config_response
+    M, m = "0A1B2C3D4E01", "0a1b2c3d4e01"
+    r = normalize_config_response(
+        M, {"data": {"dehumidifier": {"modeType": 4, "mOnOff": 0, "mLevel": 1}}})
+    assert r[f"ggs/ha/{m}/dehumidifier_active/state"] == "OFF"
+    r = normalize_config_response(
+        M, {"data": {"dehumidifier": {"modeType": 4, "mOnOff": 1, "mLevel": 1}}})
+    assert f"ggs/ha/{m}/dehumidifier_active/state" not in r
+
+
+async def test_oplog_drives_climate_onoff(hass: HomeAssistant):
+    """v3.19.146: the controller reports an auto-mode dehumidifier/humidifier
+    turning ON in getDevSta but never the OFF — only the operation log records
+    the stop (opType 1 = on, absent = off). The switch follows the op log."""
+    entry = await _setup(hass)
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+    _simulate_cb(bus)
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.sf_dp1_dehumidifier").state == "off"
+
+    # op log: dehumidifier (devType 26) turned ON
+    bus.apply_oplog(CB_MAC, [
+        {"id": 1, "epoch": 100, "devType": 26, "opType": 1, "modeType": 4}])
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.sf_dp1_dehumidifier").state == "on"
+
+    # newer op-log entry: turned OFF (no opType) — the signal getDevSta misses
+    bus.apply_oplog(CB_MAC, [
+        {"id": 2, "epoch": 200, "devType": 26, "modeType": 4}])
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.sf_dp1_dehumidifier").state == "off"
+
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+def test_decode_oplog_and_heater_devtype():
+    """v3.19.146: decode_oplog parses the getDevOpLog list; devType 25 = heater,
+    26 = dehumidifier, 27 = humidifier."""
+    from custom_components.sf.proxy.normalizer import decode_oplog
+    events = decode_oplog({"data": {"count": 2, "list": [
+        {"id": 10, "epoch": 100, "devType": 25, "opType": 1, "modeType": 3},
+        {"id": 11, "epoch": 200, "devType": 25, "modeType": 3},
+    ]}})
+    assert [e["id"] for e in events] == [10, 11]
+    assert events[0]["opType"] == 1 and events[1]["opType"] is None
+
+
+async def test_oplog_drives_heater_onoff(hass: HomeAssistant):
+    """Heater (devType 25) on/off is driven by the op log too."""
+    entry = await _setup(hass)
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+    _simulate_cb(bus)
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.sf_dp1_heater").state == "off"
+    bus.apply_oplog(CB_MAC, [{"id": 1, "epoch": 100, "devType": 25, "opType": 1, "modeType": 3}])
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.sf_dp1_heater").state == "on"
+    bus.apply_oplog(CB_MAC, [{"id": 2, "epoch": 200, "devType": 25, "modeType": 3}])
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.sf_dp1_heater").state == "off"
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()

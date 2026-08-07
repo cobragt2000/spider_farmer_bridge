@@ -121,9 +121,93 @@ def test_normalize_config_response():
     assert r[f"ggs/ha/{CB_MAC_LC}/blower_mode/state"] == "Environment: Temp & Humi"
     assert r[f"ggs/ha/{CB_MAC_LC}/heater_mode/state"] == "Environment"
     assert r[f"ggs/ha/{CB_MAC_LC}/humidifier_mode/state"] == "Time/Cycle"
+    # v3.19.133: the command selects (mode_set) + Environment run-mode must ALSO
+    # sync from config responses, so the card reads the controller's real mode
+    # instead of a stale echo (the mode/settings "revert" bug).
+    assert r[f"ggs/ha/{CB_MAC_LC}/fan_mode_set/state"] == "Cycle"
+    assert f"ggs/ha/{CB_MAC_LC}/fan_run_mode/state" not in r  # Cycle has no run-mode
+    assert r[f"ggs/ha/{CB_MAC_LC}/blower_mode_set/state"] == "Environment"
+    assert r[f"ggs/ha/{CB_MAC_LC}/blower_run_mode/state"] == "Temperature & humidity"
+    assert r[f"ggs/ha/{CB_MAC_LC}/humidifier_mode_set/state"] == "Time Slot"
     # Live state topics must NOT appear (stale mOnOff must not fight getDevSta)
     assert f"ggs/ha/{CB_MAC_LC}/fan/state" not in r
     assert f"ggs/ha/{CB_MAC_LC}/heater_active/state" not in r
+
+
+def test_mode_set_select_syncs_from_own_topic():
+    """v3.19.133 root cause: the fan/blower/climate *_mode_set selects stripped
+    the trailing '_set' and subscribed to the read-only sensor topic
+    (blower_mode/state = 'Environment: Prioritize Humi'), whose verbose label
+    never matches a select option — so the select stayed stuck on 'Manual' and
+    the card's mode appeared to revert. The select must ALSO listen to its own
+    collapsed topic (blower_mode_set/state = 'Environment')."""
+    from custom_components.sf.select import SfLevelSelect
+    from custom_components.sf.entity_defs import SfDef
+
+    d = SfDef(
+        platform="select", field="blower_mode_set", name="Blower Mode Set",
+        mac=CB_MAC_LC, mac_raw=CB_MAC, device_name="SF", device_model="AC5",
+        options=["Manual", "Time Slot", "Cycle", "Environment"],
+        command_field="blower", command_subfield="mode",
+    )
+    sel = object.__new__(SfLevelSelect)      # bypass __init__ (needs a live bus)
+    sel.d = d
+    sel._attr_options = list(d.options)
+    sel._attr_current_option = "Manual"
+    sel._outlet_mode_n = None
+
+    topics = sel.state_topics
+    assert f"ggs/ha/{CB_MAC_LC}/blower_mode_set/state" in topics   # own topic
+    assert f"ggs/ha/{CB_MAC_LC}/blower_mode/state" in topics       # fallback
+
+    # The verbose read-only value doesn't match an option -> ignored, keep last.
+    sel._handle_payload(
+        f"ggs/ha/{CB_MAC_LC}/blower_mode/state", "Environment: Prioritize Humi")
+    assert sel._attr_current_option == "Manual"
+    # The select's own collapsed topic matches an option -> the select tracks it.
+    sel._handle_payload(
+        f"ggs/ha/{CB_MAC_LC}/blower_mode_set/state", "Environment")
+    assert sel._attr_current_option == "Environment"
+
+
+def test_tz_sync_from_ha_timezone():
+    """v3.19.137: the proxy builds setDevTimezone straight from Home Assistant's
+    configured timezone (no app interaction), with a current UTC and the correct
+    POSIX TZ rule, so controller clocks stay synced to HA."""
+    from custom_components.sf.proxy.mitm_proxy import MITMProxy
+
+    # The POSIX TZ rule is extracted from the tz database.
+    assert MITMProxy._posix_tz_string("America/Chicago") == "CST6CDT,M3.2.0,M11.1.0"
+    assert MITMProxy._posix_tz_string("America/New_York") == "EST5EDT,M3.2.0,M11.1.0"
+
+    class _Cfg:
+        time_zone = "America/Chicago"
+
+    class _Hass:
+        config = _Cfg()
+
+    class _Bus:
+        hass = _Hass()
+
+    class _S:
+        mac_raw = "0A1B2C3D4E01"
+        uid = "91418"
+
+    prox = MITMProxy(config={}, mqtt_client=_Bus())
+    cmd = prox.build_tz_sync_command(_S())
+    assert cmd["method"] == "setDevTimezone"
+    assert cmd["pid"] == "0A1B2C3D4E01"
+    assert cmd["uid"] == "91418"
+    assert cmd["params"]["timezone"] == "America/Chicago"
+    assert cmd["params"]["TZ"] == "CST6CDT,M3.2.0,M11.1.0"
+    assert cmd["params"]["gmtoff"] == 0
+    assert cmd["params"]["UTC"] > 1_760_000_000  # a current epoch, not stale
+
+    # No timezone available -> no command (nothing to send).
+    class _Bus2:
+        hass = None
+
+    assert MITMProxy(config={}, mqtt_client=_Bus2()).build_tz_sync_command(_S()) is None
 
 
 async def test_end_to_end_previously_dead_sensors(hass: HomeAssistant):

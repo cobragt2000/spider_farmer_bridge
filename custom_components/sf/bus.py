@@ -1058,6 +1058,23 @@ class SfBus:
             key=lambda x: (x.get("epoch") or 0, x.get("id") or 0), reverse=True,
         )[:50]
         self.publish(f"ggs/ha/{mac}/oplog/state", _json.dumps(merged))
+        # Drive the auto-mode climate accessories' on/off from the op log. The
+        # controller reports these turning ON in getDevSta but NEVER reports the
+        # OFF there — only the op log records the stop (opType 1 = turned on,
+        # absent/0 = turned off). Take the newest op entry per accessory devType.
+        # devTypes confirmed from the op log (per-MAC + modeType): 25 = Heater
+        # (Temperature mode), 26 = Dehumidification, 27 = Humidification. The
+        # blower/fan run at a continuous level (getDevSta tracks them), so
+        # they're not op-log driven. (v3.19.146)
+        _OPLOG_ACTIVE = {25: "heater", 26: "dehumidifier", 27: "humidifier"}
+        _op_seen: set = set()
+        for e in merged:   # newest first
+            field = _OPLOG_ACTIVE.get(e.get("devType"))
+            if field and field not in _op_seen:
+                _op_seen.add(field)
+                on = int(e.get("opType") or 0) == 1
+                self.publish(f"ggs/ha/{mac}/{field}_active/state",
+                             "ON" if on else "OFF")
         for e in fresh:
             try:
                 self.hass.bus.async_fire("sf_oplog", {"mac": mac, **e})

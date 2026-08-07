@@ -28,6 +28,7 @@ async def async_setup_entry(
             SfClimateSwitch(bus, d) if d.kind == "climate"
             else SfToggleSwitch(bus, d) if d.kind == "toggle"
             else SfLedSwitch(bus, d) if d.kind == "led"
+            else SfPlanSwitch(bus, d) if d.kind == "plan"
             else SfOutletSwitch(bus, d)
             for d in defs
         )
@@ -126,6 +127,36 @@ class SfClimateSwitch(SfEntity, SwitchEntity):
 
     # Non-optimistic, like the outlets: state flips when the controller's
     # next getDevSta report confirms it.
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._command("ON")
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._command("OFF")
+
+
+class SfPlanSwitch(SfEntity, SwitchEntity):
+    """Grow-plan start/stop (v3.19.150). ON = plan enabled; state from the
+    ``plan_enabled`` topic the bus publishes alongside the plan sensor. Commands
+    write setConfigField ["plan","enabled"] = 0/1 (the app's Start/Stop Plan),
+    non-optimistic — the flag flips when the controller's next config report
+    confirms it."""
+
+    _attr_device_class = SwitchDeviceClass.SWITCH
+
+    def __init__(self, bus: SfBus, d: SfDef) -> None:
+        super().__init__(bus, d)
+        self._attr_is_on = None
+
+    @callback
+    def _handle_payload(self, topic: str, payload: str) -> None:
+        payload = (payload or "").strip().upper()
+        if payload in ("ON", "OFF"):
+            self._attr_is_on = payload == "ON"
+
+    @callback
+    def _restore(self, last) -> None:
+        self._attr_is_on = last.state == "on"
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self._command("ON")
 

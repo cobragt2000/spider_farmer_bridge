@@ -3,6 +3,120 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.153
+
+### Fixed
+- **Planting Plan stages no longer drop off the card during normal use.** Root
+  cause of the "stages vanish (no reboot) until I open the app" report: the plan
+  block was parsed from *any* config reply, but it only exists in a full
+  `getConfigFile`. Every targeted `getConfigField` (confirm polls after a write,
+  periodic module reads, the app's own field reads — many per minute) parsed as an
+  empty plan and wiped the cached stages a second after `getConfigFile` filled
+  them. The plan is now read only from a full `getConfigFile`, so the stages, and
+  the plan's active state, stay put. Verified live on the AC10 (start/stop + the
+  stages holding through subsequent field polls).
+
+## 3.19.152
+
+### Fixed
+- **Planting Plan survives a reboot.** After a Home Assistant restart the plan's
+  stages disappeared from the card until you opened the Spider Farmer app (which
+  makes the controller re-send its full config). Two causes: the plan sensor and
+  start/stop switch weren't among the entities recreated on startup, and even when
+  recreated the stage list (an attribute) wasn't restored. Both are fixed — the
+  Planting Plan view now comes back with its last-known stages immediately after a
+  restart, then refreshes live on the next config report.
+
+### Added
+- **Planting Plan tab on every environment-capable controller.** The Environment /
+  Planting Plan toggle now appears on any controller that runs an environment
+  (has day/night targets), even one that has never had a plan — so you can start
+  and manage a plan from the card. A device with no plan yet shows a "create one in
+  the Spider Farmer app" note (creating brand-new plans from the card is still to
+  come — see below).
+
+### Notes
+- Starting, stopping, and viewing an existing plan (its stages, targets, live
+  progress, and current stage) all work from the card. Creating a brand-new plan
+  from scratch still needs the Spider Farmer app, because the plan's stage-window
+  dates use an encoding that isn't decoded yet.
+
+## 3.19.151
+
+### Fixed
+- **Stages no longer vanish when a plan is stopped.** The plan parser was dropping
+  the whole stage list whenever the plan was disabled, so the card's Stages section
+  went empty right after pressing Stop. The stages are now always kept (the app
+  shows them under a stopped plan too); only the active flag reflects enabled.
+- **Card no longer shows "active" + Stop after a plan is stopped.** The active
+  state is now driven by the controller's config (which reflects Start/Stop),
+  instead of being OR-ed with a stale live "running" flag that could linger.
+- **Faster Start/Stop feedback.** A plan write now triggers a full config re-read
+  (grow-plan state only appears in the full config, not a targeted field read), so
+  the card updates within a couple of seconds of Start/Stop instead of waiting for
+  the next poll. Applies to Start/Stop from the card or the Spider Farmer app.
+- Pressing Start/Stop keeps you on the Planting Plan view instead of flipping back
+  to the Environment editor when the plan goes inactive. Card 0.20.32.
+
+## 3.19.150
+
+### Added
+- **Planting Plan: live progress + start/stop (phase 2).** The Planting Plan view
+  now shows the controller's live progress — a progress bar with percent complete,
+  and days planted / remaining / total — read straight from the device (it reports
+  these in `getDevSta`, so no stage-date decoding is needed). The current stage is
+  highlighted with a "Current" badge, matched by the running stage id. A **Start
+  Plan / Stop Plan** button starts or stops the plan directly from the card
+  (`setConfigField ["plan","enabled"]`, exactly what the Spider Farmer app sends).
+  Card 0.20.31.
+
+### Notes
+- Creating and editing plan stages (add/remove stages, edit each stage's schedule
+  and targets) is still done in the Spider Farmer app; the card handles start/stop
+  and shows the plan. The full write format is captured for a future editor.
+
+## 3.19.149
+
+### Added
+- **Planting Plan view on the Environment tab (phase 1).** On controllers that
+  run a grow plan, the Environment tab now has an **Environment / Planting Plan**
+  segmented toggle. When a plan is active the tab opens on the Planting Plan view
+  by default (and reverts to it whenever you return to the tab), showing the plan
+  status and each stage's day/night temperature, humidity, and CO2 targets. Switch
+  to Environment to see the manual day/night targets used when no plan is running.
+  This fixes stale manual targets appearing as if they were live while a plan runs
+  — during a plan the app hides those targets, and the card now does too. Card 0.20.30.
+
+### Fixed
+- **Reverted the 3.19.148 stage-target swap.** 3.19.148 replaced the base env
+  target with a plan stage's target while a plan was active, but the stage target
+  isn't a stable day/night pair and the app doesn't surface it as "the" target, so
+  it could show drifting values. The base `configFile.target` is once again
+  published as-is (it drives the manual Environment view); the plan is surfaced
+  separately via the new Planting Plan view.
+
+### Notes
+- Read-only for now: create, start, and stop plans in the Spider Farmer app.
+  Enabling/disabling a plan from the card is planned once the controller's plan
+  write format is confirmed. Exact stage dates and progress % are also still
+  app-side (the plan's stage-window dates use an opaque, not-yet-decoded code).
+
+## 3.19.148
+
+### Fixed
+- **Environment targets now follow an active grow plan.** When a controller is
+  running a grow plan (`configFile.plan.enabled`), the device applies the target
+  from the plan's active stage, not the base `configFile.target`. The integration
+  was always reading the base target, so devices on a plan showed the wrong
+  temp/humidity setpoints (e.g. an AC10 on a seedling plan reported 24/22 °C and
+  50 % instead of the plan's 26/22 °C and 55/60 %). The proxy now detects a
+  running plan, selects the active stage (by date window, else the first stage),
+  and reports that stage's target. Controllers with no plan are unchanged.
+
+### Notes
+- Integration-only release. The bundled card is unchanged from 3.19.147 (byte-for-byte
+  identical); its version label is corrected to 0.20.29 to match `package.json`.
+
 ## 3.19.147
 
 ### Fixed

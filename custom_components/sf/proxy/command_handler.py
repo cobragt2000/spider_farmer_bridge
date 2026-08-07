@@ -297,6 +297,14 @@ def translate_command(
                 "params": {"keyPath": ["outlet", "led"], "led": _onoff(value)},
                 "msgId": _msg_id(), "uid": uid}
 
+    if field == "plan_enabled":
+        # Grow-plan start/stop — top-level ["plan","enabled"] = 0/1. This matches
+        # the SF app's Start/Stop Plan exactly (confirmed in the device log): the
+        # stage list is left intact and only the enabled flag flips. (v3.19.150)
+        return {"method": "setConfigField", "pid": mac,
+                "params": {"keyPath": ["plan", "enabled"], "enabled": _onoff(value)},
+                "msgId": _msg_id(), "uid": uid}
+
     if outlet_num is not None:
         return _cmd_outlet(mac, uid, value, outlet_num, outlet_block,
                            outlet_subfield, outlet_cfg, state)

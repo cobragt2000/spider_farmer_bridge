@@ -169,6 +169,54 @@ def _target_from(d):
     return None
 
 
+def _parse_plan(d):
+    """Parse a grow plan from a getConfigFile document. Returns (active, stages):
+    ``active`` is True when configFile.plan.enabled is set, and ``stages`` is a
+    list of normalized stage dicts {label, temp_day/night/dz, humi_day/night/dz,
+    co2_day/night, alarm}. The stage list is ALWAYS parsed when a plan block
+    exists — even when the plan is stopped (enabled 0) — because the app keeps the
+    stages and shows them under a stopped plan; ``active`` alone reflects enabled.
+    (v3.19.151: previously the stages were dropped when stopped, leaving the card's
+    Stages list empty after Stop.)
+
+    When a plan is active the controller drives the environment from the plan
+    schedule, NOT configFile.target — so the manual day/night targets on the card
+    are inactive while a plan runs. Rather than trying to guess a single "current"
+    target (the app doesn't expose one during a plan, and the stage window dates
+    are an opaque non-epoch code), we surface the plan itself (active flag + stage
+    list) so the card's Planting Plan view can show it instead of stale manual
+    targets. The base configFile.target is still published as-is for the manual
+    Environment view used when no plan is active. (v3.19.149)"""
+    if not isinstance(d, dict):
+        return False, []
+    cf = d.get("configFile")
+    if not isinstance(cf, dict):
+        return False, []
+    plan = cf.get("plan")
+    if not isinstance(plan, dict):
+        return False, []
+    active = bool(plan.get("enabled"))
+    stages = []
+    for s in plan.get("stage") or []:
+        if not isinstance(s, dict):
+            continue
+        t = s.get("target") if isinstance(s.get("target"), dict) else {}
+        tt = t.get("temp") if isinstance(t.get("temp"), dict) else {}
+        th = t.get("humi") if isinstance(t.get("humi"), dict) else {}
+        tc = t.get("co2") if isinstance(t.get("co2"), dict) else {}
+        stages.append({
+            "stageId": s.get("stageId"),
+            "label": s.get("label") or "",
+            "temp_day": tt.get("targetDay"), "temp_night": tt.get("targetNight"),
+            "temp_dz": tt.get("deadband"),
+            "humi_day": th.get("targetDay"), "humi_night": th.get("targetNight"),
+            "humi_dz": th.get("deadband"),
+            "co2_day": tc.get("targetDay"), "co2_night": tc.get("targetNight"),
+            "alarm": s.get("alarmDate"),
+        })
+    return active, stages
+
+
 class ProxySession:
     """One active GGS Controller connection."""
 
@@ -219,6 +267,9 @@ class ProxySession:
         # Operation-log cursor paging (v3.19.146) — same scheme as the alarm log.
         self.oplog_hw: int = 0
         self.oplog_pages: int = 0
+        # A grow plan is running (configFile.plan.enabled): the env target comes
+        # from the active plan stage, so ignore the base ["target"] poll. (v3.19.147)
+        self.plan_active: bool = False
 
     def set_upstream(self, writer: asyncio.StreamWriter) -> None:
         self._upstream_writer = writer
@@ -249,13 +300,24 @@ class ProxySession:
             _LOGGER.info("[%s] injected: %s", self.mac, payload.get("params", {}))
             DIAG.inject(self.mac, payload)
             if payload.get("method") == "setConfigField":
-                self.schedule_config_confirm(
+                self.schedule_confirm_for(
                     (payload.get("params") or {}).get("keyPath")
                 )
             elif payload.get("method") == "setConfigFile":
                 self.schedule_configfile_confirm()
         except Exception as exc:
             _LOGGER.error("[%s] inject error: %s", self.mac, exc)
+
+    def schedule_confirm_for(self, keypath) -> None:
+        """Route a post-write confirm poll. A grow-plan write (keyPath ["plan"…])
+        only reflects in a full getConfigFile (configFile.plan), not a targeted
+        field read, so re-read the whole file; everything else confirms with the
+        cheaper targeted module read. (v3.19.151)"""
+        if (isinstance(keypath, (list, tuple)) and keypath
+                and str(keypath[0]) == "plan"):
+            self.schedule_configfile_confirm()
+        else:
+            self.schedule_config_confirm(keypath)
 
     def schedule_config_confirm(self, keypath, delay: Optional[float] = None) -> None:
         """A setConfigField just went to the device (from the SF app via the
@@ -1111,7 +1173,7 @@ class MITMProxy:
                 if method == "setConfigField":
                     params = body.get("params") or {}
                     DIAG.app_command(sess.mac, params.get("keyPath"), params)
-                    sess.schedule_config_confirm(params.get("keyPath"))
+                    sess.schedule_confirm_for(params.get("keyPath"))
                 elif method == "setConfigFile":
                     params = body.get("params") or {}
                     lc = (params.get("configFile") or {}).get("light")
@@ -1366,6 +1428,23 @@ def _process_publish(
             apply = getattr(mqtt_client, "apply_oplog", None)
             if apply is not None and entry:
                 apply(session.mac_raw, [entry])
+        # plan: live grow-plan progress pushed in every getDevSta while a plan
+        # runs (isPlanRun, current stageId, planted/remaining/total days, and
+        # progress %). Feeds the card's Planting Plan view — the controller
+        # computes the day counts, so no opaque stage-date decoding needed. (v3.19.150)
+        pl = d.get("plan") if isinstance(d, dict) else None
+        if isinstance(pl, dict):
+            prog = {
+                "running": bool(pl.get("isPlanRun")),
+                "stageId": pl.get("stageId"),
+                "totalDays": pl.get("planedTotalDays"),
+                "planted": pl.get("planedDays"),
+                "remain": pl.get("planRemainDays"),
+                "progress": pl.get("planProgress"),
+            }
+            applyp = getattr(mqtt_client, "apply_plan_progress", None)
+            if applyp is not None:
+                applyp(session.mac_raw, prog)
 
     # ── Device type detection (evidence accumulated across frames) ────────
     if method == "getDevSta":
@@ -1703,8 +1782,28 @@ def _process_publish(
             _aal = getattr(mqtt_client, "apply_alarm_settings", None)
             if _aal is not None:
                 _aal(session.mac_raw, _alarm)
-        # Environment target block also arrives inside getConfigFile (not just
-        # a targeted getConfigField ["target"]), so decode it here too.
+        # Grow-plan status (v3.19.149): surface plan_active + the stage list for
+        # the card's Planting Plan view. ONLY from a full getConfigFile — the plan
+        # block lives at configFile.plan and never appears in a targeted
+        # getConfigField, so parsing those (which happen constantly: confirm polls,
+        # module reads, app field reads) returned empty and wiped the cached stages
+        # a second after getConfigFile populated them. (v3.19.152 fix — the stages
+        # "dropping off" the card without a reboot.)
+        if method == "getConfigFile":
+            _plan_on, _plan_stages = _parse_plan(d)
+            session.plan_active = _plan_on
+            _pln = getattr(mqtt_client, "apply_plan", None)
+            if _pln is not None:
+                _cf = d.get("configFile")
+                _has_plan = isinstance(_cf, dict) and ("plan" in _cf)
+                # Show the Planting Plan tab on every environment-capable
+                # controller (anything with a target block), even one that has
+                # never had a plan, so a plan can be started from the card.
+                _env_capable = isinstance(_cf, dict) and isinstance(_cf.get("target"), dict)
+                _pln(session.mac_raw, _plan_on, _plan_stages, _has_plan or _env_capable)
+        # Environment target block also arrives inside getConfigFile (not just a
+        # targeted getConfigField ["target"]). Publish the base target as-is; it
+        # is what the manual Environment editor uses when no plan is active.
         _tgt = _target_from(d)
         if _tgt:
             session.env_cfg = dict(_tgt)

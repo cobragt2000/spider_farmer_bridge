@@ -35,6 +35,7 @@ async def async_setup_entry(
             else SfScheduleSensor(bus, d) if d.kind == "schedule"
             else SfAlarmsSensor(bus, d) if d.kind in ("alarms", "oplog")
             else SfAlarmSettingsSensor(bus, d) if d.kind == "alarm_settings"
+            else SfPlanSensor(bus, d) if d.kind == "plan"
             else SfSensor(bus, d)
             for d in defs
         )
@@ -292,6 +293,68 @@ class SfAlarmsSensor(SfSensor):
             "count": len(events),
             "events": events,
         }
+
+
+class SfPlanSensor(SfSensor):
+    """Grow-plan status (v3.19.149): state = the current stage label (or
+    'inactive'); attributes ``active``, ``stages``, and ``progress`` feed the
+    card's Planting Plan view. Each stage = {stageId, label, temp_day/night/dz,
+    humi_day/night/dz, co2_day/night, alarm}; progress (v3.19.150) =
+    {running, stageId, totalDays, planted, remain, progress}."""
+
+    @callback
+    def _handle_payload(self, topic: str, payload: str) -> None:
+        import json
+        try:
+            data = json.loads(payload) if payload else {}
+        except (ValueError, TypeError):
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        active = bool(data.get("active"))
+        stages = data.get("stages")
+        if not isinstance(stages, list):
+            stages = []
+        progress = data.get("progress") if isinstance(data.get("progress"), dict) else {}
+        # State = the running stage's label (matched by stageId), else the first
+        # stage's label, else a plain active/inactive marker.
+        label = None
+        cur_id = progress.get("stageId")
+        if cur_id is not None:
+            for s in stages:
+                if isinstance(s, dict) and s.get("stageId") == cur_id:
+                    label = s.get("label")
+                    break
+        if label is None and stages and isinstance(stages[0], dict):
+            label = stages[0].get("label")
+        self._attr_native_value = (label or "active") if active else "inactive"
+        self._attr_extra_state_attributes = {
+            **(self._attr_extra_state_attributes or {}),
+            "active": active,
+            "stages": stages,
+            "progress": progress,
+        }
+
+    @callback
+    def _restore(self, last) -> None:
+        """After a restart, bring the plan back with its last-known stages from
+        the attribute cache — the state string is only the stage label, so the
+        default restore (which re-parses the state as JSON) would leave the Stages
+        list empty until the next getConfigFile (which the SF app triggers on
+        open). This keeps the Planting Plan view populated across reboots. (v3.19.152)"""
+        attrs = getattr(last, "attributes", None) or {}
+        stages = attrs.get("stages")
+        if isinstance(stages, list):
+            self._attr_native_value = last.state
+            prog = attrs.get("progress")
+            self._attr_extra_state_attributes = {
+                **(self._attr_extra_state_attributes or {}),
+                "active": bool(attrs.get("active")),
+                "stages": stages,
+                "progress": prog if isinstance(prog, dict) else {},
+            }
+        else:
+            super()._restore(last)
 
 
 class SfAlarmSettingsSensor(SfSensor):

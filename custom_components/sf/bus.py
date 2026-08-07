@@ -170,6 +170,8 @@ from .entity_defs import (
     build_alarms_entity,
     build_alarm_settings_entity,
     build_oplog_entity,
+    build_plan_entity,
+    build_plan_switch_entity,
     build_soil_calibration_entities,
     SUBSTRATE_OPTIONS,
     _device_model,
@@ -228,6 +230,10 @@ class SfBus:
         self._alarm_seeded: set[str] = set()         # macs seen once (don't fire on backfill)
         self._oplog_events: dict[str, dict] = {}     # mac -> {id: op entry}
         self._oplog_seeded: set[str] = set()
+        # mac -> merged grow-plan state {active, present, stages, progress}. The
+        # stage list arrives via getConfigFile (apply_plan) and the live progress
+        # via getDevSta (apply_plan_progress); both republish the merged view.
+        self._plan_state: dict[str, dict] = {}
         self.keep_offline: bool = True               # v3.9.0: keep entities for
                                                      # blocks that stop reporting
         # Per-probe offline (v3.19.57): a soil probe that stops appearing in the
@@ -941,6 +947,19 @@ class SfBus:
                 if d.unique_id in existing and d.unique_id not in covered
             ]
 
+            # Grow-plan sensor + start/stop switch aren't part of
+            # build_device_entities (they're created lazily from getConfigFile),
+            # so recreate them here when the registry has them. Otherwise the
+            # Planting Plan view vanishes after a restart until the next config
+            # poll (or an app open) re-sends getConfigFile — the plan sensor
+            # restores its last-known stages from the attribute cache. (v3.19.152)
+            have = {d.unique_id for d in defs}
+            if f"ggs_{mac}_plan" in existing and f"ggs_{mac}_plan" not in have:
+                defs.append(build_plan_entity(cfg, slot=slot))
+            if (f"ggs_{mac}_plan_enabled" in existing
+                    and f"ggs_{mac}_plan_enabled" not in have):
+                defs.append(build_plan_switch_entity(cfg, slot=slot))
+
             if defs:
                 self._add_defs(defs)
                 restored += len(defs)
@@ -1096,6 +1115,67 @@ class SfBus:
             cfg = {"mac": mac_raw, "type": self._type_for_mac(mac_raw)}
             self._add_defs([build_alarm_settings_entity(cfg, slot=self._slot_for_cfg(cfg))])
         self.publish(f"ggs/ha/{mac}/alarm_settings/state", _json.dumps(decoded))
+
+    def apply_plan(self, mac_raw: str, active: bool, stages: list,
+                   present: bool = False) -> None:
+        """Grow-plan config from getConfigFile: the enabled flag + stage list
+        (each stage's day/night targets). Merged with the live getDevSta progress
+        and republished. (v3.19.149)"""
+        mac = _mac(mac_raw)
+        st = self._plan_state.setdefault(mac, {})
+        st["active"] = bool(active)
+        st["stages"] = stages if isinstance(stages, list) else []
+        if present:
+            st["present"] = True
+        self._publish_plan(mac_raw)
+
+    def apply_plan_progress(self, mac_raw: str, progress: dict) -> None:
+        """Live grow-plan progress from getDevSta (running, current stageId,
+        planted/remaining/total days, progress %). Merged with the config stage
+        list and republished. (v3.19.150)"""
+        mac = _mac(mac_raw)
+        st = self._plan_state.setdefault(mac, {})
+        st["progress"] = progress if isinstance(progress, dict) else {}
+        self._publish_plan(mac_raw)
+
+    def _publish_plan(self, mac_raw: str) -> None:
+        """Publish the merged grow-plan view for the card. State = active/first
+        stage label (or 'inactive'); attributes carry active, stages, progress.
+        The sensor is created the first time a plan-capable device reports a plan
+        block, an active plan, or live progress — so the card's Environment /
+        Planting-Plan toggle shows on those devices even when the plan is off.
+        Devices that never report a plan never get the entity."""
+        import json as _json
+        mac = _mac(mac_raw)
+        st = self._plan_state.get(mac, {})
+        progress = st.get("progress") or {}
+        # The config enabled flag (from getConfigFile) is authoritative for
+        # active — it reflects a Start/Stop as soon as the config is re-read. The
+        # live getDevSta "running" flag is only a fallback before the first config
+        # frame; otherwise a stale isPlanRun would keep the card showing "active"
+        # (with a Stop button) after the plan was actually stopped. (v3.19.151)
+        if "active" in st:
+            active = bool(st.get("active"))
+        else:
+            active = bool(progress.get("running"))
+        present = bool(st.get("present")) or bool(progress) or bool(st.get("stages"))
+        registered = f"ggs_{mac}_plan" in self._registered
+        if not registered and not (active or present):
+            return  # no plan capability seen — don't create the entity
+        if not registered and mac in self.device_display:
+            cfg = {"mac": mac_raw, "type": self._type_for_mac(mac_raw)}
+            slot = self._slot_for_cfg(cfg)
+            self._add_defs([
+                build_plan_entity(cfg, slot=slot),
+                build_plan_switch_entity(cfg, slot=slot),
+            ])
+        payload = {
+            "active": active,
+            "stages": st.get("stages") or [],
+            "progress": progress,
+        }
+        self.publish(f"ggs/ha/{mac}/plan/state", _json.dumps(payload))
+        self.publish(f"ggs/ha/{mac}/plan_enabled/state", "ON" if active else "OFF")
 
     def apply_soil_labels(self, mac_raw: str, entries: list) -> None:
         """App-set soil-probe names (senConfig[].label): store per serial and

@@ -554,3 +554,171 @@ async def test_restore_rejects_foreign_device_state(hass: HomeAssistant):
 
     await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+def test_parse_plan_surfaces_stages_when_active():
+    """v3.19.149: a running grow plan is surfaced as (active, stages) with each
+    stage's day/night targets, so the card's Planting Plan view can show it. The
+    base configFile.target is left untouched (it drives the manual Environment
+    view when no plan is active)."""
+    from custom_components.sf.proxy.mitm_proxy import _parse_plan
+    cf = {"configFile": {
+        "target": {"temp": {"targetDay": 24, "targetNight": 22}},
+        "plan": {"enabled": 1, "stage": [
+            {"label": "Vegetative", "alarmDate": 1787239133,
+             "target": {"temp": {"targetDay": 26, "targetNight": 22, "deadband": 5},
+                        "humi": {"targetDay": 55, "targetNight": 60},
+                        "co2": {"targetDay": 600, "targetNight": 400}}},
+            {"label": "Flowering",
+             "target": {"temp": {"targetDay": 25, "targetNight": 20}}}]}}}
+    active, stages = _parse_plan(cf)
+    assert active is True
+    assert len(stages) == 2
+    assert stages[0]["label"] == "Vegetative"
+    assert stages[0]["temp_day"] == 26 and stages[0]["temp_night"] == 22
+    assert stages[0]["humi_day"] == 55 and stages[0]["humi_night"] == 60
+    assert stages[0]["temp_dz"] == 5
+    assert stages[1]["label"] == "Flowering"
+
+    # plan disabled -> inactive, no stages
+    assert _parse_plan({"configFile": {"plan": {"enabled": 0, "stage": []}}}) == (False, [])
+    # no plan block at all -> inactive
+    assert _parse_plan({"configFile": {"target": {}}}) == (False, [])
+
+    # v3.19.151: a STOPPED plan still keeps its stages (the app shows them under a
+    # stopped plan) — only ``active`` reflects enabled. Previously the stages were
+    # dropped, leaving the card's Stages list empty after Stop.
+    stopped = {"configFile": {"plan": {"enabled": 0, "stage": [
+        {"label": "Veg", "target": {"temp": {"targetDay": 26}}}]}}}
+    act, stgs = _parse_plan(stopped)
+    assert act is False
+    assert len(stgs) == 1 and stgs[0]["label"] == "Veg"
+
+
+def test_plan_sensor_decodes_payload():
+    """The plan sensor turns the published JSON into a stage-label state plus
+    active/stages attributes for the card."""
+    from custom_components.sf.sensor import SfPlanSensor
+    from custom_components.sf.entity_defs import build_plan_entity
+    import json
+    d = build_plan_entity({"mac": CB_MAC, "type": "ps10"}, slot="1")
+    sen = object.__new__(SfPlanSensor)
+    sen.d = d
+    sen._attr_extra_state_attributes = {}
+    sen._handle_payload(
+        f"ggs/ha/{CB_MAC_LC}/plan/state",
+        json.dumps({"active": True, "stages": [{"label": "Veg", "temp_day": 26}]}),
+    )
+    assert sen._attr_native_value == "Veg"
+    assert sen._attr_extra_state_attributes["active"] is True
+    assert sen._attr_extra_state_attributes["stages"][0]["temp_day"] == 26
+    # inactive payload
+    sen._handle_payload(f"ggs/ha/{CB_MAC_LC}/plan/state",
+                        json.dumps({"active": False, "stages": []}))
+    assert sen._attr_native_value == "inactive"
+
+
+def test_plan_sensor_current_stage_and_progress():
+    """v3.19.150: the plan sensor picks the running stage by stageId (from the
+    getDevSta progress) and exposes the progress block for the card's bar."""
+    from custom_components.sf.sensor import SfPlanSensor
+    from custom_components.sf.entity_defs import build_plan_entity
+    import json
+    d = build_plan_entity({"mac": CB_MAC, "type": "ps10"}, slot="1")
+    sen = object.__new__(SfPlanSensor)
+    sen.d = d
+    sen._attr_extra_state_attributes = {}
+    sen._handle_payload(f"ggs/ha/{CB_MAC_LC}/plan/state", json.dumps({
+        "active": True,
+        "stages": [{"stageId": 1, "label": "Veg"}, {"stageId": 2, "label": "Flower"}],
+        "progress": {"running": True, "stageId": 2, "totalDays": 154,
+                     "planted": 115, "remain": 39, "progress": 74},
+    }))
+    assert sen._attr_native_value == "Flower"   # matched by stageId, not first
+    assert sen._attr_extra_state_attributes["progress"]["progress"] == 74
+
+
+async def test_plan_stages_not_wiped_by_getconfigfield(hass: HomeAssistant):
+    """v3.19.152: a targeted getConfigField must NOT clear the plan stages that a
+    full getConfigFile populated. The plan block only exists in getConfigFile, so
+    parsing the (constant) targeted reads returned empty and wiped the stages a
+    second later — the 'stages drop off the card without a reboot' bug."""
+    entry = await _setup(hass)
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+    session = ProxySession(CB_MAC, bus)
+    for _ in range(3):
+        _process_publish(session, _pkt("getDevSta", FULL_CB), bus)
+    await hass.async_block_till_done()
+
+    cfgfile = {"configFile": {
+        "target": {"temp": {"targetDay": 24, "targetNight": 20}},
+        "plan": {"enabled": 0, "stage": [
+            {"stageId": 1, "label": "Veg", "target": {"temp": {"targetDay": 26}}},
+            {"stageId": 2, "label": "Flower", "target": {"temp": {"targetDay": 25}}}]}}}
+    _process_publish(session, _pkt("getConfigFile", cfgfile), bus)
+    await hass.async_block_till_done()
+    st = hass.states.get("sensor.sf_dp1_plan")
+    assert st is not None and len(st.attributes["stages"]) == 2
+
+    # A targeted getConfigField (no configFile block) must leave the stages intact.
+    _process_publish(
+        session, _pkt("getConfigField", {"target": {"temp": {"targetDay": 23}}}), bus)
+    await hass.async_block_till_done()
+    st2 = hass.states.get("sensor.sf_dp1_plan")
+    assert len(st2.attributes["stages"]) == 2, "getConfigField wiped the plan stages"
+
+    if session.initial_poll_task is not None:
+        session.initial_poll_task.cancel()
+
+
+def test_plan_sensor_restores_stages_after_reboot():
+    """v3.19.152: after a restart the plan sensor restores its last-known stages
+    from the attribute cache, so the card's Stages list isn't empty until the
+    next getConfigFile (which the app triggers on open)."""
+    from custom_components.sf.sensor import SfPlanSensor
+    from custom_components.sf.entity_defs import build_plan_entity
+    d = build_plan_entity({"mac": CB_MAC, "type": "ps10"}, slot="1")
+    sen = object.__new__(SfPlanSensor)
+    sen.d = d
+    sen._attr_extra_state_attributes = {"sf_device": CB_MAC_LC}
+
+    class _Last:
+        state = "Veg"
+        attributes = {"sf_device": CB_MAC_LC, "active": False,
+                      "stages": [{"stageId": 1, "label": "Veg", "temp_day": 26}],
+                      "progress": {}}
+
+    sen._restore(_Last())
+    assert sen._attr_extra_state_attributes["stages"][0]["label"] == "Veg"
+    assert sen._attr_extra_state_attributes["active"] is False
+    assert sen._attr_native_value == "Veg"
+
+
+def test_plan_enable_command():
+    """v3.19.150: the plan switch writes setConfigField ["plan","enabled"] 0/1 —
+    the app's Start/Stop Plan, leaving the stage list intact."""
+    from custom_components.sf.proxy.command_handler import translate_command
+    on = translate_command("plan_enabled", "ON", CB_MAC, "u1")
+    assert on["method"] == "setConfigField"
+    assert on["params"]["keyPath"] == ["plan", "enabled"]
+    assert on["params"]["enabled"] == 1
+    off = translate_command("plan_enabled", "OFF", CB_MAC, "u1")
+    assert off["params"]["enabled"] == 0
+
+
+def test_apply_plan_progress_merges():
+    """getConfigFile stages + getDevSta progress merge into one plan payload."""
+    import json
+    from custom_components.sf.bus import SfBus
+    bus = object.__new__(SfBus)
+    bus._plan_state = {}
+    bus._registered = {f"ggs_{CB_MAC_LC}_plan"}   # pretend already registered
+    published = {}
+    bus.publish = lambda topic, payload=None, **kw: published.__setitem__(topic, payload)
+    bus.apply_plan(CB_MAC, True, [{"stageId": 7, "label": "Veg"}], present=True)
+    bus.apply_plan_progress(CB_MAC, {"running": True, "stageId": 7, "progress": 42})
+    p = json.loads(published[f"ggs/ha/{CB_MAC_LC}/plan/state"])
+    assert p["active"] is True
+    assert p["stages"][0]["stageId"] == 7
+    assert p["progress"]["progress"] == 42
+    assert published[f"ggs/ha/{CB_MAC_LC}/plan_enabled/state"] == "ON"

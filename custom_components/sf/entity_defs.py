@@ -836,6 +836,34 @@ def build_alarm_settings_entity(device_cfg, slot=None):
     )
 
 
+def build_plan_entity(device_cfg, slot=None):
+    """Per-controller grow-plan sensor (v3.19.149): state = the active/first
+    stage label (or 'inactive'); attributes ``active`` + ``stages`` drive the
+    card's Planting Plan view. Created the first time a device reports a plan."""
+    mac_raw = device_cfg.get("mac", "")
+    return SfDef(
+        platform="sensor", field="plan", name="Planting Plan", kind="plan",
+        mac=_mac(mac_raw), mac_raw=mac_raw,
+        device_name=_device_name(device_cfg), device_model=_device_model(device_cfg),
+        slot=slot, entity_category="diagnostic", icon="mdi:sprout",
+        object_id=(f"sf_{slot}_plan" if slot else None),
+    )
+
+
+def build_plan_switch_entity(device_cfg, slot=None):
+    """Grow-plan start/stop switch (v3.19.150): ON = plan enabled. State from the
+    published ``plan_enabled`` topic; commands write setConfigField
+    ["plan","enabled"] = 0/1 (the SF app's Start/Stop Plan)."""
+    mac_raw = device_cfg.get("mac", "")
+    return SfDef(
+        platform="switch", field="plan_enabled", name="Planting Plan Enabled",
+        kind="plan", mac=_mac(mac_raw), mac_raw=mac_raw,
+        device_name=_device_name(device_cfg), device_model=_device_model(device_cfg),
+        slot=slot, entity_category="config", icon="mdi:sprout",
+        object_id=(f"sf_{slot}_plan_enabled" if slot else None),
+    )
+
+
 def build_air_calibration_entities(device_cfg, slot=None):
     """Editable air-sensor calibration offsets (config-file top-level
     ``calibration`` block {temp,humi,co2,ppfd}). Air-temp is entered in degF

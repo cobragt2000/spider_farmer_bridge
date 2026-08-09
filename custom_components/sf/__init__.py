@@ -614,6 +614,11 @@ _CARD_OPTION_SCHEMA = vol.Schema({
     vol.Required("key"): cv.string,
     vol.Required("value"): cv.string,
 })
+_SET_PLAN_SCHEMA = vol.Schema({
+    vol.Required("entity_id"): cv.entity_ids,
+    vol.Required("stages"): list,
+    vol.Optional("enabled", default=False): vol.Any(bool, int),
+})
 # Wire module names the apply-bundle command path understands.
 _APPLY_MODULES = {"fan", "blower", "heater", "humidifier", "dehumidifier",
                   "light", "light2"}
@@ -723,6 +728,23 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 await bus.async_command(
                     f"ggs/ha/{mac}/{module}/apply_bundle/set", payload)
 
+    async def _set_plan(call: ServiceCall) -> None:
+        """Write a grow plan (create/edit) from the card: the stage list + an
+        enabled flag, read-modify-write against the controller's cached plan."""
+        stages = call.data.get("stages") or []
+        enabled = call.data.get("enabled", False)
+        ent_reg = er.async_get(hass)
+        for eid in call.data.get("entity_id", []):
+            ent = ent_reg.async_get(eid)
+            uid = ent.unique_id if ent else ""
+            if not uid or not uid.startswith("ggs_"):
+                _LOGGER.warning("set_plan: %s is not a Spider Farmer entity", eid)
+                continue
+            mac = uid[4:].split("_", 1)[0]
+            proxy = _proxy_for_entity(hass, ent)
+            if proxy is not None:
+                await proxy.write_plan(mac, stages, enabled)
+
     async def _set_card_option(call: ServiceCall) -> None:
         """Persist a per-panel card display option (e.g. the out-of-range
         colour mode) in the config entry so it survives upgrades and syncs
@@ -774,6 +796,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
     if not hass.services.has_service(DOMAIN, "set_card_option"):
         hass.services.async_register(
             DOMAIN, "set_card_option", _set_card_option, schema=_CARD_OPTION_SCHEMA)
+    if not hass.services.has_service(DOMAIN, "set_plan"):
+        hass.services.async_register(
+            DOMAIN, "set_plan", _set_plan, schema=_SET_PLAN_SCHEMA)
 
 
 def _integration_version() -> str:

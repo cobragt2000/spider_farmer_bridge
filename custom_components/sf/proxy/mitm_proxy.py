@@ -169,6 +169,40 @@ def _target_from(d):
     return None
 
 
+def _plan_light(block):
+    """Decode a plan stage's light1/light2 block into the card-editable fields
+    (mode + Time Slot + PPFD schedules), mirroring the device light tiles. Times
+    are 'HH:MM'. None when absent. (v3.19.157)"""
+    if not isinstance(block, dict):
+        return None
+
+    def hhmm(s):
+        try:
+            s = int(s)
+        except (TypeError, ValueError):
+            return "00:00"
+        return f"{s // 3600:02d}:{(s % 3600) // 60:02d}"
+
+    tp = block.get("timePeriod")
+    tp0 = tp[0] if isinstance(tp, list) and tp and isinstance(tp[0], dict) else {}
+    pp = block.get("ppfdPeriod")
+    pp0 = pp[0] if isinstance(pp, list) and pp and isinstance(pp[0], dict) else {}
+    mode = {0: "Manual", 1: "Time Slot", 12: "PPFD"}.get(block.get("modeType"), "Time Slot")
+    return {
+        "mode": mode,
+        "go_dark": block.get("darkTemp") or 0,   # °C threshold (0 = off)
+        "turn_off": block.get("offTemp") or 0,    # °C threshold (0 = off)
+        "ts_start": hhmm(tp0.get("startTime", 0)), "ts_stop": hhmm(tp0.get("endTime", 0)),
+        "ts_bri": int(tp0.get("brightness", 0) or 0),
+        "ts_fade": int(tp0.get("fadeTime", 0) or 0) // 60,
+        "ppfd_target": int(pp0.get("brightness", 0) or 0),
+        "ppfd_start": hhmm(pp0.get("startTime", 0)), "ppfd_stop": hhmm(pp0.get("endTime", 0)),
+        "ppfd_fade": int(pp0.get("fadeTime", 0) or 0) // 60,
+        "ppfd_min": int(block.get("ppfdMinBrightness", 0) or 0),
+        "ppfd_max": int(block.get("ppfdMaxBrightness", 0) or 0),
+    }
+
+
 def _parse_plan(d):
     """Parse a grow plan from a getConfigFile document. Returns (active, stages):
     ``active`` is True when configFile.plan.enabled is set, and ``stages`` is a
@@ -207,12 +241,16 @@ def _parse_plan(d):
         stages.append({
             "stageId": s.get("stageId"),
             "label": s.get("label") or "",
+            "start": s.get("startDate"), "end": s.get("endDate"),
             "temp_day": tt.get("targetDay"), "temp_night": tt.get("targetNight"),
             "temp_dz": tt.get("deadband"),
             "humi_day": th.get("targetDay"), "humi_night": th.get("targetNight"),
             "humi_dz": th.get("deadband"),
             "co2_day": tc.get("targetDay"), "co2_night": tc.get("targetNight"),
+            "co2_dz": tc.get("deadband"),
             "alarm": s.get("alarmDate"),
+            "light1": _plan_light(s.get("light1")),
+            "light2": _plan_light(s.get("light2")),
         })
     return active, stages
 
@@ -249,6 +287,7 @@ class ProxySession:
         self.cal_cfg: dict = {}                      # top-level ["calibration"] block cache
         self.senconfig: list = []                    # full ["device","senConfig"] array cache
         self.alarm_cfg: dict = {}                    # top-level ["alarm"] block cache
+        self.plan_cfg: dict = {}                     # configFile.plan block cache (RMW plan writes)
         self.last_nonzero_level: Dict[str, int] = {}
         self.fan_state:   Dict[str, dict] = {}
         self.light_state: Dict[str, dict] = {}
@@ -840,6 +879,23 @@ class MITMProxy:
             return False
         await sess.inject(payload)
         _LOGGER.info("set_alarm_settings: wrote alarm thresholds to %s", mac)
+        return True
+
+    async def write_plan(self, mac: str, stages: list, enabled) -> bool:
+        """Write the controller's grow-plan block (read-modify-write): the card's
+        stage list merged over the cached plan, preserving each stage's light
+        schedule/colour. keyPath ["plan"]. (v3.19.156)"""
+        sess = self._sessions.get(_mac(mac))
+        if sess is None:
+            _LOGGER.warning("set_plan: no active session for mac=%s", mac)
+            return False
+        from .command_handler import build_plan
+        payload = build_plan(sess.mac_raw, sess.uid, stages, enabled, sess.plan_cfg)
+        if not payload:
+            return False
+        await sess.inject(payload)
+        _LOGGER.info("set_plan: wrote %d-stage plan (enabled=%s) to %s",
+                     len(stages or []), enabled, mac)
         return True
 
     # ── Device clock / timezone sync ──────────────────────────────────────
@@ -1790,6 +1846,11 @@ def _process_publish(
         # a second after getConfigFile populated them. (v3.19.152 fix — the stages
         # "dropping off" the card without a reboot.)
         if method == "getConfigFile":
+            _cfp = d.get("configFile")
+            if isinstance(_cfp, dict) and isinstance(_cfp.get("plan"), dict):
+                # Cache the whole plan block so card plan edits are read-modify-
+                # write (preserve each stage's light schedule / colour). (v3.19.156)
+                session.plan_cfg = dict(_cfp["plan"])
             _plan_on, _plan_stages = _parse_plan(d)
             session.plan_active = _plan_on
             _pln = getattr(mqtt_client, "apply_plan", None)

@@ -3,6 +3,91 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.162
+
+### Changed
+- **Delete stage now asks for confirmation.** The trash icon in the plan stage
+  editor arms a "Delete / Cancel" confirm instead of deleting immediately, to
+  prevent accidental stage deletes. Card 0.20.41.
+
+## 3.19.161
+
+### Added
+- **12-hour time (AM/PM) option.** A new Settings toggle shows tile schedule times
+  as 5:00am–11:00pm instead of 05:00–23:00 (applies to the Light, Fan, Blower, and
+  climate tile summaries). Persists per panel like the other display options. The
+  tile layout is unchanged (still centered). Card 0.20.40.
+
+## 3.19.160
+
+### Changed
+- **Plan stage editor layout polish.** Light duration now reads "Light Duration"
+  and is right-aligned on the on/off row; the Start/End/Alarm pickers are unified
+  to the same compact size and the Alarm no longer clips; and all four light
+  controls (Brightness, Sunrise/set, Go dark, Turn off) sit on one line. Card 0.20.39.
+
+## 3.19.159
+
+### Changed
+- **Plan stage editor layout tidy-up.** Start / End / Alarm sit on one row; the
+  light on/off times are compact with the light duration on the same row;
+  Brightness pairs with Sunrise/set, and Go dark pairs with Turn off, two controls
+  per row. Card 0.20.38.
+
+## 3.19.158
+
+### Changed
+- **Plan editor reworked to edit one stage at a time, with dropdowns.** The
+  Planting Plan view now shows only the current stage by default with a "Show all
+  N stages" toggle; each stage has a pencil to edit just that stage. In the stage
+  editor every value is a dropdown matching the device/Environment tiles — Temp,
+  Humidity, CO2 and their dead zones, plus Light 1/2 brightness, PPFD target,
+  dimming min/max, and sunrise/set fade. Added per-stage light **duration**
+  (shown), **Go dark** and **Turn off** temperature thresholds, and an **alarm
+  reminder** date+time next to the stage start/end dates. Add stage / remove stage
+  and Save/Cancel per stage. Card 0.20.37.
+
+## 3.19.157
+
+### Added
+- **Per-stage light schedules in the plan editor.** Each stage in the plan editor
+  now has Light 1 (and Light 2) settings with the same Time Slot and PPFD modes as
+  the device light tiles: on/off times, Time Slot target brightness + sunrise/set
+  fade, or PPFD target, dimming min/max, and fade. Saved with the plan (merged onto
+  each stage's existing light block, preserving weekmask and the rest). Card 0.20.36.
+
+## 3.19.156
+
+### Added
+- **Create and edit planting plans from the card.** The Planting Plan view now has
+  an Edit / Create plan mode: rename stages, set each stage's start/end date
+  (real date pickers), and edit day/night temperature, humidity, and CO2 targets +
+  dead zones; add or remove stages; then Save. Writes the whole plan back to the
+  controller (`setConfigField ["plan"]`), read-modify-write so each stage keeps its
+  light schedule and colour. Stage dates use the decoded date format; temps entered
+  in your display unit are converted to the controller's native units. New service
+  `sf.set_plan`. Card 0.20.35.
+
+## 3.19.155
+
+### Added
+- **Planting Plan stages now show real dates.** Each stage on the Planting Plan
+  view shows its calendar range and length (e.g. "Jun 1 – Oct 31 · 153 days"),
+  decoded from the controller's stage date fields. Groundwork for creating and
+  editing plans from the card. Card 0.20.34.
+
+## 3.19.154
+
+### Fixed
+- **Overview tiles follow the active plan's targets.** While a plan is running, the
+  Overview parameter tiles (Air Temp, Humidity, CO2, Air VPD) now show the current
+  plan stage's day/night target and dead zone — the values the controller is
+  actually driving to — instead of the paused manual Environment targets. The
+  target subline, the healthy-range band, and the out-of-range colouring all follow
+  the plan stage (matched to the running stage id), switching day/night with the
+  controller. When no plan is active, the manual targets are used as before. Stage
+  temps (stored in °C) are converted to the tile's display unit. Card 0.20.33.
+
 ## 3.19.153
 
 ### Fixed

@@ -485,6 +485,122 @@ def build_alarm_settings(mac, uid, settings, alarm_cfg):
             "msgId": _msg_id(), "uid": uid}
 
 
+def _apply_plan_light(base_light, edit):
+    """Merge the card's edited light fields (mode + Time Slot + PPFD schedules)
+    onto a plan stage's cached light1/light2 block, preserving everything else
+    (weekmask, darkTemp, offTemp, mOnOff, mLevel). Times are 'HH:MM'. The active
+    mode drives which period is enabled. (v3.19.157)"""
+    if not isinstance(edit, dict):
+        return base_light
+    bl = dict(base_light) if isinstance(base_light, dict) else {}
+
+    def sec(hhmm):
+        try:
+            h, m = str(hhmm).split(":")
+            return int(h) * 3600 + int(m) * 60
+        except (ValueError, AttributeError):
+            return None
+
+    mode = edit.get("mode")
+    mt = {"Manual": 0, "Time Slot": 1, "PPFD": 12}.get(mode)
+    if mt is not None:
+        bl["modeType"] = mt
+    if edit.get("go_dark") is not None:
+        bl["darkTemp"] = edit["go_dark"]
+    if edit.get("turn_off") is not None:
+        bl["offTemp"] = edit["turn_off"]
+    tp = bl.get("timePeriod")
+    tp0 = dict(tp[0]) if isinstance(tp, list) and tp and isinstance(tp[0], dict) else {"weekmask": 127}
+    if sec(edit.get("ts_start")) is not None:
+        tp0["startTime"] = sec(edit["ts_start"])
+    if sec(edit.get("ts_stop")) is not None:
+        tp0["endTime"] = sec(edit["ts_stop"])
+    if edit.get("ts_bri") is not None:
+        tp0["brightness"] = int(edit["ts_bri"])
+    if edit.get("ts_fade") is not None:
+        tp0["fadeTime"] = int(edit["ts_fade"]) * 60
+    tp0["enabled"] = 1 if mode == "Time Slot" else 0
+    bl["timePeriod"] = [tp0]
+    pp = bl.get("ppfdPeriod")
+    pp0 = dict(pp[0]) if isinstance(pp, list) and pp and isinstance(pp[0], dict) else {"weekmask": 127}
+    if sec(edit.get("ppfd_start")) is not None:
+        pp0["startTime"] = sec(edit["ppfd_start"])
+    if sec(edit.get("ppfd_stop")) is not None:
+        pp0["endTime"] = sec(edit["ppfd_stop"])
+    if edit.get("ppfd_target") is not None:
+        pp0["brightness"] = int(edit["ppfd_target"])
+    if edit.get("ppfd_fade") is not None:
+        pp0["fadeTime"] = int(edit["ppfd_fade"]) * 60
+    pp0["enabled"] = 1 if mode == "PPFD" else 0
+    bl["ppfdPeriod"] = [pp0]
+    if edit.get("ppfd_min") is not None:
+        bl["ppfdMinBrightness"] = int(edit["ppfd_min"])
+    if edit.get("ppfd_max") is not None:
+        bl["ppfdMaxBrightness"] = int(edit["ppfd_max"])
+    return bl
+
+
+def build_plan(mac, uid, stages, enabled, plan_cfg):
+    """Assemble a full grow-plan write (setConfigField ["plan"]) from the card's
+    stage list, read-modify-write against the cached plan so each stage keeps its
+    light schedule / colour / dayTime. The card sends dates already encoded
+    (startDate/endDate) and targets in the device's native units (°C). Stages are
+    matched to the cached ones by stageId; a stage with no match is created new
+    (light schedule cloned from the first cached stage, fresh stageId). (v3.19.156)"""
+    if not isinstance(stages, list):
+        return None
+    cached = plan_cfg if isinstance(plan_cfg, dict) else {}
+    existing = {}
+    tmpl = None
+    for s in cached.get("stage") or []:
+        if isinstance(s, dict):
+            if s.get("stageId") is not None:
+                existing[s["stageId"]] = s
+            if tmpl is None:
+                tmpl = s
+    out = []
+    for st in stages:
+        if not isinstance(st, dict):
+            continue
+        sid = st.get("stageId")
+        base = (copy.deepcopy(existing[sid]) if sid in existing
+                else copy.deepcopy(tmpl) if tmpl else {})
+        if sid not in existing:
+            base["stageId"] = int(time.time() * 1000) % 2_000_000_000 + len(out)
+        if st.get("label") is not None:
+            base["label"] = str(st["label"])
+        for k_in, k_out in (("start", "startDate"), ("end", "endDate"),
+                            ("alarm", "alarmDate")):
+            if st.get(k_in) is not None:
+                try:
+                    base[k_out] = int(st[k_in])
+                except (ValueError, TypeError):
+                    pass
+        base.setdefault("color", 1)
+        tgt = base.get("target") if isinstance(base.get("target"), dict) else {}
+        it = st.get("target") if isinstance(st.get("target"), dict) else {}
+        for metric in ("temp", "humi", "co2"):
+            m = it.get(metric)
+            if not isinstance(m, dict):
+                continue
+            blk = dict(tgt.get(metric) or {})
+            for k_in, k_out in (("day", "targetDay"), ("night", "targetNight"),
+                                ("dz", "deadband")):
+                if m.get(k_in) is not None:
+                    blk[k_out] = m[k_in]
+            tgt[metric] = blk
+        base["target"] = tgt
+        if isinstance(st.get("light1"), dict):
+            base["light1"] = _apply_plan_light(base.get("light1"), st["light1"])
+        if isinstance(st.get("light2"), dict):
+            base["light2"] = _apply_plan_light(base.get("light2"), st["light2"])
+        out.append(base)
+    plan = {"enabled": _onoff(enabled), "stage": out}
+    return {"method": "setConfigField", "pid": mac,
+            "params": {"keyPath": ["plan"], "plan": plan},
+            "msgId": _msg_id(), "uid": uid}
+
+
 def _cmd_se_mode(mac, uid, value):
     mode = {"manual": 0, "automatic": 1, "0": 0, "1": 1}.get(
         str(value).strip().lower()

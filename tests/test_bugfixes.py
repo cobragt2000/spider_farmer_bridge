@@ -566,6 +566,7 @@ def test_parse_plan_surfaces_stages_when_active():
         "target": {"temp": {"targetDay": 24, "targetNight": 22}},
         "plan": {"enabled": 1, "stage": [
             {"label": "Vegetative", "alarmDate": 1787239133,
+             "startDate": 132777473, "endDate": 132778527,
              "target": {"temp": {"targetDay": 26, "targetNight": 22, "deadband": 5},
                         "humi": {"targetDay": 55, "targetNight": 60},
                         "co2": {"targetDay": 600, "targetNight": 400}}},
@@ -575,6 +576,8 @@ def test_parse_plan_surfaces_stages_when_active():
     assert active is True
     assert len(stages) == 2
     assert stages[0]["label"] == "Vegetative"
+    # Raw date codes are passed through for the card to decode (v3.19.155).
+    assert stages[0]["start"] == 132777473 and stages[0]["end"] == 132778527
     assert stages[0]["temp_day"] == 26 and stages[0]["temp_night"] == 22
     assert stages[0]["humi_day"] == 55 and stages[0]["humi_night"] == 60
     assert stages[0]["temp_dz"] == 5
@@ -704,6 +707,63 @@ def test_plan_enable_command():
     assert on["params"]["enabled"] == 1
     off = translate_command("plan_enabled", "OFF", CB_MAC, "u1")
     assert off["params"]["enabled"] == 0
+
+
+def test_build_plan_rmw_preserves_light():
+    """v3.19.156: a plan write merges the card's stage edits over the cached plan,
+    preserving each stage's light schedule / colour / dayTime; a new stage clones
+    the template light and gets a fresh id."""
+    from custom_components.sf.proxy.command_handler import build_plan
+    plan_cfg = {"enabled": 0, "stage": [
+        {"stageId": 7, "label": "Veg", "startDate": 100, "endDate": 200,
+         "alarmDate": 1, "color": 3, "light1": {"mLevel": 85}, "light2": {"mLevel": 11},
+         "target": {"dayTime": {"startTime": 7200}, "temp": {"targetDay": 26}}}]}
+    stages = [{"stageId": 7, "label": "Veg2", "start": 132777473, "end": 132778527,
+               "target": {"temp": {"day": 29, "night": 22, "dz": 3}, "humi": {"day": 55}}}]
+    cmd = build_plan(CB_MAC, "u1", stages, True, plan_cfg)
+    assert cmd["params"]["keyPath"] == ["plan"]
+    p = cmd["params"]["plan"]
+    assert p["enabled"] == 1
+    s = p["stage"][0]
+    assert s["stageId"] == 7 and s["label"] == "Veg2"
+    assert s["startDate"] == 132777473 and s["endDate"] == 132778527
+    assert s["light1"] == {"mLevel": 85} and s["color"] == 3          # preserved
+    assert s["target"]["dayTime"] == {"startTime": 7200}              # preserved
+    assert s["target"]["temp"]["targetDay"] == 29
+    assert s["target"]["temp"]["deadband"] == 3
+    assert s["target"]["humi"]["targetDay"] == 55
+
+    # a NEW stage (unknown id) clones the template light + gets a fresh id
+    stages2 = [{"stageId": None, "label": "New", "start": 132777473, "end": 132777503,
+                "target": {"temp": {"day": 20}}}]
+    ns = build_plan(CB_MAC, "u1", stages2, False, plan_cfg)["params"]["plan"]["stage"][0]
+    assert ns["label"] == "New" and ns["light1"] == {"mLevel": 85} and ns["stageId"] != 7
+
+
+def test_build_plan_light_edit():
+    """v3.19.157: a stage's light edits merge onto the cached light block — the
+    active mode enables the right period and times convert HH:MM -> seconds, while
+    weekmask/mLevel are preserved."""
+    from custom_components.sf.proxy.command_handler import build_plan
+    plan_cfg = {"enabled": 0, "stage": [
+        {"stageId": 7, "label": "Veg",
+         "light1": {"modeType": 1, "mLevel": 85, "weekmask": 127,
+                    "timePeriod": [{"enabled": 1, "weekmask": 127, "startTime": 7200,
+                                    "endTime": 50400, "brightness": 85}],
+                    "ppfdPeriod": [{"enabled": 0, "weekmask": 127}],
+                    "ppfdMinBrightness": 11, "ppfdMaxBrightness": 100},
+         "target": {}}]}
+    stages = [{"stageId": 7, "label": "Veg",
+               "light1": {"mode": "PPFD", "ppfd_start": "05:00", "ppfd_stop": "23:00",
+                          "ppfd_target": 450, "ppfd_min": 20, "ppfd_max": 90,
+                          "ppfd_fade": 30}}]
+    l1 = build_plan(CB_MAC, "u1", stages, True, plan_cfg)["params"]["plan"]["stage"][0]["light1"]
+    assert l1["modeType"] == 12                     # PPFD
+    assert l1["mLevel"] == 85                        # preserved
+    assert l1["ppfdPeriod"][0]["enabled"] == 1 and l1["timePeriod"][0]["enabled"] == 0
+    assert l1["ppfdPeriod"][0]["startTime"] == 18000 and l1["ppfdPeriod"][0]["endTime"] == 82800
+    assert l1["ppfdPeriod"][0]["brightness"] == 450 and l1["ppfdPeriod"][0]["fadeTime"] == 1800
+    assert l1["ppfdMinBrightness"] == 20 and l1["ppfdMaxBrightness"] == 90
 
 
 def test_apply_plan_progress_merges():

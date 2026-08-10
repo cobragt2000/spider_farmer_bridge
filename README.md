@@ -180,6 +180,21 @@ power strip; accessory blocks without outlets mean Display Panel; lights only
 means light controller — with automatic correction if later evidence
 disagrees.
 
+### What the bridge does and doesn't see
+
+The bridge only sees what the controllers put on the wire. A few things live in
+the Spider Farmer app's cloud (not on the device) and therefore don't appear in
+Home Assistant:
+
+- **SF app outlet names** don't show in the integration. Name outlets in the
+  dashboard card instead (Outlets tab → custom names), which stores them with the
+  integration.
+- **SF cloud planting plans / templates** ("My templates" and cloud-saved plans)
+  don't show. The controller only holds the single active plan, which the card
+  reads and edits.
+- Any **planting-plan templates saved from the card are stored locally in Home
+  Assistant** and are not visible in the Spider Farmer app.
+
 ## Requirements
 
 - Home Assistant 2024.x or newer

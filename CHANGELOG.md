@@ -3,6 +3,114 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.171
+
+### Fixed
+- **Device tile value bottom-alignment now actually applies.** The 3.19.170 rule was
+  cancelled by a later icon-margin rule of equal specificity; the value + icon are now
+  correctly pinned to the bottom, so a light's and a fan's values line up. Card 0.20.50.
+
+## 3.19.170
+
+### Fixed
+- **Device tile value sits at the bottom-left on every tile.** The icon and value
+  are now pinned to the bottom, so a light with a three-line summary and a fan with a
+  two-line summary line their values up instead of the shorter tile's value floating.
+- **Natural wind shows only when on.** The fan badge shows "Nat Wind" when natural
+  wind is on and nothing when it's off. Card 0.20.49.
+
+## 3.19.169
+
+### Changed
+- **Fan tile shows "Time Slot" instead of "Schedule".** A fan (or blower / climate
+  accessory) in Time Slot mode now labels its summary "Time Slot", matching the mode
+  selector and the light tiles.
+- **Fan summary drops the gear speed line.** The fan's running speed is already the
+  tile's main value, so the summary no longer repeats it (and its standby speed moves
+  to the lower-right badge below). The blower keeps its speed line.
+
+### Added
+- **Oscillation, natural wind, and standby speed on fan tiles.** A fan tile now shows
+  its oscillation level, natural-wind state, and (in auto modes) standby speed stacked
+  in the lower-right — mirroring the PPFD target / DLI badge on light tiles. Card 0.20.48.
+
+## 3.19.168
+
+### Changed
+- **The planting plan only shows metrics/lights the controller actually has.**
+  A plan created in the SF app carries every part (Temp, Humidity, CO₂, Light 1,
+  Light 2) even on a controller with no such sensor or light — which made the card
+  show, for example, a CO₂ row on a controller with no CO₂ probe, or Light 1/2 on a
+  bare power strip. The plan view and editor now hide any metric/light whose entity
+  doesn't exist, matching the Overview tiles. If the user later adds the sensor, it
+  starts showing again.
+- **Plan writes stay complete so the controller still accepts them.** Because the
+  controller requires every part in a plan, the card now always writes all parts
+  even when a row is hidden: a missing metric is filled with a sane default (CO₂ →
+  500 ppm) and a missing light is written **off** (Manual, brightness and all
+  settings 0, with a 5am–11pm period stored) so a phantom light is never left
+  running. Values already in the plan are preserved — the defaults only fill parts
+  that don't exist, so the user never has to enter data for hardware they don't have.
+- **Plan stage editor: Alarm and Light Duration each get their own centred row.**
+  Start/End sit together; the Alarm reminder drops below them, centred. On/Off sit
+  together; Light Duration drops below them, centred.
+- **All tiles are a uniform 138px height.** Sensor and device tiles now share one
+  height, so a light with a three-line summary no longer stands taller than the
+  tiles around it.
+
+### Added
+- **Light tiles show the on-duration.** A light in a scheduled mode now adds a
+  "LD - 18:00hrs" line under its on/off times in the device mode summary.
+- **PPFD target and DLI on PPFD-mode light tiles.** A light in PPFD mode shows its
+  PPFD target and the resulting Daily Light Integral (DLI = PPFD × photoperiod ×
+  0.0036, in mol/m²/day) stacked in the lower-right of the tile. Computed from the
+  PPFD setpoint, so no PPFD sensor is required. Card 0.20.47.
+
+## 3.19.166
+
+### Changed
+- **Device tiles are a uniform height across panels.** The device mode-summary
+  block now reserves two lines, so a single-line summary (e.g. a light or fan in
+  **Manual** mode) takes the same vertical space as a scheduled two-line summary
+  (**Time Slot** / **PPFD** / **Cycle**, which also shows the schedule). Previously
+  a panel whose light was scheduled (2 lines) rendered taller device tiles than a
+  panel whose devices were all Manual (1 line); they now match. Card 0.20.45.
+
+## 3.19.165
+
+### Fixed
+- **Soil tiles show their target range in any colour mode.** A soil tile
+  (Soil Temp / Moisture / EC) now shows its substrate alarm min/max as the target
+  line + band whenever that soil alarm is enabled — previously it only appeared
+  when the tile colour source included Alarms, so panels set to "Targets" showed no
+  soil target (soil has no device env target). The substrate min/max is the soil
+  target.
+- **Overview tiles are now uniform height.** A tile alone on the last grid row
+  (e.g. Soil EC) no longer renders shorter than the others. Card 0.20.44.
+
+## 3.19.164
+
+### Changed
+- **Soil calibration dropdowns match the Air Calibration width.** The three soil
+  controls (Temp / Moisture / EC) are now the same size as the air ones and spread
+  evenly across the row, for consistency.
+- README: documented that SF app outlet names, and SF cloud planting plans /
+  templates, don't sync into the integration (name outlets in the card; the card
+  reads/edits the single on-device plan; card-saved templates live in HA only).
+
+## 3.19.163
+
+### Fixed
+- **Soil calibration spaces evenly.** A non-pro probe (Temp / Moisture / EC only)
+  now spreads its three controls evenly across the full width instead of sitting in
+  3 of 4 columns with a right-side gap and a clipped EC value. Pro probes with a
+  Substrate still get the 4th column.
+- **Delete-stage confirm no longer clips on mobile.** The "Delete this stage?"
+  prompt gets its own header row so the Delete / Cancel buttons fit instead of
+  running off the right edge.
+- Tightened calibration/target dropdown padding so long values (e.g. PPFD units)
+  clip less on narrow screens. Card 0.20.42.
+
 ## 3.19.162
 
 ### Changed

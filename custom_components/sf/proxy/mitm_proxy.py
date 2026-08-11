@@ -365,7 +365,15 @@ class ProxySession:
         waiting for the 10-minute poll."""
         if not keypath or not isinstance(keypath, (list, tuple)):
             return
-        module_path = [str(x) for x in list(keypath)[:2]]  # poll whole module
+        kp = [str(x) for x in list(keypath)]
+        # Standalone-strip outlets are addressed as ["outlet","O<n>"] (and the LED
+        # as ["outlet","led"]). A targeted read of that single key answers with a
+        # BARE {"O<n>": …} / {"led": …} — no "outlet" wrapper — which the config
+        # parser's block loop drops (the same shape bug the LED confirm hit in
+        # 3.19.112). Poll the whole ["outlet"] block instead so the response is
+        # wrapped and every outlet's mode/LED gets published. CB-attached strips
+        # use ["device","ps5"|"ps10", …] and already read a wrapped module. (v3.19.172)
+        module_path = ["outlet"] if kp[:1] == ["outlet"] else kp[:2]
         key = tuple(module_path)
         if key in self._pending_confirms:
             return

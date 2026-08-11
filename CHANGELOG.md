@@ -3,6 +3,20 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.172
+
+### Fixed
+- **Outlet mode now updates on the card when changed to a non-Manual mode.** On a
+  standalone power strip (e.g. AC5), changing an outlet to Time Slot / Cycle /
+  Temperature / Humidity / CO₂ / Drip — in the SF app or on the card — didn't move
+  the card's mode selector. The post-write confirm read a single outlet
+  (`getConfigField ["outlet","O1"]`), which the controller answers with a bare
+  `{"O1": …}` (no `"outlet"` wrapper) that the parser dropped. The confirm now reads
+  the whole `["outlet"]` block, so every outlet's mode (and the LED) syncs within
+  seconds. Manual appeared to work only because Manual+On also changes the live
+  on/off state, which a separate status path already carried. CB-attached strips
+  were unaffected. (Found via the AC5 diagnostic log.)
+
 ## 3.19.171
 
 ### Fixed

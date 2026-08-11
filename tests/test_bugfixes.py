@@ -404,6 +404,49 @@ async def test_confirm_poll_after_set_config(hass: HomeAssistant):
     await hass.async_block_till_done()
 
 
+async def test_outlet_confirm_polls_whole_block(hass: HomeAssistant):
+    """A standalone-strip outlet write ["outlet","O<n>"] must confirm-poll the
+    whole ["outlet"] block, not the single ["outlet","O<n>"] leaf. A targeted
+    single-outlet read answers with a bare {"O<n>": …} (no "outlet" wrapper) that
+    the config parser drops, so the mode select never updated after a non-Manual
+    mode change made in the SF app or on the card. (regression: 3.19.172)"""
+    import asyncio
+    from custom_components.sf.proxy.mqtt_parser import parse_packets
+
+    entry = await _setup(hass)
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+
+    session = ProxySession(CB_MAC, bus)
+    session.confirm_delay = 0.01
+    captured = bytearray()
+
+    class FakeWriter:
+        def write(self, data): captured.extend(data)
+        async def drain(self): pass
+
+    if session._client_writer is None:
+        session._client_writer = FakeWriter()
+
+    await session.inject({
+        "method": "setConfigField",
+        "pid": CB_MAC,
+        "params": {"keyPath": ["outlet", "O1"], "O1": {"modeType": 3}},
+        "msgId": "1", "uid": "u1",
+    })
+    await asyncio.sleep(0.1)
+
+    pkts, _ = parse_packets(bytes(captured))
+    methods = [json.loads(p.message) for p in pkts if p.message]
+    confirms = [m for m in methods if m["method"] == "getConfigField"]
+    assert len(confirms) == 1
+    # Whole block, so the response is wrapped {"outlet": {...}} and gets parsed —
+    # NOT ["outlet","O1"], which returns a bare {"O1": ...} the parser drops.
+    assert confirms[0]["params"]["keyPath"] == ["outlet"]
+
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
 async def test_light_commands_produce_device_payload(hass: HomeAssistant):
     """Regression: HA light commands must survive the light_1→light field
     mapping and reach the device as a real setConfigField inject."""

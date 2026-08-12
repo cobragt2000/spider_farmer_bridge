@@ -18,7 +18,6 @@ from .const import (
     CONF_ALLOW_CONTROL,
     CONF_BLOCK_CLOUD,
     CONF_DIAG_PER_BOOT,
-    CONF_ENV_ENTITIES,
     CONF_KEEP_OFFLINE,
     CONF_DIAG_LOG,
     CONF_DIAG_PATH,
@@ -26,7 +25,6 @@ from .const import (
     CONF_DIAG_DAYS,
     DEFAULT_DIAG_DAYS,
     CONF_PRESERVE_ON_REMOVE,
-    CONF_INSTALL_CARD,
 )
 
 # The upstream (Spider Farmer cloud) host/port are protocol constants — the
@@ -78,10 +76,6 @@ def _base_schema(current: dict) -> vol.Schema:
         vol.Required(
             CONF_KEEP_OFFLINE,
             default=current.get(CONF_KEEP_OFFLINE, True),
-        ): bool,
-        vol.Required(
-            CONF_ENV_ENTITIES,
-            default=current.get(CONF_ENV_ENTITIES, True),
         ): bool,
     })
 
@@ -150,10 +144,6 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
             vol.Required(
                 CONF_BLOCK_CLOUD,
                 default=current.get(CONF_BLOCK_CLOUD, False),
-            ): bool,
-            vol.Required(
-                CONF_INSTALL_CARD,
-                default=current.get(CONF_INSTALL_CARD, False),
             ): bool,
             vol.Required(
                 CONF_PRESERVE_ON_REMOVE,

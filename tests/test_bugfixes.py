@@ -825,3 +825,29 @@ def test_apply_plan_progress_merges():
     assert p["stages"][0]["stageId"] == 7
     assert p["progress"]["progress"] == 42
     assert published[f"ggs/ha/{CB_MAC_LC}/plan_enabled/state"] == "ON"
+
+
+def test_apply_plan_keeps_stages_when_active_frame_drops_them():
+    """A getConfigFile that reports the plan enabled but an empty stage list must
+    not blank the cached stages — otherwise the sensor can't match the running
+    stage and bounces between the stage label ("Flowering") and a bare "active".
+    Stages clear only when the plan actually goes inactive. (regression 3.19.174)"""
+    import json
+    from custom_components.sf.bus import SfBus
+    bus = object.__new__(SfBus)
+    bus._plan_state = {}
+    bus._registered = {f"ggs_{CB_MAC_LC}_plan"}
+    published = {}
+    bus.publish = lambda topic, payload=None, **kw: published.__setitem__(topic, payload)
+    bus.apply_plan(CB_MAC, True, [{"stageId": 7, "label": "Veg"}], present=True)
+    bus.apply_plan_progress(CB_MAC, {"running": True, "stageId": 7})
+    # A frame arrives with the plan still enabled but no stages — must be ignored.
+    bus.apply_plan(CB_MAC, True, [])
+    p = json.loads(published[f"ggs/ha/{CB_MAC_LC}/plan/state"])
+    assert p["active"] is True
+    assert p["stages"] and p["stages"][0]["stageId"] == 7   # not blanked
+    # Actually stopping the plan does clear the stages.
+    bus.apply_plan(CB_MAC, False, [])
+    p2 = json.loads(published[f"ggs/ha/{CB_MAC_LC}/plan/state"])
+    assert p2["active"] is False
+    assert p2["stages"] == []

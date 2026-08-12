@@ -292,9 +292,11 @@ def translate_command(
         return _cmd_se_mode(mac, uid, value)
 
     if field == "indicator_light":
-        # Strip status LED — top-level ["outlet","led"] = 0/1 (matches the app).
+        # Strip status LED — top-level ["outlet","led"]. The device/app treat led
+        # inverted vs on/off: LED lit (app "on") = led 0, off = led 1. Invert so a
+        # HA turn-on lights the LED and HA matches the SF app. (v3.19.173)
         return {"method": "setConfigField", "pid": mac,
-                "params": {"keyPath": ["outlet", "led"], "led": _onoff(value)},
+                "params": {"keyPath": ["outlet", "led"], "led": 0 if _onoff(value) else 1},
                 "msgId": _msg_id(), "uid": uid}
 
     if field == "plan_enabled":

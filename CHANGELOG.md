@@ -3,6 +3,56 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.177
+
+### Changed
+- **Each card now loads once, via the Lovelace resource list only.** The integration
+  used to register the cards through both the Lovelace resource list *and* the
+  frontend extra-module list, so every bundle loaded twice (two `<script>` tags). It
+  now prefers the storage-mode Lovelace resource — which the frontend loads on its
+  own — and only falls back to a frontend module in YAML resource mode. Any leftover
+  extra-module URLs from an earlier version are removed on upgrade.
+
+## 3.19.176
+
+### Fixed
+- **Cards no longer show up twice in HA's "Add card" picker.** The card bundle now
+  registers each card (Spider Farmer, Spider Light) de-duped by type, so when the
+  file is loaded more than once — e.g. a manually-added resource plus the
+  integration's auto-install — only one entry per card appears. If you added the
+  card resource by hand before, you can remove it now (Settings → Dashboards → ⋮ →
+  Resources) since the integration installs it for you. Card 0.20.51.
+
+## 3.19.175
+
+### Changed
+- **Environment entities and dashboard cards are always set up — the two setup
+  checkboxes are gone.** "Create Environment Settings entities" and "Install Spider
+  Farmer dashboard cards" are no longer options; both are created automatically on
+  every install (existing installs pick up the cards on the next restart). The
+  Environment entities keep their own "…Environment" device as before.
+
+## 3.19.174
+
+### Fixed
+- **Planting Plan sensor no longer bounces between the stage and "active".** A
+  full-config read that reported the plan enabled but momentarily carried an empty
+  stage list blanked the cached stages, so the sensor couldn't match the running
+  stage and flipped to a bare "active" until the next read restored it (~20s later),
+  cluttering the history. The last stage list is now kept while the plan stays
+  active and cleared only when it actually goes inactive, so the state holds steady
+  on the current stage (e.g. "Flowering"). Active/off is still shown by the
+  Planting Plan switch.
+
+## 3.19.173
+
+### Fixed
+- **Indicator light toggle is no longer inverted.** The strip status LED's `led`
+  field is backwards versus HA's on/off (the SF app treats `led=0` as the LED lit
+  and `led=1` as off). HA showed on while the app showed off, and turning it on in
+  HA turned the LED off. Both the state decode and the write are now inverted so HA
+  matches the SF app and the physical LED.
+
 ## 3.19.172
 
 ### Fixed

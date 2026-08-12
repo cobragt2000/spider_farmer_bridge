@@ -654,7 +654,7 @@ class SfBus:
         # CO2 setpoints + deadband) — confirmed from device config — so they get
         # the same Environment entities; their state/writes flow through the
         # type-agnostic normalizer/command paths.
-        if self.env_entities and (device_cfg.get("type", "") or "").lower() in (
+        if (device_cfg.get("type", "") or "").lower() in (
             "cb", "ps5", "ps10", "st"
         ):
             mac = _mac(device_cfg.get("mac", ""))
@@ -1124,7 +1124,16 @@ class SfBus:
         mac = _mac(mac_raw)
         st = self._plan_state.setdefault(mac, {})
         st["active"] = bool(active)
-        st["stages"] = stages if isinstance(stages, list) else []
+        new_stages = stages if isinstance(stages, list) else []
+        # Keep the last non-empty stage list if a frame drops it while the plan is
+        # still active — a transient getConfigFile carrying an empty plan.stage
+        # would otherwise blank the stages, so the sensor can't match the running
+        # stage and bounces between the stage label ("Flowering") and a bare
+        # "active" (~20s apart in the history). The plan_enabled switch already
+        # conveys active/off; clear the stages only when the plan is actually
+        # inactive. (v3.19.174)
+        if new_stages or not active:
+            st["stages"] = new_stages
         if present:
             st["present"] = True
         self._publish_plan(mac_raw)

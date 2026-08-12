@@ -91,12 +91,15 @@ def _lovelace_resources(hass: HomeAssistant):
     return res
 
 
-async def _add_lovelace_resources(hass: HomeAssistant, urls: list[str]) -> None:
+async def _add_lovelace_resources(hass: HomeAssistant, urls: list[str]) -> bool:
     """Add/refresh the card URLs in the Lovelace resource list (storage mode).
-    No-op (best-effort) in YAML resource mode, where it can't be edited."""
+    Returns True when the cards are registered in the (editable) storage-mode
+    resource list — the frontend then loads them itself, so no extra-module URL is
+    needed. Returns False in YAML resource mode / when the collection can't be
+    edited, so the caller falls back to frontend extra-module URLs."""
     res = _lovelace_resources(hass)
     if res is None:
-        return
+        return False
     try:
         if hasattr(res, "loaded") and not res.loaded:
             await res.async_load()
@@ -107,7 +110,8 @@ async def _add_lovelace_resources(hass: HomeAssistant, urls: list[str]) -> None:
         items = list(res.async_items())
     except Exception as exc:
         _LOGGER.debug("Lovelace resources unavailable (YAML mode?): %s", exc)
-        return
+        return False
+    ok = True
     for url in urls:
         base = url.split("?")[0]
         found = next(
@@ -121,6 +125,8 @@ async def _add_lovelace_resources(hass: HomeAssistant, urls: list[str]) -> None:
                 await res.async_update_item(found["id"], {"url": url})
         except Exception as exc:  # YAML mode / unsupported — fall back to js_url
             _LOGGER.debug("Lovelace resource add skipped for %s: %s", url, exc)
+            ok = False
+    return ok
 
 
 async def _remove_lovelace_resources(hass: HomeAssistant, bases: set[str]) -> None:
@@ -161,16 +167,30 @@ async def async_register_card(hass: HomeAssistant, version: str) -> None:
         )
         return
     urls = [card_url(f, version) for f in files]
-
-    # Primary: Lovelace resource collection (storage-mode dashboards).
-    await _add_lovelace_resources(hass, urls)
-
-    # Fallback/also: frontend extra-module URLs (YAML mode + app shell).
-    # Purge any stale ?v= URLs for the same card first, so the browser loads
-    # exactly one copy of the current version (accumulated older versions were
-    # a likely cause of intermittent "config error" / needing several refreshes
-    # before a card loads).
     bases = {f"{URL_BASE}/{f}" for f in files}
+
+    # Preferred: the storage-mode Lovelace resource list. The frontend loads those
+    # itself, so we do NOT also register extra-module URLs — doing both loaded each
+    # card twice (two <script> tags for the same bundle). If an older version left
+    # extra-module URLs behind, drop them so only one copy loads. (v3.19.177)
+    if await _add_lovelace_resources(hass, urls):
+        mgr = hass.data.get(_EXTRA_MODULE_KEY)
+        if mgr is not None:
+            for existing in list(getattr(mgr, "urls", ()) or ()):
+                if existing.split("?")[0] in bases:
+                    try:
+                        mgr.remove(existing)
+                    except Exception as exc:  # pragma: no cover
+                        _LOGGER.debug("Extra-module purge skipped for %s: %s", existing, exc)
+        _LOGGER.info(
+            "Spider Farmer cards installed via Lovelace resources: %s (v%s)",
+            ", ".join(files), version,
+        )
+        return
+
+    # Fallback (YAML resource mode / non-editable collection): frontend extra
+    # modules. Purge stale ?v= URLs for the same card first so the browser loads
+    # exactly one copy of the current version.
     mgr = hass.data.get(_EXTRA_MODULE_KEY)
     if mgr is not None:
         for existing in list(getattr(mgr, "urls", ()) or ()):
@@ -188,7 +208,8 @@ async def async_register_card(hass: HomeAssistant, version: str) -> None:
         _LOGGER.debug("Frontend extra-module registry not ready")
 
     _LOGGER.info(
-        "Spider Farmer Lovelace cards installed: %s (v%s)", ", ".join(files), version
+        "Spider Farmer cards installed via frontend modules (YAML mode): %s (v%s)",
+        ", ".join(files), version,
     )
 
 

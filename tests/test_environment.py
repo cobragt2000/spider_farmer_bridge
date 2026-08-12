@@ -240,8 +240,9 @@ async def test_env_multi_field_apply_no_clobber(hass: HomeAssistant):
     await hass.async_block_till_done()
 
 
-async def test_env_entities_disabled_option(hass: HomeAssistant):
-    """With the Environment option off, no env device/entities are created."""
+async def test_env_entities_always_created(hass: HomeAssistant):
+    """The Environment on/off option was removed — env entities are always
+    created, even if a stale 'environment_entities: False' lingers in the data."""
     entry = MockConfigEntry(
         domain=DOMAIN, title="Spider Farmer Bridge",
         data={"listen_port": 18910, "upstream_host": "sf.mqtt.spider-farmer.com",
@@ -262,10 +263,10 @@ async def test_env_entities_disabled_option(hass: HomeAssistant):
     _process_publish(session, _pkt("getConfigField", {"target": TARGET}), bus)
     await hass.async_block_till_done()
 
-    assert hass.states.get("number.sf_dp1_env_temp_day") is None
+    assert hass.states.get("number.sf_dp1_env_temp_day") is not None
     from homeassistant.helpers import device_registry as dr
     assert dr.async_get(hass).async_get_device(
-        {(DOMAIN, f"ggs_{CB_MAC_LC}_env")}) is None
+        {(DOMAIN, f"ggs_{CB_MAC_LC}_env")}) is not None
 
     await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()

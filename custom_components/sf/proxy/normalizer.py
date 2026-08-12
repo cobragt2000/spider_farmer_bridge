@@ -866,9 +866,12 @@ def normalize_outlet_config(mac: str, block: Dict[str, Any]) -> Dict[str, str]:
     e = _mac(mac)
     out: Dict[str, str] = {}
     # Strip status LED lives at the block's top level (outlet.led / ps10.led).
+    # The device/SF app treat this field inverted vs on/off: the LED being lit
+    # (app shows "on") is led=0, and led=1 is off. Map to match the app so HA and
+    # the SF app agree. (v3.19.173)
     if "led" in block:
         out[f"ggs/ha/{e}/indicator_light/state"] = (
-            "ON" if _on(block.get("led")) else "OFF"
+            "OFF" if _on(block.get("led")) else "ON"
         )
     for ok, o in block.items():
         if not (ok.startswith("O") and ok[1:].isdigit()) or not isinstance(o, dict):

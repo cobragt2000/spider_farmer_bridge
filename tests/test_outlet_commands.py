@@ -104,13 +104,14 @@ def test_build_outlet_config_cb_hosted_routes_via_device_tree():
 
 
 def test_indicator_light_command():
-    """The strip status LED writes top-level ["outlet","led"] = 0/1."""
+    """The strip status LED writes top-level ["outlet","led"], inverted vs on/off
+    to match the SF app: LED lit (HA "on") = led 0, off = led 1. (3.19.173)"""
     on = translate_command("indicator_light", "ON", PS10_MAC, "u1")
     assert on["method"] == "setConfigField"
     assert on["params"]["keyPath"] == ["outlet", "led"]
-    assert on["params"]["led"] == 1
+    assert on["params"]["led"] == 0
     off = translate_command("indicator_light", "OFF", PS10_MAC, "u1")
-    assert off["params"]["led"] == 0
+    assert off["params"]["led"] == 1
 
 
 def test_cb_hosted_outlet_is_device_rooted():
@@ -270,14 +271,15 @@ async def test_indicator_led_confirm_updates_state(hass: HomeAssistant):
             message=json.dumps({"method": "getConfigField", "uid": "u1",
                                 "data": {"led": v}}).encode())
 
-    # A bare {"led": 1} confirm response must publish the Indicator Light state.
+    # A bare {"led": N} confirm response must publish the Indicator Light state.
+    # led is inverted vs on/off to match the SF app: led 1 = off, led 0 = on.
     _process_publish(session, _led_confirm(1), bus)
     await hass.async_block_till_done()
-    assert bus.cached(topic) == "ON"
+    assert bus.cached(topic) == "OFF"
 
     _process_publish(session, _led_confirm(0), bus)
     await hass.async_block_till_done()
-    assert bus.cached(topic) == "OFF"
+    assert bus.cached(topic) == "ON"
 
     if session.initial_poll_task:
         session.initial_poll_task.cancel()

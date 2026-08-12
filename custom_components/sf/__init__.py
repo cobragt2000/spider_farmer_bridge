@@ -18,12 +18,11 @@ from .cert_manager import ensure_certs, cert_paths, upstream_ca_path
 from .const import (
     DOMAIN, CONF_LISTEN_PORT, CONF_UPSTREAM_HOST, CONF_UPSTREAM_PORT,
     DEFAULT_LISTEN_PORT, DEFAULT_UPSTREAM_HOST, DEFAULT_UPSTREAM_PORT,
-    CONF_ALLOW_CONTROL, CONF_BLOCK_CLOUD, CONF_DIAG_PER_BOOT, CONF_ENV_ENTITIES,
+    CONF_ALLOW_CONTROL, CONF_BLOCK_CLOUD, CONF_DIAG_PER_BOOT,
     CONF_KEEP_OFFLINE, DATA_BUS,
     DATA_PROXY, DATA_PROXY_TASK, PLATFORMS,
     CONF_DIAG_LOG, CONF_DIAG_PATH, DEFAULT_DIAG_PATH,
     CONF_DIAG_DAYS, DEFAULT_DIAG_DAYS, CONF_PRESERVE_ON_REMOVE,
-    CONF_INSTALL_CARD,
 )
 from .entity_defs import HA_STATUS_TOPIC
 from .proxy.mitm_proxy import MITMProxy
@@ -126,7 +125,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # ── State bus (replaces the MQTT broker) ──────────────────────────────
     bus = SfBus(hass, entry.entry_id)
     bus.keep_offline = bool(cfg.get(CONF_KEEP_OFFLINE, True))
-    bus.env_entities = bool(cfg.get(CONF_ENV_ENTITIES, True))
 
     # ── Proxy — publishes decoded state into the bus ─────────────────────
     proxy_config = {
@@ -161,16 +159,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # already in the registry, so powered-off gear survives the restart
     # with restored state instead of vanishing until it next reports.
     bus.restore_registered_entities()
-
-    # If Environment entities are disabled, remove any that a prior run made
-    # so they vanish from the UI (and don't get restored above).
-    if not bus.env_entities:
-        from homeassistant.helpers import entity_registry as er
-        ent_reg = er.async_get(hass)
-        for e in list(er.async_entries_for_config_entry(ent_reg, entry.entry_id)):
-            uid = e.unique_id or ""
-            if uid.startswith("ggs_") and "_env_" in uid:
-                ent_reg.async_remove(e.entity_id)
 
     # Bridge is up — retained-"online" parity
     bus.publish(HA_STATUS_TOPIC, "online")
@@ -275,15 +263,13 @@ def _remove_apply_entities(hass: HomeAssistant) -> None:
 
 
 async def _apply_card_option(hass: HomeAssistant, cfg: dict) -> None:
-    """Install or remove the bundled dashboard cards per the current option."""
+    """Always install the bundled dashboard cards (the on/off option was removed —
+    both the Environment entities and the cards are created automatically)."""
     from . import frontend as sf_frontend
 
     # Read the version off the event loop (manifest.json is a blocking open).
     version = await hass.async_add_executor_job(_integration_version)
-    if cfg.get(CONF_INSTALL_CARD, False):
-        await sf_frontend.async_register_card(hass, version)
-    else:
-        await sf_frontend.async_unregister_card(hass, version)
+    await sf_frontend.async_register_card(hass, version)
 
 
 _NAMING_SCHEME_FLAG = "naming_scheme_dp_ac"

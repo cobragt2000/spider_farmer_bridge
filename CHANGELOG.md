@@ -3,6 +3,35 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.180
+
+### Fixed
+- **Cards not loading on mobile.** Reverted the card-registration change from
+  3.19.177: the integration again registers each card **both** as a Lovelace
+  resource *and* as a frontend extra-module URL (the app shell / mobile relies on
+  the extra-module URL). 3.19.177 dropped the extra-module URL whenever the
+  resource path succeeded, which left the cards unavailable in the mobile app.
+  The earlier duplicate-picker / non-loading reports were caused by downgrading
+  without first removing the newer version's Lovelace resource entry (a stale
+  `?v=`), not by the dual-path registration.
+
+## 3.19.179
+
+### Changed
+- **Fan tile display (card 0.20.52).** The lower-right **Stby** badge now shows
+  the standby gear as a percentage (gear 4 → `Stby 40%`) to match the tile's main
+  value and the SF app. The **Environment** mode summary is now two lines —
+  `Environment` on top, the run mode (e.g. `Temp/Humid`) below — instead of one
+  combined `Enviro · …` line.
+
+## 3.19.178
+
+### Docs
+- **README updated for the always-installed cards.** Removed the "Install Spider
+  Farmer dashboard card" checkbox references (cards install automatically now),
+  documented that the dashboard cards register themselves on install, and noted the
+  single-path (Lovelace resource) card loading.
+
 ## 3.19.177
 
 ### Changed

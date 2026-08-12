@@ -221,6 +221,10 @@ Home Assistant:
 Copy `custom_components/sf/` into your `config/custom_components/` and
 restart.
 
+The dashboard cards are bundled and register themselves automatically — no
+separate card install or Lovelace resource step. See
+[Dashboard card](#dashboard-card).
+
 ## Connecting the devices
 
 The integration is a local proxy: the GGS controllers must reach it instead of
@@ -279,21 +283,19 @@ Rule checklist:
 ## Configuration (gear icon → Configure)
 
 - **Settings** — listen port, upstream host/port, **Allow device control**
-  (live toggle), **Install Spider Farmer dashboard card** (see below),
-  **Preserve customizations & history on removal**, diagnostic log
-  toggle/path/retention
+  (live toggle), **Preserve customizations & history on removal**, diagnostic
+  log toggle/path/retention
 - **Device mappings** — view/edit every device's and soil probe's logical
   slot; entity IDs re-align on submit
 - **Migrate device** — hardware replacement with identity transfer
 
 ## Dashboard card
 
-The integration ships optional Lovelace cards. Tick **Settings → Install Spider
-Farmer dashboard card** and the integration serves and auto-registers them — no
-HACS install and no manual Lovelace resource entry. Unchecking it removes them
-from the frontend (the change applies live; refresh the browser to pick it up).
-The served URLs carry the integration version, so browsers refetch the cards on
-each release automatically. Three cards are bundled:
+The integration ships bundled Lovelace cards and installs them automatically —
+it serves and auto-registers them, so there's no HACS install and no manual
+Lovelace resource entry. The served URLs carry the integration version, so
+browsers refetch the cards on each release automatically. Three cards are
+bundled:
 
 - **`custom:spider-farmer-card`** — the main tent card (below).
 - **`custom:spider-light-card`** — a control card for an SE-series light
@@ -343,8 +345,8 @@ default_tab: overview        # optional: "overview" (default), "environment", "o
 
 Entities render only when they exist, so partial setups display cleanly: each
 of the Environment, Outlets, and Calibration tabs appears only when that
-panel actually has the matching entities. Enabling the card loads the element
-globally but has no effect until you add it to a dashboard.
+panel actually has the matching entities. The card element is loaded globally
+by the integration, but has no effect until you add it to a dashboard.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/15_card_overview.png" width="245" alt="Spider Farmer card — Overview tab" />
@@ -427,10 +429,11 @@ couldn't load the card's JavaScript. In order of likelihood:
 4. **Check for duplicate/stale resources.** Settings → Dashboards → ⋮ →
    Resources: there should be exactly one `/sf_bridge_frontend/spider-farmer-card.js`
    entry. Delete extras (older `?v=` copies), then reload.
-5. **YAML-mode dashboards** don't read the storage resource list; the
-   integration also adds the card as a frontend extra-module URL, which covers
-   this — but a manual `lovelace: resources:` entry pointing at
-   `/sf_bridge_frontend/spider-farmer-card.js` works too.
+5. **YAML-mode dashboards** don't read the storage resource list; when the
+   integration detects YAML resource mode it registers the card as a frontend
+   extra-module URL instead (in storage mode it uses only the Lovelace resource,
+   so each card loads once) — but a manual `lovelace: resources:` entry pointing
+   at `/sf_bridge_frontend/spider-farmer-card.js` works too.
 
 You do **not** need to symlink or copy the cards into `config/www/` — if that's
 the only thing that makes the card load, something above is the real cause and

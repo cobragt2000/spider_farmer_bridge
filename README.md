@@ -300,9 +300,11 @@ bundled:
 - **`custom:spider-farmer-card`** — the main tent card (below).
 - **`custom:spider-light-card`** — a control card for an SE-series light
   (below).
-- **`custom:ppfd-3d-card`** — a 3D PPFD visualizer for Spider Farmer SE4500 /
-  SF2000 grow lights. Configure it per its own options (`light_model`,
-  `entities`).
+- **`custom:ppfd-3d-card`** — a 3D PPFD visualizer for Spider Farmer SE4500,
+  SE5000, SF2000, SF7000 and G1000W grow lights (PPFD curves built from each
+  light's published PPFD map). Configure it per its own options (`light_model`,
+  `entities`); `unit_system: auto` (the default) follows your Home Assistant
+  unit system, or force `metric` / `imperial`.
 
 The main card (`custom:spider-farmer-card`) is a single tabbed card:
 
@@ -379,7 +381,7 @@ Overview shots below are the same tent in *tile-colour* and *text-colour* mode:
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/25_card_alert_color_modes.png" width="420" alt="Highlight modes compared — colored value text vs colored tile" />
 </p>
 
-The `custom:ppfd-3d-card` 3D PPFD visualizer for SE4500 / SF2000 grow lights:
+The `custom:ppfd-3d-card` 3D PPFD visualizer (SE4500 / SE5000 / SF2000 / SF7000 / G1000W):
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/ppfd_se4500.png" width="330" alt="PPFD 3D visualizer — SE4500" />

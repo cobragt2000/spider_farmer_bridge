@@ -1,6 +1,6 @@
 /**
- * PPFD 3D Grow Light Lovelace Card  v4.0
- * Spider Farmer SE4500 / SF2000
+ * PPFD 3D Grow Light Lovelace Card  v4.2
+ * Spider Farmer SE4500 / SE5000 / SF2000 / SF7000 / G1000W
  *
  * Install: /config/www/ppfd-3d-card.js
  * Resource: /local/ppfd-3d-card.js?v=5
@@ -8,6 +8,7 @@
  * type: custom:ppfd-3d-card
  * title: Flower tent
  * light_model: SE4500
+ * unit_system: auto      # auto (follow HA) | metric | imperial
  * entities:
  *   dimmer_percent: sensor.se4500_dimmer
  *   height_inches:  sensor.light_height_in
@@ -48,6 +49,49 @@ const _LIGHTS = {
       32:{c:274,a:176,e:78},   36:{c:226,a:145,e:64},    42:{c:182,a:116,e:51},
       48:{c:148,a:95,e:42},    60:{c:97,a:62,e:27},      72:{c:68,a:43,e:19},
       84:{c:49,a:31,e:14},
+    }
+  },
+  // Below: PPFD tables derived from Spider Farmer's published PPFD maps (100%
+  // dimming). center = geometric-center reading, avg = whole-canopy mean, edge =
+  // perimeter-ring mean. Measured heights are exact; other heights are modeled
+  // (center/avg inverse-square, edge as a height-dependent fraction of avg).
+  SE5000: {
+    name:'SE5000', watts:480, isBar:true, barCount:4, lW:0.855, lL:0.85,
+    // measured 10" & 12" in a 4x4 ft tent
+    ppfd:{
+       8:{c:1561,a:1101,e:597}, 10:{c:1478,a:1041,e:631}, 12:{c:1402,a:986,e:661},
+      14:{c:1332,a:935,e:686},  16:{c:1267,a:889,e:708},  18:{c:1206,a:845,e:727},
+      20:{c:1150,a:805,e:744},  22:{c:1098,a:767,e:752},  24:{c:1049,a:732,e:718},
+      26:{c:1003,a:700,e:686},  28:{c:960,a:669,e:656},   30:{c:920,a:640,e:628},
+      32:{c:883,a:614,e:601},   36:{c:814,a:565,e:554},   42:{c:725,a:502,e:492},
+      48:{c:650,a:449,e:440},   60:{c:531,a:366,e:358},   72:{c:442,a:303,e:297},
+      84:{c:373,a:256,e:251},
+    }
+  },
+  SF7000: {
+    name:'SF7000', watts:650, isBar:false, barCount:0, lW:0.737, lL:0.558,
+    // measured 12"/18"/24" in a 5x5 ft tent
+    ppfd:{
+       8:{c:2560,a:1105,e:314}, 10:{c:2298,a:1052,e:359}, 12:{c:2053,a:983,e:394},
+      14:{c:1881,a:955,e:434},  16:{c:1714,a:912,e:465},  18:{c:1597,a:903,e:506},
+      20:{c:1441,a:833,e:520},  22:{c:1328,a:798,e:543},  24:{c:1218,a:752,e:556},
+      26:{c:1138,a:734,e:582},  28:{c:1059,a:704,e:598},  30:{c:987,a:677,e:613},
+      32:{c:922,a:651,e:626},   36:{c:811,a:603,e:591},   42:{c:678,a:541,e:530},
+      48:{c:575,a:488,e:478},   60:{c:429,a:403,e:395},   72:{c:332,a:332,e:325},
+      84:{c:265,a:265,e:259},
+    }
+  },
+  G1000W: {
+    name:'G1000W', watts:1000, isBar:true, barCount:8, lW:1.153, lL:1.122,
+    // measured 12" & 16" in a 4x4 ft tent
+    ppfd:{
+       8:{c:2156,a:1822,e:1555}, 10:{c:2068,a:1769,e:1527}, 12:{c:1985,a:1720,e:1501},
+      14:{c:1908,a:1672,e:1476}, 16:{c:1834,a:1626,e:1451}, 18:{c:1765,a:1582,e:1427},
+      20:{c:1700,a:1540,e:1404}, 22:{c:1638,a:1499,e:1382}, 24:{c:1580,a:1460,e:1360},
+      26:{c:1524,a:1422,e:1339}, 28:{c:1472,a:1386,e:1319}, 30:{c:1422,a:1352,e:1299},
+      32:{c:1375,a:1318,e:1280}, 36:{c:1287,a:1255,e:1230}, 42:{c:1170,a:1168,e:1145},
+      48:{c:1068,a:1068,e:1047}, 60:{c:901,a:901,e:883},    72:{c:770,a:770,e:755},
+      84:{c:666,a:666,e:653},
     }
   }
 };
@@ -135,7 +179,7 @@ class PPFD3DCard extends HTMLElement {
     this._cfg={};this._hass=null;this._T=null;
     this._scene=null;this._camera=null;this._renderer=null;this._raf=null;
     this._o={};
-    this._s={tW:0.61,tL:1.22,tH:1.981,lightKey:'SE4500',hin:18,plantIn:12,numPlants:2,dim:100,photo:18};
+    this._s={tW:0.61,tL:1.22,tH:1.981,lightKey:'SE4500',hin:18,plantIn:12,numPlants:2,dim:100,photo:18,metric:false};
     this._cam={theta:0.52,phi:0.36,r:3.8,drag:false,px:0,py:0};
   }
 
@@ -151,11 +195,32 @@ class PPFD3DCard extends HTMLElement {
     this._s.tW = Math.max(0.3,(tent.width_ft||2)*0.3048);
     this._s.tL = Math.max(0.6,(tent.length_ft||4)*0.3048);
     this._s.tH = Math.max(0.9,(tent.height_ft||6.5)*0.3048);
+    this._s.metric = this._resolveMetric();
     if(!this.shadowRoot.querySelector('#w')) this._buildDOM();
   }
 
+  // Resolve the display unit system. Config `unit_system` wins (metric|imperial);
+  // otherwise (auto/unset) follow the HA instance's configured length unit.
+  _resolveMetric(){
+    const u=(this._cfg.unit_system||'auto').toLowerCase();
+    if(u==='metric')   return true;
+    if(u==='imperial') return false;
+    const us=this._hass&&this._hass.config&&this._hass.config.unit_system;
+    if(us&&us.length) return us.length!=='mi';   // metric length unit -> km
+    return false;
+  }
+  _fmtSmall(inches){                     // light/plant heights
+    return this._s.metric ? `${Math.round(inches*2.54)} cm` : `${Math.round(inches)}"`;
+  }
+  _fmtTentDim(feet){                     // one tent dimension, no unit suffix
+    return this._s.metric ? (feet*0.3048).toFixed(2) : (+feet).toFixed(1);
+  }
+  _tentUnit(){ return this._s.metric ? 'm' : 'ft'; }
+
   set hass(hass){
     this._hass=hass;
+    const m=this._resolveMetric();
+    if(m!==this._s.metric){this._s.metric=m;this._applyUnits();if(this._scene)this._update();}
     const ents=this._cfg.entities||{};
     let chg=false;
     if(ents.dimmer_percent){
@@ -169,9 +234,10 @@ class PPFD3DCard extends HTMLElement {
     if(chg&&this._scene){this._syncSliders();this._update();}
   }
 
-  static getConfigElement(){return document.createElement('ppfd-3d-card-editor');}
+  // No getConfigElement: a visual editor element was never shipped, so returning
+  // one here made the card's "Edit" pane error. Fall back to HA's YAML editor.
   static getStubConfig(){
-    return{type:'custom:ppfd-3d-card',title:'PPFD Visualizer',light_model:'SE4500',
+    return{type:'custom:ppfd-3d-card',title:'PPFD Visualizer',light_model:'SE4500',unit_system:'auto',
       defaults:{height_inches:18,plant_height_inches:12,num_plants:2,dimmer_percent:100,photoperiod_hours:18},
       tent:{width_ft:2,length_ft:4,height_ft:6.5}};
   }
@@ -184,7 +250,10 @@ class PPFD3DCard extends HTMLElement {
         <div><div class="title">${title}</div><div class="sub" id="sub">Loading…</div></div>
         <select id="sel">
           <option value="SE4500">SE4500 320W</option>
+          <option value="SE5000">SE5000 480W</option>
           <option value="SF2000">SF2000 200W</option>
+          <option value="SF7000">SF7000 650W</option>
+          <option value="G1000W">G1000W 1000W</option>
         </select>
       </div>
       <div class="vw"><canvas id="c" height="340"></canvas></div>
@@ -208,13 +277,13 @@ class PPFD3DCard extends HTMLElement {
       <div class="sec">Tent dimensions</div>
       <div class="ctrls">
         <div class="r3">
-          <div class="cg"><span class="cl">Width (ft)</span><input type="number" id="t-w" value="2" min="1" max="10" step="0.5"></div>
-          <div class="cg"><span class="cl">Length (ft)</span><input type="number" id="t-l" value="4" min="1" max="12" step="0.5"></div>
-          <div class="cg"><span class="cl">Height (ft)</span><input type="number" id="t-h" value="6.5" min="3" max="12" step="0.5"></div>
+          <div class="cg"><span class="cl" id="tl-w">Width (ft)</span><input type="number" id="t-w" value="2" min="1" max="10" step="0.5"></div>
+          <div class="cg"><span class="cl" id="tl-l">Length (ft)</span><input type="number" id="t-l" value="4" min="1" max="12" step="0.5"></div>
+          <div class="cg"><span class="cl" id="tl-h">Height (ft)</span><input type="number" id="t-h" value="6.5" min="3" max="12" step="0.5"></div>
         </div>
       </div>
     </div>`;
-    this._syncSliders();
+    this._applyUnits();
     this._loadThree();
     this._attachEvents();
   }
@@ -222,13 +291,13 @@ class PPFD3DCard extends HTMLElement {
   _syncLightMax(){this._syncSliderMaxes();}
   _syncSliderMaxes(){
     const sr=this.shadowRoot;
-    const tentHIn=Math.round((+sr.getElementById('t-h').value||6.5)*12);
+    const tentHIn=Math.round(this._s.tH/0.0254);   // internal metres -> inches (unit-agnostic)
     const slHt=sr.getElementById('sl-ht');
     if(slHt){
       slHt.max=tentHIn;
       if(+slHt.value>tentHIn){
         slHt.value=tentHIn;this._s.hin=tentHIn;
-        const lbl=sr.getElementById('l-ht');if(lbl)lbl.textContent=tentHIn+'"';
+        const lbl=sr.getElementById('l-ht');if(lbl)lbl.textContent=this._fmtSmall(tentHIn);
       }
     }
     const slPt=sr.getElementById('sl-pt');
@@ -236,7 +305,7 @@ class PPFD3DCard extends HTMLElement {
       slPt.max=tentHIn;
       if(+slPt.value>tentHIn){
         slPt.value=tentHIn;this._s.plantIn=tentHIn;
-        const lbl=sr.getElementById('l-pt');if(lbl)lbl.textContent=tentHIn+'"';
+        const lbl=sr.getElementById('l-pt');if(lbl)lbl.textContent=this._fmtSmall(tentHIn);
       }
     }
   }
@@ -246,15 +315,28 @@ class PPFD3DCard extends HTMLElement {
     const sv=(id,v)=>{const e=sr.getElementById(id);if(e)e.value=v;};
     const st=(id,v)=>{const e=sr.getElementById(id);if(e)e.textContent=v;};
     sv('sel',s.lightKey);
-    sv('sl-ht',s.hin);       st('l-ht',s.hin+'"');
-    sv('sl-pt',s.plantIn);   st('l-pt',s.plantIn+'"');
+    sv('sl-ht',s.hin);       st('l-ht',this._fmtSmall(s.hin));
+    sv('sl-pt',s.plantIn);   st('l-pt',this._fmtSmall(s.plantIn));
     sv('sl-np',s.numPlants); st('l-np',s.numPlants);
     sv('sl-dim',s.dim);      st('l-dim',s.dim+'%');
     sv('sl-pp',s.photo);     st('l-pp',s.photo+'h');
-    sv('t-w',+(s.tW/0.3048).toFixed(1));
-    sv('t-l',+(s.tL/0.3048).toFixed(1));
-    sv('t-h',+(s.tH/0.3048).toFixed(1));
+    sv('t-w',this._fmtTentDim(s.tW/0.3048));
+    sv('t-l',this._fmtTentDim(s.tL/0.3048));
+    sv('t-h',this._fmtTentDim(s.tH/0.3048));
     this._syncSliderMaxes();
+  }
+
+  // Update the unit-dependent bits of the UI (tent input labels + ranges) and
+  // re-sync values. Called after DOM build and whenever the unit system flips.
+  _applyUnits(){
+    const sr=this.shadowRoot,m=this._s.metric,u=this._tentUnit();
+    const setLbl=(id,txt)=>{const e=sr.getElementById(id);if(e)e.textContent=txt;};
+    setLbl('tl-w',`Width (${u})`);setLbl('tl-l',`Length (${u})`);setLbl('tl-h',`Height (${u})`);
+    // number-input ranges: metric metres vs imperial feet
+    const rng=(id,mnFt,mxFt)=>{const e=sr.getElementById(id);if(!e)return;
+      e.min=m?(mnFt*0.3048).toFixed(1):mnFt; e.max=m?(mxFt*0.3048).toFixed(1):mxFt; e.step=m?0.1:0.5;};
+    rng('t-w',1,10);rng('t-l',1,12);rng('t-h',3,12);
+    this._syncSliders();
   }
 
   _attachEvents(){
@@ -267,12 +349,14 @@ class PPFD3DCard extends HTMLElement {
       this._s.numPlants = gv('sl-np');
       this._s.dim       = gv('sl-dim');
       this._s.photo     = gv('sl-pp');
-      this._s.tW=Math.max(0.3,(gv('t-w')||2)*0.3048);
-      this._s.tL=Math.max(0.6,(gv('t-l')||4)*0.3048);
-      this._s.tH=Math.max(0.9,(gv('t-h')||6.5)*0.3048);
-      const gt=(id,v,sfx)=>{const e=sr.getElementById(id);if(e)e.textContent=v+sfx;};
-      gt('l-ht',this._s.hin,'"');gt('l-pt',this._s.plantIn,'"');
-      gt('l-np',this._s.numPlants,'');gt('l-dim',this._s.dim,'%');gt('l-pp',this._s.photo,'h');
+      const mult=this._s.metric?1:0.3048;   // tent inputs are metres (metric) or feet
+      const gtd=(id,defM)=>{const v=+sr.getElementById(id).value;return isNaN(v)?defM:v*mult;};
+      this._s.tW=Math.max(0.3,gtd('t-w',0.61));
+      this._s.tL=Math.max(0.6,gtd('t-l',1.22));
+      this._s.tH=Math.max(0.9,gtd('t-h',1.98));
+      const stx=(id,txt)=>{const e=sr.getElementById(id);if(e)e.textContent=txt;};
+      stx('l-ht',this._fmtSmall(this._s.hin));stx('l-pt',this._fmtSmall(this._s.plantIn));
+      stx('l-np',''+this._s.numPlants);stx('l-dim',this._s.dim+'%');stx('l-pp',this._s.photo+'h');
       this._syncSliderMaxes();
       if(this._scene)this._update();
     };
@@ -486,7 +570,7 @@ class PPFD3DCard extends HTMLElement {
       const mat=new T.LineDashedMaterial({color:0xffffff,transparent:true,opacity:0.45,dashSize:0.04,gapSize:0.03});
       const geo=new T.BufferGeometry().setFromPoints([new T.Vector3(lx,y,0),new T.Vector3(lx,pY,0)]);
       const dl=new T.Line(geo,mat);dl.computeLineDistances();hG2.add(dl);
-      const sp=this._sprite(Math.round(hin-plantIn)+'"',28);sp.position.set(lx-0.11,(y+pY)/2,0);sp.scale.set(0.24,0.12,1);hG2.add(sp);
+      const sp=this._sprite(this._fmtSmall(hin-plantIn),28);sp.position.set(lx-0.11,(y+pY)/2,0);sp.scale.set(0.24,0.12,1);hG2.add(sp);
       const arrMat=new T.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.5});
       const au=new T.Mesh(new T.ConeGeometry(0.013,0.035,8),arrMat);au.position.set(lx,y-0.02,0);hG2.add(au);
       const ad=new T.Mesh(new T.ConeGeometry(0.013,0.035,8),arrMat);ad.rotation.z=Math.PI;ad.position.set(lx,pY+0.02,0);hG2.add(ad);
@@ -496,9 +580,9 @@ class PPFD3DCard extends HTMLElement {
     // stats
     const dli=((ppfd.avg*photo*3600)/1e6).toFixed(1);
     const zone=_zoneInfo(ppfd.avg);
-    const tWft=(tW/0.3048).toFixed(1),tLft=(tL/0.3048).toFixed(1),tHft=(tH/0.3048).toFixed(1);
+    const td=v=>this._fmtTentDim(v/0.3048);
     const sub=this.shadowRoot.getElementById('sub');
-    if(sub)sub.textContent=`${light.name} · ${tWft}×${tLft}×${tHft} ft · ${numPlants} plant${numPlants>1?'s':''}`;
+    if(sub)sub.textContent=`${light.name} · ${td(tW)}×${td(tL)}×${td(tH)} ${this._tentUnit()} · ${numPlants} plant${numPlants>1?'s':''}`;
     const statsEl=this.shadowRoot.getElementById('stats');
     if(statsEl)statsEl.innerHTML=`
       <div class="stat"><div class="sl">Center PPFD</div><div class="sv">${ppfd.center.toLocaleString()}<span class="su"> μmol/m²/s</span></div></div>
@@ -506,7 +590,7 @@ class PPFD3DCard extends HTMLElement {
       <div class="stat"><div class="sl">Edge PPFD</div><div class="sv">${ppfd.edge.toLocaleString()}<span class="su"> μmol/m²/s</span></div></div>
       <div class="stat"><div class="sl">DLI @ ${photo}h</div><div class="sv">${dli}<span class="su"> mol/m²/d</span></div></div>`;
     const zoneEl=this.shadowRoot.getElementById('zone');
-    if(zoneEl)zoneEl.innerHTML=`<span class="zbadge" style="background:${zone.color}22;color:${zone.color};border:1px solid ${zone.color}44">${zone.label}</span>${effectiveH}" light-to-canopy · ${dim}% power`;
+    if(zoneEl)zoneEl.innerHTML=`<span class="zbadge" style="background:${zone.color}22;color:${zone.color};border:1px solid ${zone.color}44">${zone.label}</span>${this._fmtSmall(effectiveH)} light-to-canopy · ${dim}% power`;
     this._updCam();
   }
 
@@ -516,9 +600,24 @@ class PPFD3DCard extends HTMLElement {
   }
 }
 
-if(!customElements.get('ppfd-3d-card'))customElements.define('ppfd-3d-card',PPFD3DCard);
+// Register the element. Do NOT gate on customElements.get() first: on some hard
+// refreshes that guard misfired (the tag read as "taken" while it was actually
+// free) and the define was silently skipped, so the card rendered as a
+// "Configuration error" until the next refresh. Instead attempt the define
+// directly, swallow the harmless "already defined" if another load beat us, and
+// self-heal on the off chance it still didn't take.
+function _defPPFD(){
+  // Attempt the define unconditionally — never gate on customElements.get(),
+  // which is exactly what misfired. If the name is free it registers; if another
+  // load already registered it, define throws "already defined" and we swallow it.
+  try{ customElements.define('ppfd-3d-card',PPFD3DCard); }catch(e){}
+  return !!customElements.get('ppfd-3d-card');
+}
+if(!_defPPFD()){
+  let _n=0; const _iv=setInterval(()=>{ if(_defPPFD()||++_n>40) clearInterval(_iv); },50);
+}
 window.customCards=window.customCards||[];
 if(!window.customCards.find(c=>c.type==='ppfd-3d-card')){
   window.customCards.push({type:'ppfd-3d-card',name:'PPFD 3D Grow Light Card',
-    description:'3D PPFD visualizer for Spider Farmer SE4500 & SF2000.',preview:true});
+    description:'3D PPFD visualizer for Spider Farmer SE4500, SE5000, SF2000, SF7000 & G1000W.',preview:true});
 }

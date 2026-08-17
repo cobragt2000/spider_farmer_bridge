@@ -135,6 +135,45 @@ async def test_indicator_light_survives_prune_blocks(hass: HomeAssistant):
     assert f"ggs_{PS5_LC}_light_1" not in uids
 
 
+async def test_device_toggle_blocks_all_three(hass: HomeAssistant):
+    """A CB reporting light/light2/fan offers all three tree checkboxes."""
+    from custom_components.sf.config_flow import device_toggle_blocks
+    entry = await _setup(hass)
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+    cfg = {"mac": MAC, "type": "cb"}
+    bus.register_device(cfg)
+    bus.blocks_seen(MAC, {"light", "light2", "fan"}, cfg)
+    await hass.async_block_till_done()
+    assert device_toggle_blocks(hass, entry, MAC_LC) == ["light", "light2", "fan"]
+
+
+async def test_device_toggle_blocks_hides_unreported(hass: HomeAssistant):
+    """A device that never reports Light 2 does not show that checkbox."""
+    from custom_components.sf.config_flow import device_toggle_blocks
+    entry = await _setup(hass)
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+    cfg = {"mac": MAC, "type": "cb"}
+    bus.register_device(cfg)
+    bus.blocks_seen(MAC, {"light", "fan"}, cfg)   # no light2 reported
+    await hass.async_block_till_done()
+    assert device_toggle_blocks(hass, entry, MAC_LC) == ["light", "fan"]
+
+
+async def test_device_toggle_blocks_keeps_hidden_decision(hass: HomeAssistant):
+    """An accessory turned off (entities torn down) still shows so it can be
+    turned back on — the explicit decision keeps it in the tree."""
+    from custom_components.sf.config_flow import device_toggle_blocks
+    entry = await _setup(hass, options={"components": {MAC_LC: {"light2": False}}})
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+    cfg = {"mac": MAC, "type": "cb"}
+    bus.register_device(cfg)
+    bus.blocks_seen(MAC, {"light", "light2", "fan"}, cfg)
+    await hass.async_block_till_done()
+    blocks = device_toggle_blocks(hass, entry, MAC_LC)
+    assert "light2" in blocks                              # kept via decision
+    assert f"ggs_{MAC_LC}_light_2" not in _uids(hass, entry)  # but not created
+
+
 async def test_migration_carries_card_hide_light2(hass: HomeAssistant):
     entry = MockConfigEntry(
         domain=DOMAIN, unique_id=DOMAIN, data={"listen_port": 18975},

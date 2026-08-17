@@ -169,43 +169,73 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(step_id="settings", data_schema=schema)
 
     async def async_step_components(self, user_input=None):
-        """Per-device accessory selection for the two phantom-prone channels —
-        Light 2 and Fan. Checked = create (when the device reports it),
-        unchecked = never create + tear down. One entry per (device,
-        accessory) so a fan on dp1 and a phantom fan on dp2 are independent.
-        Stored per-MAC: options["components"][mac][block] = bool. Everything
-        else (blower, primary light, humidifier, sensors…) stays auto."""
-        pairs = toggleable_candidates(self.hass, self._entry)
-        if not pairs:
+        """Per-device accessory tree. Each controller is a section (collapsed by
+        default) headed by its name, holding one compact multi-select checklist of
+        the accessories it reports — Light 1 / Light 2 / Fan. Checked = create,
+        unchecked = tear down. Accessories a device never reports are omitted.
+        Stored per-MAC: options["components"][mac][block] = bool. Everything else
+        (blower, humidifier, sensors…) stays automatic."""
+        from .entity_defs import COMPONENT_LABELS
+
+        # Ordered device list (reuse candidate enumeration → macs, SE excluded),
+        # each with only the accessories it actually reports.
+        macs = list(dict.fromkeys(m for m, _ in toggleable_candidates(self.hass, self._entry)))
+        names = component_device_names(self.hass, self._entry)
+        groups = []                     # [(mac, section_key, [blocks])]
+        used_keys = {}
+        for mac in macs:
+            blocks = device_toggle_blocks(self.hass, self._entry, mac)
+            if not blocks:
+                continue
+            key = names.get(mac, mac)
+            if key in used_keys:        # disambiguate duplicate device names
+                key = f"{key} ({mac[-4:]})"
+            used_keys[key] = mac
+            groups.append((mac, key, blocks))
+        if not groups:
             return self.async_abort(reason="no_components")
 
-        labels = component_pair_labels(self.hass, self._entry, pairs)
+        try:
+            from homeassistant.data_entry_flow import section
+        except ImportError:
+            section = None
+
+        FIELD = "accessories"   # multi-select key inside each device section
 
         if user_input is not None:
-            selected = set(user_input.get("enabled", []))
-            decisions = {
-                (mac, block): f"{mac}:{block}" in selected
-                for mac, block in pairs
-            }
+            decisions = {}
+            for mac, key, blocks in groups:
+                sub = user_input.get(key) if section else user_input
+                selected = set((sub or {}).get(FIELD if section else key) or [])
+                for b in blocks:
+                    decisions[(mac, b)] = b in selected
             apply_component_decisions(self.hass, self._entry, decisions)
             return self.async_create_entry(
                 title="", data=dict(self._entry.options or {})
             )
 
-        options = [
-            selector.SelectOptionDict(value=f"{mac}:{block}", label=labels[(mac, block)])
-            for mac, block in pairs
-        ]
-        default = [
-            f"{mac}:{block}" for mac, block in pairs
-            if component_enabled(self._entry, mac, block)
-        ]
-        schema = vol.Schema({
-            vol.Optional("enabled", default=default): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=options, multiple=True)
-            ),
-        })
-        return self.async_show_form(step_id="components", data_schema=schema)
+        def _picker(mac, blocks):
+            """Compact checkbox list (denser than one boolean row per accessory)."""
+            return selector.SelectSelector(selector.SelectSelectorConfig(
+                options=[selector.SelectOptionDict(value=b, label=COMPONENT_LABELS.get(b, b))
+                         for b in blocks],
+                multiple=True, mode="list",
+            ))
+
+        schema_dict = {}
+        for mac, key, blocks in groups:
+            default_sel = [b for b in blocks if component_enabled(self._entry, mac, b)]
+            if section:
+                schema_dict[vol.Required(key)] = section(
+                    vol.Schema({vol.Optional(FIELD, default=default_sel): _picker(mac, blocks)}),
+                    {"collapsed": True},
+                )
+            else:
+                # Fallback (older HA without form sections): one picker per device.
+                schema_dict[vol.Optional(key, default=default_sel)] = _picker(mac, blocks)
+        return self.async_show_form(
+            step_id="components", data_schema=vol.Schema(schema_dict)
+        )
 
     async def async_step_mappings(self, user_input=None):
         """View/edit the logical slot assigned to each device. Slots drive
@@ -540,6 +570,42 @@ def component_pair_labels(hass, entry, pairs):
         slot = slots.get(mac) or names.get(mac) or mac
         out[(mac, block)] = f"{slot} — {COMPONENT_LABELS.get(block, block)}"
     return out
+
+
+def component_device_names(hass, entry) -> dict:
+    """{mac: display name} for the config entry's GGS devices (slot fallback)."""
+    from homeassistant.helpers import device_registry as dr
+    slots = (entry.options or {}).get("device_slots", {})
+    out = {}
+    dev_reg = dr.async_get(hass)
+    for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+        for domain, ident in device.identifiers:
+            if domain == DOMAIN and ident.startswith("ggs_"):
+                out[ident[4:]] = device.name_by_user or device.name
+    return {m: (out.get(m) or slots.get(m) or m) for m in set(out) | set(slots)}
+
+
+def device_toggle_blocks(hass, entry, mac) -> list:
+    """Toggleable accessories (Light 1 / Light 2 / Fan, in that order) that this
+    controller actually reports — detected from its registry entities — plus any
+    that carry an explicit on/off decision (so an accessory the user turned off,
+    and whose entities were torn down, still shows so it can be turned back on).
+    Accessories the device never reported are omitted (per the tree UI)."""
+    from homeassistant.helpers import entity_registry as er_mod
+    from .entity_defs import TOGGLEABLE_BLOCKS
+
+    ent_reg = er_mod.async_get(hass)
+    uids = {
+        e.unique_id for e in er_mod.async_entries_for_config_entry(ent_reg, entry.entry_id)
+        if (e.unique_id or "").startswith(f"ggs_{mac}_")
+    }
+    present = set()
+    if f"ggs_{mac}_light_1" in uids: present.add("light")
+    if f"ggs_{mac}_light_2" in uids: present.add("light2")
+    if f"ggs_{mac}_fan" in uids:     present.add("fan")
+    decided = set((entry.options or {}).get("components", {}).get(mac, {}).keys())
+    blocks = present | (decided & set(TOGGLEABLE_BLOCKS))
+    return [b for b in TOGGLEABLE_BLOCKS if b in blocks]
 
 
 def component_enabled(entry, mac, block) -> bool:

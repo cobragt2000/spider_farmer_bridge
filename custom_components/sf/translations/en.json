@@ -47,10 +47,7 @@
       },
       "components": {
         "title": "Device accessories",
-        "description": "Each device is listed with Light 1, Light 2, and Fan. These are created automatically when the device reports them; uncheck one to hide it and tear it down (handy for a phantom light/fan, or a fan-only setup where the light channel should be off). Everything else (blower, humidifier, sensors, outlets) auto-detects. Leaving a box checked means \"allow it\" — it still only appears when the device actually reports it.",
-        "data": {
-          "enabled": "Accessories to keep (unchecked = hidden)"
-        }
+        "description": "Each controller is listed with a checkbox for every accessory it reports — Light 1, Light 2 and Fan (accessories a device does not report are omitted). They are created automatically; uncheck one to hide it and tear it down (handy for a phantom light/fan, or a fan-only setup where the light channel should be off). Everything else (blower, humidifier, sensors, outlets) auto-detects."
       },
       "migrate": {
         "title": "Migrate device",

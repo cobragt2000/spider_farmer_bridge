@@ -3,6 +3,55 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.184
+
+### Changed
+- **Device accessories step: collapsed per-device tree + compact checklist.** Each
+  controller now starts **collapsed** (just its name) — expand it to toggle its
+  accessories. The accessories are a single dense multi-select checklist (Light 1 /
+  Light 2 / Fan) instead of one spaced-out toggle row each, so the whole fleet fits
+  without scrolling. (HA form fields can't be laid out horizontally, so this is the
+  most compact the dialog allows.)
+
+## 3.19.183
+
+### Fixed
+- **PPFD 3D card intermittently showed "Configuration error" on refresh** (card
+  v4.2). Diagnosed live: on some hard refreshes the card's element registration was
+  silently skipped by a `customElements.get()` guard that mis-reported the tag as
+  already-registered (the tag was actually free), so the element never defined and
+  Lovelace rendered a config error until the next refresh. The card now registers
+  **unconditionally** (define-and-catch, plus a short self-heal retry), so it always
+  comes up. Also removed a stale `getConfigElement` that referenced a non-existent
+  `ppfd-3d-card-editor` (which broke the card's visual Edit pane) — it now uses HA's
+  YAML editor.
+
+## 3.19.182
+
+### Changed
+- **Device accessories options step is now a per-device tree.** Configure →
+  Device accessories lists each controller as its own collapsible section with a
+  checkbox for every accessory it actually reports — Light 1, Light 2, Fan.
+  Accessories a device never reports are omitted (a fan-only strip shows Light 1
+  + Fan; a full panel shows all three; an accessory you've turned off stays
+  listed so you can turn it back on). Replaces the earlier single flat
+  "device — accessory" checklist. Toggling still tears entities down / brings
+  them back exactly as before.
+
+## 3.19.181
+
+### Added
+- **PPFD 3D card: three new light presets — SE5000, SF7000, G1000W** (card v4.1),
+  alongside the existing SE4500 / SF2000. Each preset's center/avg/edge PPFD-by-
+  height curve is derived from Spider Farmer's published PPFD maps (SE5000 10"/12",
+  SF7000 12"/18"/24", G1000W 12"/16"), with center/avg modeled inverse-square and
+  edge as a height-dependent fraction of the canopy average between/beyond the
+  measured heights.
+- **PPFD 3D card follows the HA unit system.** New `unit_system` option
+  (`auto` | `metric` | `imperial`, default `auto`). In `auto` the card reads the
+  Home Assistant instance's unit system and shows light/plant heights in cm and
+  tent dimensions in metres for metric users (inches/feet for imperial).
+
 ## 3.19.180
 
 ### Fixed

@@ -174,7 +174,7 @@ set_sensor_heating:
       selector:
         entity:
           integration: sf
-    on:
+    "on":
       name: Start
       description: On = start cleaning, Off = stop.
       required: true

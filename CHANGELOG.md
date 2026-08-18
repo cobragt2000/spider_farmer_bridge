@@ -3,6 +3,17 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.197
+
+### Fixed
+- **hassfest/validation error in services.yaml.** The `set_sensor_heating`
+  service's `on` field key was parsed by YAML as a boolean, failing the services
+  schema ("expected str … Got {…}"). Quoted the key so it's a string.
+
+Note: if upgrading a manual install, delete the now-unused
+`custom_components/sf/cards/ppfd-3d-card.js` — it was folded into
+`spider-farmer-card.js` in 3.19.193 and unzipping an update won't remove it.
+
 ## 3.19.196
 
 ### Fixed

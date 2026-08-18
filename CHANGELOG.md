@@ -3,6 +3,176 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.196
+
+### Fixed
+- **PPFD auto-read light source is now remembered across reloads.** The card was
+  choosing where to store its settings based on the selected light, so picking a
+  source saved it to that light's panel while a fresh load read a different panel
+  and never saw the choice. Storage is now pinned to an explicit `panel:` (or a
+  deterministic default), independent of the selected source.
+
+### Changed
+- **Enabling "Auto-read brightness" now auto-selects the first available light**
+  so the feature does something immediately, and the manual Brightness slider
+  only locks when a source is actually being read.
+
+## 3.19.195
+
+### Fixed
+- **PPFD View tab no longer goes black after visiting Settings.** The 3D canvas
+  now stays mounted (just hidden) when switching tabs, so the WebGL context
+  survives instead of being torn down and rebuilt empty.
+- **The auto-read light-source dropdown is remembered.** The select is now bound
+  to the saved source, so it shows (and keeps) your choice on reload.
+- **Light and plant orientation follow the tent.** When the tent is wider than it
+  is deep, the fixture, its cone, and the plant row rotate 90° to line up with
+  the long axis — fixes the light appearing rotated for e.g. a 4×2 tent.
+
+### Changed
+- **PPFD default view is zoomed out to frame the whole tent** on load (auto-fit
+  to tent size; your wheel-zoom is respected afterward).
+- **Number of plants moved to the Settings tab** (from the View slider).
+
+## 3.19.194
+
+### Changed
+- **PPFD tent dimensions now adjust in 0.1 steps** (both feet and metres),
+  instead of the old 0.5 ft increments, so tent size can be dialed in exactly.
+
+### Fixed
+- **PPFD localStorage cache self-heals when the browser's storage quota is
+  full.** On HA origins packed with custom cards, the card's instant-paint cache
+  could hit `QuotaExceededError` and silently skip; it now prunes its own stale
+  `ppfd3d:*` keys and retries. (Server-side settings were always saved regardless
+  — this only restores the faster first paint on reload.)
+
+## 3.19.193
+
+### Changed
+- **PPFD card rebuilt on the same Lit engine as the Spider Farmer card.** The
+  hand-written vanilla `ppfd-3d-card.js` is retired and the PPFD visualizer is
+  now a Lit element built into the one `spider-farmer-card.js` bundle (card
+  v0.20.56), sharing the spider cards' proven registration, cold-load self-heal,
+  and card-picker code. This resolves the long tail of PPFD reliability issues:
+  the card no longer freezes while dragging sliders (the 3D scene now rebuilds at
+  most once per animation frame instead of on every input event), settings save
+  and reload correctly, tent size and the light-source dropdown persist, the card
+  reliably appears in the "Add card" picker, and the intermittent
+  "Configuration error" on refresh is gone.
+- **Settings persistence simplified and made deterministic.** Like the spider
+  card, the PPFD card keys its saved settings off an explicit `panel:` (with a
+  deterministic fallback) and a stable key derived from `card_id` (or the
+  configured `light_model`, else `main`). Settings write straight through to the
+  server `card_options` blob and a local cache — no more Apply/Discard staging,
+  no auto-incrementing keys, no card duplication after a restart. Two PPFD cards
+  for different lights get separate saved settings automatically; give two cards
+  the same model a distinct `card_id` to keep them independent.
+
+### Fixed
+- Only one card file is served now (`spider-farmer-card.js`), and the old
+  standalone `ppfd-3d-card.js` resource left behind by earlier installs is
+  automatically un-registered on upgrade, removing the dual-file loading race
+  that caused "custom element doesn't exist" / needing several refreshes.
+
+## 3.19.192
+
+### Changed
+- **PPFD card auto-keys its saved settings — no manual title/card_id needed** (card
+  v4.7). When neither `card_id` nor a custom title is set, the card derives a stable
+  key from its own config, so two differently-configured PPFD cards never collide,
+  and two byte-identical cards get an auto-incremented suffix (`.0`, `.1`). Explicit
+  `card_id` or a custom title still take precedence.
+
+## 3.19.191
+
+### Fixed
+- **PPFD card "loading / locked-up 3D" on slider moves.** The options-update listener
+  was re-registering the dashboard cards on *every* config-entry change — including
+  each PPFD auto-save (a `card_options` write) — which made the frontend reload the
+  cards mid-slider. Card registration now happens only at setup, so saves no longer
+  reload the cards.
+- **PPFD card settings no longer collide/duplicate across cards.** Two cards with the
+  same title shared one saved blob, and the panel they saved under was picked
+  non-deterministically (so they'd swap on reload). Persistence now keys by
+  `card_id` (new, optional) or title, and resolves the storage panel deterministically
+  (card v4.6). Give each PPFD card a distinct `title`/`card_id` so each saves
+  independently.
+
+## 3.19.190
+
+### Fixed
+- **Cleaning entities now created even when a controller is mid-clean at startup.**
+  The sensor-cleaning entities were gated on the air temp/humidity evidence, which
+  the controller withholds during a clean — so a panel that was cleaning when the
+  integration (re)started never got them (and its card showed no cleaning
+  status/section). `sensorHeating` is now its own evidence token, so the entities are
+  created whether the sensor is reporting or mid-clean.
+- **Cleaning time-left now shows on the card.** The card read the wrong entity id
+  (`…_remaining`); it now reads `sensor.sf_<slot>_sensor_cleaning_time`.
+
+## 3.19.189
+
+### Added
+- **Start/stop sensor cleaning from the card.** New `sf.set_sensor_heating` service
+  (captured wire command `setSensorHeating {on:0|1}`, gated by Allow device control)
+  and a **Sensor Cleaning** section at the bottom of the tent card's **Calibration**
+  tab (card 0.20.54): a ~2 h/cooldown note, live time-left, and **Start** / **Stop**
+  buttons that grey out by state (Start greys while running, Stop greys while idle).
+  Cooling (phase 2) is distinguished from cleaning (phase 1) via a new
+  `sensor.sf_<slot>_sensor_cleaning_phase`, and the tile badge now reads
+  "Cooling · Xm" during the cooldown.
+
+## 3.19.188
+
+### Added
+- **Sensor self-clean status.** The air temp/humidity probe's "Sensor cleaning" heat
+  cycle is now surfaced from the controller's `sensorHeating` block: a
+  `binary_sensor.sf_<slot>_sensor_cleaning` (on while it runs) and a
+  `sensor.sf_<slot>_sensor_cleaning_remaining` (seconds left). During the cycle the
+  controller stops reporting air temp/humidity/VPD, so the **Spider Farmer card now
+  badges the Air Temp / Air Humi / VPD (and Leaf VPD) tiles with a brush icon and
+  shows `--` plus a `Cleaning · Xh Ym` countdown** (card 0.20.53), mirroring the SF
+  app — instead of those tiles looking like a dead sensor.
+
+## 3.19.187
+
+### Added
+- **PPFD 3D card: settings persist server-side + Apply/Discard** (card v4.5). Every
+  card setting (light model, tent size, light/plant height, plants, photoperiod,
+  brightness source) now saves into the integration's config entry via
+  `sf.set_card_option`, so it **survives a refresh and syncs across all devices** —
+  not just the browser that set it. View-tab controls save automatically as you
+  adjust them; the Settings tab (brightness source + tent size) stages changes behind
+  **Apply** / **Discard** buttons. The card ties its saved settings to a Spider Farmer
+  panel (auto-detected, or from the chosen brightness light, or an optional `panel:`
+  config) and keys them by card title; it falls back to local storage when no panel
+  is present.
+
+### Fixed
+- **PPFD card stat tiles** now center the value with the unit (μmol/m²/s) on its own
+  line beneath it, and the Light & plants slider labels no longer wrap at 100 %.
+
+## 3.19.186
+
+### Changed
+- **PPFD 3D card: Tent dimensions moved to the Settings tab** (card v4.4). The View
+  tab keeps the 3D view, stats and the Light & plants sliders; tent width/length/
+  height now live under Settings alongside the brightness options.
+
+## 3.19.185
+
+### Added
+- **PPFD 3D card: Settings tab + auto-read brightness** (card v4.3). New **Settings**
+  tab with a light-source dropdown and an **Auto-read brightness** toggle. The
+  dropdown lists Spider Farmer **light** entities (live actual brightness) and their
+  **Schedule Brightness** targets, so you can drive the PPFD from either the live or
+  the target value; the redundant `*_brightness` sensor is omitted. The card's
+  Brightness value tracks the chosen source live (`brightness` 0–255 → %; off,
+  unknown or unavailable → 0 %).
+  The choice persists locally per card. The manual **Dimmer** control is renamed
+  **Brightness**.
+
 ## 3.19.184
 
 ### Changed

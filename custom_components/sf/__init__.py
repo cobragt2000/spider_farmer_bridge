@@ -605,6 +605,10 @@ _SET_PLAN_SCHEMA = vol.Schema({
     vol.Required("stages"): list,
     vol.Optional("enabled", default=False): vol.Any(bool, int),
 })
+_SENSOR_HEATING_SCHEMA = vol.Schema({
+    vol.Required("entity_id"): cv.entity_ids,
+    vol.Required("on"): vol.Any(bool, int),
+})
 # Wire module names the apply-bundle command path understands.
 _APPLY_MODULES = {"fan", "blower", "heater", "humidifier", "dehumidifier",
                   "light", "light2"}
@@ -731,6 +735,29 @@ def _async_register_services(hass: HomeAssistant) -> None:
             if proxy is not None:
                 await proxy.write_plan(mac, stages, enabled)
 
+    async def _set_sensor_heating(call: ServiceCall) -> None:
+        """Start (on=1) / stop (on=0) the air temp/humidity sensor self-clean
+        (the SF app's 'Sensor cleaning'). Gated by Allow device control."""
+        from homeassistant.exceptions import HomeAssistantError
+        on = bool(call.data.get("on"))
+        ent_reg = er.async_get(hass)
+        for eid in call.data.get("entity_id", []):
+            ent = ent_reg.async_get(eid)
+            uid = ent.unique_id if ent else ""
+            if not uid or not uid.startswith("ggs_"):
+                _LOGGER.warning(
+                    "set_sensor_heating: %s is not a Spider Farmer entity", eid)
+                continue
+            mac = uid[4:].split("_", 1)[0]
+            proxy = _proxy_for_entity(hass, ent)
+            if proxy is None:
+                continue
+            if not getattr(proxy, "allow_control", False):
+                raise HomeAssistantError(
+                    "Device control is disabled — enable it in the Spider Farmer "
+                    "Bridge integration options to start/stop sensor cleaning")
+            await proxy.set_sensor_heating(mac, on)
+
     async def _set_card_option(call: ServiceCall) -> None:
         """Persist a per-panel card display option (e.g. the out-of-range
         colour mode) in the config entry so it survives upgrades and syncs
@@ -785,6 +812,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
     if not hass.services.has_service(DOMAIN, "set_plan"):
         hass.services.async_register(
             DOMAIN, "set_plan", _set_plan, schema=_SET_PLAN_SCHEMA)
+    if not hass.services.has_service(DOMAIN, "set_sensor_heating"):
+        hass.services.async_register(
+            DOMAIN, "set_sensor_heating", _set_sensor_heating,
+            schema=_SENSOR_HEATING_SCHEMA)
 
 
 def _integration_version() -> str:
@@ -831,7 +862,10 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         return
     cfg = {**entry.data, **(entry.options or {})}
     await hass.async_add_executor_job(_apply_diag_options, hass, cfg)
-    await _apply_card_option(hass, cfg)
+    # NB: do NOT re-register the dashboard cards here. Card registration happens
+    # once at setup; re-doing it on every options change made the frontend reload
+    # the cards on each PPFD auto-save (a card_options write), which looked like
+    # the 3D view "locking up" mid-slider. (v3.19.191)
     new_allow = bool(cfg.get(CONF_ALLOW_CONTROL, False))
     if proxy.allow_control != new_allow:
         proxy.allow_control = new_allow

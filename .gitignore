@@ -16,3 +16,7 @@ htmlcov/
 *.egg-info/
 .idea/
 .vscode/
+_backlog_private/
+NOTES.md
+__MACOSX/
+._*

@@ -361,6 +361,7 @@ def normalize_status(
         return out
 
     _decode_air(out, e, d.get("sensor", {}))
+    _decode_cleaning(out, e, d)
     _decode_sys(out, e, d.get("sys", {}))
     for module, num in (("light", 1), ("light2", 2)):
         _decode_light(out, e, num, d.get(module, {}),
@@ -379,6 +380,42 @@ def normalize_status(
     _decode_climate_config(out, e, "humidifier", d.get("humidifier", {}),
                            cc.get("humidifier", {}))
     return out
+
+
+def _decode_cleaning(out, e, d):
+    """Sensor self-clean (v3.19.188). The temp/humidity probe runs a timed
+    heating "clean" cycle (SF app's "Sensor cleaning"): while it runs the
+    controller sends a ``sensorHeating`` block {phase, remainTime} and drops air
+    temp/humi/vpd from the report. Publish an on/off flag + remaining seconds so
+    the card can badge those tiles. A full air-sensor frame WITHOUT a
+    sensorHeating block means the clean isn't running (flag OFF)."""
+    if not isinstance(d, dict):
+        return
+    sh = d.get("sensorHeating")
+    if isinstance(sh, dict) and sh:
+        # phase 1 = cleaning (~2 h), phase 2 = cooling (~5 min). Both keep air
+        # temp/humi/vpd suppressed, so the flag stays on across both.
+        rem = sh.get("remainTime")
+        try:
+            active = int(rem) > 0
+        except (ValueError, TypeError):
+            active = True
+        out[f"ggs/ha/{e}/sensor_cleaning/state"] = "ON" if active else "OFF"
+        try:
+            out[f"ggs/ha/{e}/sensor_cleaning_remaining/state"] = str(max(0, int(rem)))
+        except (ValueError, TypeError):
+            pass
+        if sh.get("phase") is not None:
+            out[f"ggs/ha/{e}/sensor_cleaning_phase/state"] = str(sh.get("phase"))
+    else:
+        # Clear the flag only once the air sensor is actually reporting again
+        # (temp/humi present). While cleaning/cooling those keys are absent, so a
+        # frame without the sensorHeating block mid-cycle leaves the flag as-is.
+        sensor = d.get("sensor")
+        if isinstance(sensor, dict) and ("temp" in sensor or "humi" in sensor):
+            out[f"ggs/ha/{e}/sensor_cleaning/state"] = "OFF"
+            out[f"ggs/ha/{e}/sensor_cleaning_remaining/state"] = "0"
+            out[f"ggs/ha/{e}/sensor_cleaning_phase/state"] = "0"
 
 
 def _decode_sys(out, e, sys_block):

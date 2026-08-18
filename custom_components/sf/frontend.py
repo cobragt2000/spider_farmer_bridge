@@ -11,10 +11,16 @@ frontend two ways, for maximum compatibility:
 
 Unticking removes both, so the cards stop loading on the next page load.
 
-Bundled cards:
-  • spider-farmer-card.js  -> custom:spider-farmer-card  (tent overview + config)
-  • ppfd-3d-card.js         -> custom:ppfd-3d-card        (3D PPFD visualizer;
-    loads three.js r128 from cdnjs at runtime, so its 3D view needs internet)
+Bundled cards (all defined by the single spider-farmer-card.js bundle, so only
+that one file is served):
+  • custom:spider-farmer-card  (tent overview + config)
+  • custom:spider-light-card   (SE-series light control)
+  • custom:ppfd-3d-card        (3D PPFD visualizer; loads three.js r128 from
+    cdnjs at runtime, so its 3D view needs internet)
+
+Older releases served a separate ppfd-3d-card.js; folding it into the one
+bundle removes the dual-file loading race that caused intermittent
+"Configuration error" / "custom element doesn't exist" cards.
 """
 from __future__ import annotations
 
@@ -28,7 +34,11 @@ _LOGGER = logging.getLogger(__name__)
 # URL base the cards are served under (each file gets ?v=<version> appended).
 URL_BASE = "/sf_bridge_frontend"
 _BUNDLE_DIR = os.path.join(os.path.dirname(__file__), "cards")
-CARD_FILES = ("spider-farmer-card.js", "ppfd-3d-card.js")
+# One bundle defines every card (spider-farmer-card, spider-light-card,
+# ppfd-3d-card). A stale ppfd-3d-card.js from an older install is purged below.
+CARD_FILES = ("spider-farmer-card.js",)
+# Card files earlier versions served that must now be un-registered/removed.
+LEGACY_CARD_FILES = ("ppfd-3d-card.js",)
 _STATIC_FLAG = "sf_card_static_registered"
 _EXTRA_MODULE_KEY = "frontend_extra_module_url"
 
@@ -150,6 +160,21 @@ async def async_register_card(hass: HomeAssistant, version: str) -> None:
         )
         return
 
+    # Purge any resource/extra-module URL from a previous install that served a
+    # now-removed card file (e.g. the standalone ppfd-3d-card.js, now folded into
+    # spider-farmer-card.js). Leaving it registered points the browser at a URL
+    # that 404s and re-introduces the "custom element doesn't exist" error.
+    legacy_bases = {f"{URL_BASE}/{f}" for f in LEGACY_CARD_FILES}
+    await _remove_lovelace_resources(hass, legacy_bases)
+    mgr0 = hass.data.get(_EXTRA_MODULE_KEY)
+    if mgr0 is not None:
+        for existing in list(getattr(mgr0, "urls", ()) or ()):
+            if existing.split("?")[0] in legacy_bases:
+                try:
+                    mgr0.remove(existing)
+                except Exception as exc:  # pragma: no cover
+                    _LOGGER.debug("Legacy card url purge skipped for %s: %s", existing, exc)
+
     if not await _ensure_static_path(hass):
         # Without the static route the cards can't load; registering the
         # resource anyway is what produces the "Custom element doesn't exist"
@@ -195,13 +220,13 @@ async def async_register_card(hass: HomeAssistant, version: str) -> None:
 async def async_unregister_card(hass: HomeAssistant, version: str) -> None:
     """Stop loading the cards: remove them from the Lovelace resource list and
     the frontend extra-module list. The served static route stays (harmless)."""
-    bases = {f"{URL_BASE}/{f}" for f in CARD_FILES}
+    bases = {f"{URL_BASE}/{f}" for f in (*CARD_FILES, *LEGACY_CARD_FILES)}
     await _remove_lovelace_resources(hass, bases)
 
     mgr = hass.data.get(_EXTRA_MODULE_KEY)
     if mgr is not None:
         active = getattr(mgr, "urls", ())
-        for f in CARD_FILES:
+        for f in (*CARD_FILES, *LEGACY_CARD_FILES):
             url = card_url(f, version)
             try:
                 if url in active:

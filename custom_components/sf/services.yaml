@@ -159,3 +159,24 @@ set_card_option:
       required: true
       selector:
         text:
+
+set_sensor_heating:
+  name: Sensor cleaning (start/stop)
+  description: >-
+    Start or stop the air temp/humidity sensor self-clean heat cycle (the SF
+    app's "Sensor cleaning"). Requires "Allow device control". Used by the tent
+    card's Calibration tab.
+  fields:
+    entity_id:
+      name: Controller entity
+      description: Any Spider Farmer entity on the target controller.
+      required: true
+      selector:
+        entity:
+          integration: sf
+    on:
+      name: Start
+      description: On = start cleaning, Off = stop.
+      required: true
+      selector:
+        boolean:

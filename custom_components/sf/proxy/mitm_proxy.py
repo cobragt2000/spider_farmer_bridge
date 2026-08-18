@@ -906,6 +906,25 @@ class MITMProxy:
                      len(stages or []), enabled, mac)
         return True
 
+    async def set_sensor_heating(self, mac: str, on) -> bool:
+        """Start (on=1) / stop (on=0) the air temp/humidity sensor's self-clean
+        heat cycle — the SF app's "Sensor cleaning". Captured command:
+        {"method":"setSensorHeating","params":{"on":0|1}} (device replies ok)."""
+        sess = self._sessions.get(_mac(mac))
+        if sess is None:
+            _LOGGER.warning("set_sensor_heating: no active session for mac=%s", mac)
+            return False
+        payload = {
+            "method": "setSensorHeating",
+            "pid": sess.mac_raw.upper().replace(":", ""),
+            "params": {"on": 1 if on else 0},
+            "msgId": str(int(time.time() * 1000)),
+            "uid": sess.uid,
+        }
+        await sess.inject(payload)
+        _LOGGER.info("set_sensor_heating: on=%s -> %s", 1 if on else 0, mac)
+        return True
+
     # ── Device clock / timezone sync ──────────────────────────────────────
     # Controllers keep their own real-time clock; if it drifts, schedules and
     # cycle timers fire at the wrong wall-clock time. On connect the bridge

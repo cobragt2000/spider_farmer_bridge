@@ -304,7 +304,9 @@ bundled:
   SE5000, SF2000, SF7000 and G1000W grow lights (PPFD curves built from each
   light's published PPFD map). Configure it per its own options (`light_model`,
   `entities`); `unit_system: auto` (the default) follows your Home Assistant
-  unit system, or force `metric` / `imperial`.
+  unit system, or force `metric` / `imperial`. A **Settings** tab adds an
+  **Auto-read brightness** toggle — pick a Spider Farmer light (live) or a Schedule
+  Brightness (target) and the card's Brightness tracks it live.
 
 The main card (`custom:spider-farmer-card`) is a single tabbed card:
 

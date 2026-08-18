@@ -184,6 +184,11 @@ EVIDENCE_BLOCKS = (
     "light", "light2", "fan", "blower",
     "humidifier", "dehumidifier", "heater",
     "selight", "sys",
+    # sensorHeating is only present while an air-sensor self-clean runs (when
+    # temp/humi are withheld), so it's its own evidence token — that way the
+    # cleaning entities still get created for a controller that is mid-clean at
+    # detection time (otherwise it would miss them until the next reload).
+    "sensorHeating",
 )
 
 # Optional accessories the controllers report unreliably — a second light or a
@@ -297,6 +302,19 @@ def build_device_entities(
             defs.append(d("sensor", "ppfd", "PPFD",
               unit="µmol/m²/s", state_class="measurement",
               icon="mdi:white-balance-sunny"))
+        # Sensor self-clean status (v3.19.188): the temp/humidity probe runs a
+        # ~2h heating "clean" cycle (the SF app's "Sensor cleaning"). While it
+        # runs the controller sends a `sensorHeating` block and drops air temp/
+        # humi/vpd from its report, so expose an on/off flag + remaining seconds
+        # to badge those tiles like the app does.
+        if want("sensor:temp") or want("sensor:humi") or want("sensorHeating"):
+            defs.append(d("binary_sensor", "sensor_cleaning", "Sensor Cleaning",
+              icon="mdi:broom"))
+            defs.append(d("sensor", "sensor_cleaning_remaining", "Sensor Cleaning Time",
+              unit="s", device_class="duration", icon="mdi:timer-sand"))
+            # 0 = idle, 1 = cleaning (heat), 2 = cooling (5-min cooldown).
+            defs.append(d("sensor", "sensor_cleaning_phase", "Sensor Cleaning Phase",
+              entity_category="diagnostic", icon="mdi:progress-clock"))
     # ── System/health diagnostics (v3.19.42): the "sys" block ─────────────
     if want("sys"):
         defs += [

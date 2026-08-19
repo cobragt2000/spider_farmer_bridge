@@ -3,6 +3,25 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.199
+
+### Added
+- **Outlet tiles show the full current mode on a second line.** Temperature
+  outlets read Heating/Cooling, Humidity read Humidifying/Dehumidifying, and CO2
+  read Aeration/Exhaust (colour-coded), pulled from the outlet's device-type
+  setting. Time Slot shows the on-window (e.g. `05:00–23:00`, with `+N` when
+  there are extra slots) and Cycle shows the run/off timing plus execution count
+  and start (e.g. `15m on · 45m off · ×3 @ 12:00`). Manual shows no extra line.
+
+## 3.19.198
+
+### Changed
+- **PPFD Settings tab is now Apply/Discard-gated, like the other cards.** Changes
+  to the auto-read brightness source, number of plants, and tent dimensions
+  preview live but only persist when you press Apply; Discard reverts them to the
+  last saved values. The View tab (model, light/plant height, brightness,
+  photoperiod) still saves automatically as you drag.
+
 ## 3.19.197
 
 ### Fixed

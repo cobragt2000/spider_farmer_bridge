@@ -1482,6 +1482,23 @@ def _process_publish(
                     session.oplog_pages = 0
         return
 
+    # getSysSta carries the controller's own "sys" block (firmware, uptime,
+    # Wi-Fi rssi/isConnect). It's not a device-state frame, so it's excluded
+    # below — but decode its sys block here and cache the values on the bus so
+    # the card header can show online + signal strength WITHOUT creating any
+    # diagnostic entities (no entity subscribes; the alarm_settings sensor reads
+    # the cache and exposes them as attributes).
+    if method == "getSysSta":
+        d0 = data.get("data", {})
+        sysb = d0.get("sys") if isinstance(d0, dict) else None
+        if isinstance(sysb, dict) and sysb:
+            from .normalizer import _decode_sys
+            out: dict = {}
+            _decode_sys(out, session.mac, sysb)
+            for topic, val in out.items():
+                mqtt_client.publish(topic, val, retain=True, qos=0)
+        return
+
     if method not in ("getDevSta", "getConfigField", "getConfigFile"):
         return
 

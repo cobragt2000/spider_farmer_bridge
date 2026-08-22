@@ -3,6 +3,34 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.201
+
+### Added
+- **Outlets Log tab.** A new Settings toggle ("Show Outlets Log tab", shown only
+  when the panel has outlets) adds a tab with a per-outlet on/off timeline — a
+  24h/7d strip where green = on — so you can see at a glance what each outlet has
+  done. Tap a row to expand its last 10 switch events (time + on-duration). Data
+  comes from Home Assistant's recorder history of each outlet switch; custom
+  outlet names are respected.
+
+## 3.19.200
+
+### Added
+- **Optional connection info in the card header.** A new Settings toggle ("Show
+  connection info") puts the controller's online status + Wi-Fi signal bars in
+  the top-right of the header, on the name row. Signal colour follows strength
+  (green ≥ -67 dBm, yellow -67…-75, red < -75). When the controller is
+  hard-wired (Ethernet), it shows a network icon instead of the Wi-Fi bars.
+- **Custom signal source.** When the controller isn't on the bundled Wi-Fi AP
+  (another AP or hard-wired), a second toggle lets you point the signal bars at
+  any `signal_strength` entity (e.g. from your router/AP integration).
+
+### Changed
+- **`getSysSta` is now decoded** for its `sys` block (firmware, uptime, Wi-Fi
+  rssi/connected), which was previously ignored. The Wi-Fi values are cached and
+  exposed as `wifi_rssi` / `wifi_online` **attributes on the existing
+  `alarm_settings` sensor** — no new diagnostic entities are created.
+
 ## 3.19.199
 
 ### Added

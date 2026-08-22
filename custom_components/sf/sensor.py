@@ -362,8 +362,23 @@ class SfAlarmSettingsSensor(SfSensor):
     decoded climate/substrate/other groups are exposed as the ``settings``
     attribute for the card's Alerts tab to read and edit."""
 
+    # Also listen for this controller's Wi-Fi topics so the exposed wifi_*
+    # attributes re-render live (they're cached on the bus from getSysSta; no
+    # entity subscribes to them otherwise).
+    @property
+    def state_topics(self) -> list[str]:
+        base = f"ggs/ha/{self.d.mac}"
+        return [self.d.state_topic,
+                f"{base}/wifi_rssi/state",
+                f"{base}/wifi_connected/state",
+                f"{base}/eth_connected/state"]
+
     @callback
     def _handle_payload(self, topic: str, payload: str) -> None:
+        # Wi-Fi topics only trigger a re-render (attributes recompute from the
+        # bus cache); don't parse them as alarm settings.
+        if not topic.endswith("/alarm_settings/state"):
+            return
         import json
         try:
             settings = json.loads(payload) if payload else {}
@@ -382,14 +397,30 @@ class SfAlarmSettingsSensor(SfSensor):
 
     # `settings` (decoded thresholds) + `card_options` (per-panel card display
     # prefs persisted server-side via sf.set_card_option, so the Settings tab's
-    # colour choice survives upgrades and syncs across devices). Exposed as a
-    # live property so a card-option change re-renders without a new payload.
+    # colour choice survives upgrades and syncs across devices) + Wi-Fi link
+    # stats (rssi/online from getSysSta, cached on the bus). The Wi-Fi values are
+    # exposed here as attributes so the card header can show online + signal
+    # WITHOUT adding separate diagnostic entities. Live property so a card-option
+    # or Wi-Fi change re-renders without a new payload.
     @property
     def extra_state_attributes(self) -> dict:
-        return {
+        attrs = {
             "settings": getattr(self, "_alarm_settings", {}),
             "card_options": self._card_options(),
         }
+        rssi = self.bus.cached(f"ggs/ha/{self.d.mac}/wifi_rssi/state")
+        if rssi is not None:
+            try:
+                attrs["wifi_rssi"] = int(rssi)
+            except (ValueError, TypeError):
+                pass
+        conn = self.bus.cached(f"ggs/ha/{self.d.mac}/wifi_connected/state")
+        if conn is not None:
+            attrs["wifi_online"] = (conn == "ON")
+        eth = self.bus.cached(f"ggs/ha/{self.d.mac}/eth_connected/state")
+        if eth is not None:
+            attrs["eth_online"] = (eth == "ON")
+        return attrs
 
     def _card_options(self) -> dict:
         try:

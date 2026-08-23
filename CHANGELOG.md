@@ -3,6 +3,26 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.203
+
+### Fixed
+- **Default-tab list wrongly hid Outlets for AC strips.** The 3.19.202 gating
+  used nested-strip detection, which is empty for a standalone AC5/AC10/
+  S-Station panel, so "Outlets" (and "Outlets Log") disappeared from the Default
+  tab dropdown for those. Now AC / S-Station strips always list Outlets (they're
+  outlet devices by type); only CB / display panels (dp) gate on actual nested
+  outlet strips.
+
+## 3.19.202
+
+### Added
+- **"Outlets Log" is selectable as the card's Default tab** (visual editor), when
+  outlets exist and the Outlets Log tab is enabled.
+
+### Changed
+- The **"Outlets" Default-tab choice now only appears when the panel has
+  outlets**, instead of always.
+
 ## 3.19.201
 
 ### Added

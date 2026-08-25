@@ -82,18 +82,18 @@ async def test_set_sensor_heating_command_payload():
     captured = []
 
     class FakeSess:
-        mac_raw = "983dae650f94"
-        uid = "91418"
+        mac_raw = "0a1b2c3d4e07"
+        uid = "12345"
         async def inject(self, payload):
             captured.append(payload)
 
-    prox._sessions[_mac("983dae650f94")] = FakeSess()
-    assert await prox.set_sensor_heating("983dae650f94", True)
+    prox._sessions[_mac("0a1b2c3d4e07")] = FakeSess()
+    assert await prox.set_sensor_heating("0a1b2c3d4e07", True)
     assert captured[0]["method"] == "setSensorHeating"
     assert captured[0]["params"] == {"on": 1}
-    assert captured[0]["pid"] == "983DAE650F94"
-    assert captured[0]["uid"] == "91418"
-    await prox.set_sensor_heating("983dae650f94", False)
+    assert captured[0]["pid"] == "0A1B2C3D4E07"
+    assert captured[0]["uid"] == "12345"
+    await prox.set_sensor_heating("0a1b2c3d4e07", False)
     assert captured[1]["params"] == {"on": 0}
 
 

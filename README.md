@@ -31,42 +31,168 @@ HA can inject commands back.
 
 ---
 
+## Dashboard card
+
+The integration ships bundled Lovelace cards and installs them automatically —
+it serves and auto-registers them, so there's no HACS install and no manual
+Lovelace resource entry. The served URLs carry the integration version, so
+browsers refetch the cards on each release automatically. Three cards are
+bundled:
+
+- **`custom:spider-farmer-card`** — the main tent card (below).
+- **`custom:spider-light-card`** — a control card for an SE-series light
+  (below).
+- **`custom:ppfd-3d-card`** — a 3D PPFD visualizer for Spider Farmer SE4500,
+  SE5000, SF2000, SF7000 and G1000W grow lights (PPFD curves built from each
+  light's published PPFD map). Configure it per its own options (`light_model`,
+  `entities`); `unit_system: auto` (the default) follows your Home Assistant
+  unit system, or force `metric` / `imperial`. A **Settings** tab adds an
+  **Auto-read brightness** toggle — pick a Spider Farmer light (live) or a Schedule
+  Brightness (target) and the card's Brightness tracks it live.
+
+The main card (`custom:spider-farmer-card`) is a single tabbed card:
+
+- **Overview** — environment parameter tiles (Air Temp, Humidity, VPD, CO2,
+  PPFD, Soil Temp/Moisture/EC) plus light / fan / blower / climate controls.
+  The Soil Temp / Moisture / EC tiles are the panel-wide averages — click one
+  to expand a per-probe breakdown of that reading.
+- **Environment** — day/night targets and dead zones for Temp, Humidity, and
+  CO2, plus the day-cycle start/stop times.
+- **Outlets** — per-outlet mode configuration for the strips nested under this
+  panel. An outlet in **Time Slot** mode gets a full multi-slot, weekday-aware
+  schedule editor (add/remove up to 12 slots, per-day picker, start/stop times).
+- **Calibration** — editable sensor calibration mirroring the SF app: air
+  offsets (Air Temp, Humidity, PPFD, CO2) and per-probe soil offsets (Temp,
+  Moisture, EC) plus a substrate-type picker on Pro probes. Editing a value
+  writes it straight back to the controller.
+- **Alerts** — editable alarm thresholds, mirroring the app's Alarm Settings:
+  Climate (Air Temp, Humidity, VPD, CO2, PPFD), Substrate (Soil Temp, WC, Soil
+  EC), and Other Device flags. Each has an enable toggle and Max/Min limits;
+  edits are staged and written together with Save.
+- **Log** — the app's Notification screen: decoded alarm history with raised
+  (red) / restored (green) markers, Device and Type filters, and a date picker
+  that defaults to the current day. Shows that day's entries, newest first
+  (capped at ten rows, scroll for the rest). Appears once the controller's
+  Alarms sensor has data.
+
+On the device tiles, mode-dependent settings (schedules, cycles, speeds) are
+staged as you edit and committed as one atomic write when you press **Save** —
+under the hood the card calls the `sf.apply_bundle` service.
+
+Add it to a dashboard once installed:
+
+```yaml
+type: custom:spider-farmer-card
+panel: dp1                   # the display panel's slot (sf_dp1_*)
+outlets: [dp1, ac5, ac10]    # slots whose outlet modes to show on the Outlets tab (optional)
+title: Grow Tent             # optional
+default_tab: overview        # optional: "overview" (default), "environment", "outlets", "calibration", "alerts", or "log"
+```
+
+Entities render only when they exist, so partial setups display cleanly: each
+of the Environment, Outlets, and Calibration tabs appears only when that
+panel actually has the matching entities. The card element is loaded globally
+by the integration, but has no effect until you add it to a dashboard.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_01.png" width="245" alt="Spider Farmer card — Overview tab" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_02.png" width="245" alt="Spider Farmer card — Environment tab" />
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_05.png" width="245" alt="Spider Farmer card — Outlets tab" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_03.png" width="245" alt="Spider Farmer card — Calibration tab" />
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_04.png" width="245" alt="Spider Farmer card — Alerts tab" />
+</p>
+
+The Overview flags problems at a glance: readings colour against their alarm
+limits (**red above max, blue below min**), an offline soil probe and the **All
+Soil Stats** tile turn red, and a climate fault shows on its tile (**TANK EMPTY**
+/ **TANK FULL** / heater alarm). Tile-tint or value-text highlighting, a header
+**online + Wi-Fi signal** badge, per-parameter targets, and trend arrows are all
+toggles in the **Settings** tab — the Overview shot above has them all on. When a
+panel has two or more soil probes, the Soil tiles and All Soil Stats tile expand
+to a per-probe table.
+
+Power strips add outlet-focused perks: a **quick-toggle row** for fast on/off, a
+**Copy to…** button that clones one outlet's mode + config to others across any
+strip, and an **Outlets Log** tab with a 24h/7d on-off timeline per outlet.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_06.png" width="245" alt="Overview — climate device controls (blower, heater, humidifier, dehumidifier)" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_07.png" width="245" alt="Outlets Log tab — per-outlet on/off timeline" />
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_08.png" width="330" alt="Copy an outlet's mode + config to other outlets across strips" />
+</p>
+
+The `custom:ppfd-3d-card` 3D PPFD visualizer (SE4500 / SE5000 / SF2000 / SF7000 / G1000W):
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/PPFD_02.png" width="330" alt="PPFD 3D visualizer — SE4500" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/PPFD_01.png" width="330" alt="PPFD 3D visualizer — SF2000" />
+</p>
+
+### SE-series light card
+
+`custom:spider-light-card` mirrors the SF app's light screen for an SE-series
+light: a circular brightness dial with an on/off toggle, a brightness slider, a
+Manual / Automatic mode selector, and — in Automatic — a full multi-period,
+weekday-aware **schedule editor**. Add or remove time periods; each has a per-day
+picker, start/stop times, brightness, and sunrise/sunset fade. Changes are staged
+and written together with **Save** (or **Discard**).
+
+```yaml
+type: custom:spider-light-card
+light: se1          # the SE light's slot (sf_se1_*); defaults to the first found
+title: Grow Light   # optional
+```
+
+The schedule is exposed on `sensor.sf_se1_schedule` (period count as state, the
+decoded `periods` list as an attribute) and written back with the
+`sf.set_se_schedule` service, so you can also drive it from automations.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Light_Card_01.png" width="300" alt="Spider Light card — dial, mode, and schedule editor" />
+</p>
+
 ## Screenshots
 
 **Devices & entities** — everything modeled from live device evidence:
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/01_integration_entries.png" width="660" alt="Integration entries" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Integration_01.png" width="660" alt="Integration entries" />
 </p>
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/13_power_strip_device.png" width="440" alt="Power Strip device page" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/08_sensors.png" width="235" alt="Sensor list" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Integration_02.png" width="440" alt="Power Strip device page" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Integration_03.png" width="235" alt="Sensor list" />
 </p>
 
 **Controls** — environment targets, climate/fan, and per-outlet modes:
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/05_environment_controls.png" width="270" alt="Environment controls" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/06_climate_fan_controls.png" width="250" alt="Climate & fan controls" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/07_outlet_controls.png" width="245" alt="Outlet controls" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Integration_04.png" width="270" alt="Environment controls" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Integration_05.png" width="250" alt="Climate & fan controls" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Integration_06.png" width="245" alt="Outlet controls" />
 </p>
 
 **Editable sensor calibration** — air + per-probe soil offsets and substrate type, written straight back to the controller:
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/18_calibration_entities.png" width="330" alt="Calibration and substrate entities" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Integration_07.png" width="330" alt="Calibration and substrate entities" />
 </p>
 
 **Configure → Settings, mappings, migration & probe replacement:**
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/09_configure_menu.png" width="330" alt="Configure menu" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/10_settings_options.png" width="330" alt="Settings options" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Integration_08.png" width="330" alt="Configure menu" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Integration_09.png" width="330" alt="Settings options" />
 </p>
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/02_device_slot_mappings.png" width="300" alt="Device slot mappings" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/11_migrate_device.png" width="330" alt="Migrate device" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/04_replace_soil_probe.png" width="300" alt="Replace soil probe" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Integration_10.png" width="300" alt="Device slot mappings" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Integration_11.png" width="330" alt="Migrate device" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Integration_12.png" width="300" alt="Replace soil probe" />
 </p>
 
 ## What you get
@@ -249,6 +375,11 @@ HACS). Set an SSID/password, then pair each controller to the hotspot with the
 Spider Farmer app (hold the controller's mode button ~5 s to enter pairing).
 Full steps in [`spider_farmer_hotspot/DOCS.md`](spider_farmer_hotspot/DOCS.md).
 
+The add-on's status page lists every connected controller with its signal, link
+speed, and lease — so you can confirm the gear joined the AP at a glance.
+
+<p align="center"><img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Hotspot_01.png" width="900" alt="Spider Farmer Hotspot add-on status page — connected controllers with signal, link speed, IP, and lease"></p>
+
 > One repo, two stores: HA installs *integrations* (HACS) and *add-ons*
 > (Supervisor) separately, so you add this repository's URL in both places —
 > but it's the same URL and the same repo.
@@ -288,130 +419,6 @@ Rule checklist:
 - **Device mappings** — view/edit every device's and soil probe's logical
   slot; entity IDs re-align on submit
 - **Migrate device** — hardware replacement with identity transfer
-
-## Dashboard card
-
-The integration ships bundled Lovelace cards and installs them automatically —
-it serves and auto-registers them, so there's no HACS install and no manual
-Lovelace resource entry. The served URLs carry the integration version, so
-browsers refetch the cards on each release automatically. Three cards are
-bundled:
-
-- **`custom:spider-farmer-card`** — the main tent card (below).
-- **`custom:spider-light-card`** — a control card for an SE-series light
-  (below).
-- **`custom:ppfd-3d-card`** — a 3D PPFD visualizer for Spider Farmer SE4500,
-  SE5000, SF2000, SF7000 and G1000W grow lights (PPFD curves built from each
-  light's published PPFD map). Configure it per its own options (`light_model`,
-  `entities`); `unit_system: auto` (the default) follows your Home Assistant
-  unit system, or force `metric` / `imperial`. A **Settings** tab adds an
-  **Auto-read brightness** toggle — pick a Spider Farmer light (live) or a Schedule
-  Brightness (target) and the card's Brightness tracks it live.
-
-The main card (`custom:spider-farmer-card`) is a single tabbed card:
-
-- **Overview** — environment parameter tiles (Air Temp, Humidity, VPD, CO2,
-  PPFD, Soil Temp/Moisture/EC) plus light / fan / blower / climate controls.
-  The Soil Temp / Moisture / EC tiles are the panel-wide averages — click one
-  to expand a per-probe breakdown of that reading.
-- **Environment** — day/night targets and dead zones for Temp, Humidity, and
-  CO2, plus the day-cycle start/stop times.
-- **Outlets** — per-outlet mode configuration for the strips nested under this
-  panel. An outlet in **Time Slot** mode gets a full multi-slot, weekday-aware
-  schedule editor (add/remove up to 12 slots, per-day picker, start/stop times).
-- **Calibration** — editable sensor calibration mirroring the SF app: air
-  offsets (Air Temp, Humidity, PPFD, CO2) and per-probe soil offsets (Temp,
-  Moisture, EC) plus a substrate-type picker on Pro probes. Editing a value
-  writes it straight back to the controller.
-- **Alerts** — editable alarm thresholds, mirroring the app's Alarm Settings:
-  Climate (Air Temp, Humidity, VPD, CO2, PPFD), Substrate (Soil Temp, WC, Soil
-  EC), and Other Device flags. Each has an enable toggle and Max/Min limits;
-  edits are staged and written together with Save.
-- **Log** — the app's Notification screen: decoded alarm history with raised
-  (red) / restored (green) markers, Device and Type filters, and a date picker
-  that defaults to the current day. Shows that day's entries, newest first
-  (capped at ten rows, scroll for the rest). Appears once the controller's
-  Alarms sensor has data.
-
-On the device tiles, mode-dependent settings (schedules, cycles, speeds) are
-staged as you edit and committed as one atomic write when you press **Save** —
-under the hood the card calls the `sf.apply_bundle` service.
-
-Add it to a dashboard once installed:
-
-```yaml
-type: custom:spider-farmer-card
-panel: dp1                   # the display panel's slot (sf_dp1_*)
-outlets: [dp1, ac5, ac10]    # slots whose outlet modes to show on the Outlets tab (optional)
-title: Grow Tent             # optional
-default_tab: overview        # optional: "overview" (default), "environment", "outlets", "calibration", "alerts", or "log"
-```
-
-Entities render only when they exist, so partial setups display cleanly: each
-of the Environment, Outlets, and Calibration tabs appears only when that
-panel actually has the matching entities. The card element is loaded globally
-by the integration, but has no effect until you add it to a dashboard.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/15_card_overview.png" width="245" alt="Spider Farmer card — Overview tab" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/16_card_config.png" width="245" alt="Spider Farmer card — Environment tab" />
-</p>
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/19_card_outlets.png" width="245" alt="Spider Farmer card — Outlets tab" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/17_card_cali.png" width="245" alt="Spider Farmer card — Calibration tab" />
-</p>
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/24_card_alerts.png" width="245" alt="Spider Farmer card — Alerts tab" />
-</p>
-
-When a panel has two or more soil probes, the Soil tiles and the **All Soil
-Stats** tile expand to a per-probe table. The Overview also flags problems at a
-glance: a reading colours against its own alarm limits — **red above max, blue
-below min** — an offline probe and the All Soil Stats tile turn red, and a
-climate fault shows on its tile (**TANK EMPTY** / **TANK FULL** / heater alarm).
-Pick tile-tint or value-text highlighting in the **Settings** tab. The two
-Overview shots below are the same tent in *tile-colour* and *text-colour* mode:
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/22_card_soil_tiles.png" width="245" alt="Overview — tile-colour highlights, offline soil probes, and TANK EMPTY" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/20_card_soil_breakdown.png" width="245" alt="Overview — text-colour highlights" />
-</p>
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/21_card_all_soil_stats.png" width="300" alt="Settings tab — out-of-range highlight modes" />
-</p>
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/25_card_alert_color_modes.png" width="420" alt="Highlight modes compared — colored value text vs colored tile" />
-</p>
-
-The `custom:ppfd-3d-card` 3D PPFD visualizer (SE4500 / SE5000 / SF2000 / SF7000 / G1000W):
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/ppfd_se4500.png" width="330" alt="PPFD 3D visualizer — SE4500" />
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/ppfd_sf2000.png" width="330" alt="PPFD 3D visualizer — SF2000" />
-</p>
-
-### SE-series light card
-
-`custom:spider-light-card` mirrors the SF app's light screen for an SE-series
-light: a circular brightness dial with an on/off toggle, a brightness slider, a
-Manual / Automatic mode selector, and — in Automatic — a full multi-period,
-weekday-aware **schedule editor**. Add or remove time periods; each has a per-day
-picker, start/stop times, brightness, and sunrise/sunset fade. Changes are staged
-and written together with **Save** (or **Discard**).
-
-```yaml
-type: custom:spider-light-card
-light: se1          # the SE light's slot (sf_se1_*); defaults to the first found
-title: Grow Light   # optional
-```
-
-The schedule is exposed on `sensor.sf_se1_schedule` (period count as state, the
-decoded `periods` list as an attribute) and written back with the
-`sf.set_se_schedule` service, so you can also drive it from automations.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/23_light_card.png" width="300" alt="Spider Light card — dial, mode, and schedule editor" />
-</p>
 
 ## Troubleshooting the dashboard card
 

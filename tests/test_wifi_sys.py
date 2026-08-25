@@ -9,14 +9,14 @@ from custom_components.sf.proxy.normalizer import _decode_sys
 
 def test_decode_sys_wifi_rssi_and_connected():
     out: dict = {}
-    _decode_sys(out, "b43a4505fb30", {
+    _decode_sys(out, "0a1b2c3d4e08", {
         "ver": "3.20", "upTime": 12345,
         "wifi": {"isConnect": 1, "rssi": -59},
     })
-    assert out["ggs/ha/b43a4505fb30/wifi_rssi/state"] == "-59"
-    assert out["ggs/ha/b43a4505fb30/wifi_connected/state"] == "ON"
-    assert out["ggs/ha/b43a4505fb30/fw_version/state"] == "3.20"
-    assert out["ggs/ha/b43a4505fb30/uptime/state"] == "12345"
+    assert out["ggs/ha/0a1b2c3d4e08/wifi_rssi/state"] == "-59"
+    assert out["ggs/ha/0a1b2c3d4e08/wifi_connected/state"] == "ON"
+    assert out["ggs/ha/0a1b2c3d4e08/fw_version/state"] == "3.20"
+    assert out["ggs/ha/0a1b2c3d4e08/uptime/state"] == "12345"
 
 
 def test_decode_sys_offline_and_missing_rssi():

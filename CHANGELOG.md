@@ -3,6 +3,39 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.206
+
+### Changed
+- **Copy-outlet-config now spans every strip, grouped in columns.** The "Copy
+  to…" list previously only showed the source strip's outlets; it now enumerates
+  all outlet strips in the instance, one column per strip, with the source
+  outlet's strip first and tagged "current" (columns stack on narrow screens).
+
+## 3.19.205
+
+### Fixed
+- **Environment / Calibration / Alerts / Settings tabs were unclickable in
+  3.19.204.** A find-replace while adding the Apply "saving…" state made the
+  new `saveBar` helper call itself, so any tab that renders an Apply bar hit
+  infinite recursion (`Maximum call stack size exceeded`). Fixed the helper.
+
+## 3.19.204
+
+### Added
+- **Copy an outlet's config to other outlets.** Open an outlet and use the new
+  "Copy to…" button to pick other outlets (across any strip) and apply this
+  outlet's mode + config (schedule / device type / cycle timings) to them in one
+  go. On/off state isn't copied.
+- **Quick-toggle outlets row.** A new Settings toggle ("Quick-toggle outlets row",
+  outlets only) shows a compact row of numbered on/off buttons above the outlet
+  tiles. A sub-option, **"Remember outlet settings on toggle"** (default off),
+  makes quick-on restore the outlet's last mode/config (saved when you quick-off
+  it) instead of a bare on/off that reverts the outlet to Manual.
+
+### Changed
+- **Apply buttons show a brief "Saving…" state.** After pressing Apply, the bar
+  shows a spinner + "Saving…" and disables for ~1.5s so you don't double-submit.
+
 ## 3.19.203
 
 ### Fixed

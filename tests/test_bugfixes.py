@@ -191,13 +191,13 @@ def test_tz_sync_from_ha_timezone():
 
     class _S:
         mac_raw = "0A1B2C3D4E01"
-        uid = "91418"
+        uid = "12345"
 
     prox = MITMProxy(config={}, mqtt_client=_Bus())
     cmd = prox.build_tz_sync_command(_S())
     assert cmd["method"] == "setDevTimezone"
     assert cmd["pid"] == "0A1B2C3D4E01"
-    assert cmd["uid"] == "91418"
+    assert cmd["uid"] == "12345"
     assert cmd["params"]["timezone"] == "America/Chicago"
     assert cmd["params"]["TZ"] == "CST6CDT,M3.2.0,M11.1.0"
     assert cmd["params"]["gmtoff"] == 0

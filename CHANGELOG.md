@@ -3,6 +3,263 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.231
+
+### Added
+- **"Copy from…" on outlets.** The outlet pop now has a "Copy from…" button next to
+  "Copy to…". It lists every other outlet (grouped per strip); clicking one pulls
+  that outlet's mode + config into the current outlet (and clears any remembered
+  quick-toggle profile). "Copy to…" still pushes the current outlet's config out to
+  others.
+
+## 3.19.230
+
+### Changed
+- **Device quick-toggle buttons drop the status dot.** The device quick row now
+  shows just the icon + name (the lit color states still convey on / saved-profile);
+  the little dot is gone. The outlet quick row keeps its numbered dot.
+
+## 3.19.229
+
+### Changed
+- **PPFD photoperiod ties to the auto-read light.** The View summary line now shows
+  light duration (e.g. `… · 25% brightness · 18h light`). On the Settings tab, when
+  "Auto-read brightness from a light" is on and the source is a Spider Farmer light,
+  the Photoperiod box is auto-filled from that light's schedule (PPFD window
+  preferred, else Time Slot) and greyed out; uncheck auto-read to set the hours
+  manually. (Replaces the separate "Follow light schedule" checkbox from 3.19.228.)
+
+## 3.19.228
+
+### Changed
+- **PPFD card: photoperiod moved to the Settings tab as a number box** (next to
+  Number of plants, staged with Apply/Discard, saved server-side).
+
+## 3.19.227
+
+### Changed
+- **Settings segmented buttons are more compact.** The choice buttons (colour
+  source, highlight modes, etc.) now show a smaller icon inline to the left of the
+  label instead of a large stacked icon, roughly halving their height.
+
+## 3.19.226
+
+### Fixed
+- **Plan "My templates" now save reliably and show in the list.** They were stored
+  only in the browser's localStorage, which on a busy HA frontend is often at quota
+  — the write threw and the template silently never saved (empty list). They now
+  persist server-side in the panel's card_options (`plan_templates`), so they save,
+  appear in the picker, survive reloads, and sync across devices.
+
+### Added
+- **"Template saved" confirmation.** Saving a plan as a template shows a green
+  "✓ <name> saved to My templates" message next to the button.
+
+## 3.19.225
+
+### Changed
+- **Tile target ranges use cleaner decimals by unit.** Temperature (°F/°C),
+  humidity/moisture (%) and CO₂/PPFD targets now show whole numbers (e.g.
+  `target 68–80 °F`, `40–60 %`); Soil EC shows one decimal (`1.0–2.5 mS/cm`);
+  VPD keeps two (`0.80–1.20 kPa`).
+
+## 3.19.224
+
+### Fixed
+- **Device quick-toggle off now works for scheduled devices.** A device running a
+  scheduled mode (Time Slot / Cycle / …) ignores a bare `turn_off` — the schedule
+  immediately turns it back on — so quick-off appeared to do nothing and the
+  "Quick Toggle Active" badge never showed. Quick-off now drops the device to
+  Manual first, then powers it off (verified live), and remembers the prior mode;
+  quick-on re-selects that mode to restore it. Manual devices still power off
+  directly.
+
+## 3.19.223
+
+### Added
+- **Device Log tab + device quick-toggle row (mirrors the outlet features).**
+  - A new Settings → Devices section adds **Show Device Log tab** — a "Device Log"
+    tab with a 24h/7d on-off timeline per device (lights, fan, blower, heater,
+    humidifier, dehumidifier) from recorder history, tap a row for recent events.
+    Selectable as the card's Default tab.
+  - **Quick-toggle devices row** (gated) shows a compact row of icon+name buttons
+    above the device tiles for fast on/off, with the same three lit states as the
+    outlet row (off / on = green dot+name / saved profile = green box) and a
+    "Quick Toggle Active" tile badge.
+  - **Remember device settings** (sub-option): on quick-off the device's mode is
+    saved (server-side in card_options, `dlq_<device>`, syncing across devices);
+    on quick-on the mode is re-selected so the controller re-applies that mode's
+    settings instead of dropping to a bare manual on. A manual change to the
+    device clears the saved profile.
+
+## 3.19.222
+
+### Changed
+- **Quick-toggle button states refined.** Off is neutral; an outlet that's simply
+  on (no saved profile) shows a green dot + green number (no box highlight); an
+  outlet with a saved profile to restore shows the full green box (border + tint)
+  plus green dot + number.
+
+## 3.19.221
+
+### Changed
+- **Quick-toggle button now shows two green states.** When an outlet is simply on
+  with no saved profile, its quick-toggle button lights the dot AND the number
+  green (a plain "it's on" indicator). When an outlet has an actual saved profile
+  to restore, the button keeps the profile-active look (green dot). Off with no
+  profile stays neutral.
+
+## 3.19.220
+
+### Changed
+- **Quick-toggle buttons light up only when a profile is active.** The numbered
+  quick-toggle buttons previously lit whenever the outlet was on; they now light
+  only when that outlet has a saved quick-toggle profile to restore (matching the
+  "Quick Toggle Active" tile badge), not merely because the outlet is powered.
+
+## 3.19.219
+
+### Added
+- **"Quick Toggle Active" badge on outlet tiles.** When an outlet is off and has a
+  saved quick-toggle profile to restore, a small two-line accent label appears in
+  the lower-right of its tile. It reads the server-side profile, so it shows on any
+  device.
+
+### Changed
+- **A manual change clears the saved quick-toggle profile.** Editing an outlet's
+  mode/power and applying, or copying settings onto it, now invalidates its
+  remembered profile (badge disappears, no stale restore). A successful quick-on
+  also consumes the profile. So the remembered state only lives between a quick-off
+  and the next action, and any manual intervention wins.
+
+## 3.19.218
+
+### Changed
+- **Quick-toggle "remember settings" is now stored on the controller, not the
+  browser.** The remembered outlet snapshot is persisted to the panel's
+  `card_options` (via `sf.set_card_option`, key `olq_<slot>_<n>`), with the
+  in-memory cache kept only as a same-session fast path. This means a scheduled
+  outlet you switch off on one device can be restored to its prior mode from a
+  different device (or after a page reload), and it no longer depends on the
+  browser's localStorage (which can be at quota on a busy HA frontend).
+
+## 3.19.217
+
+### Fixed
+- **Quick-toggle remember now works even when the browser's localStorage is
+  full.** The remembered outlet snapshot was written only to localStorage, which
+  on a busy Home Assistant frontend is frequently at quota — the write threw, the
+  snapshot was silently dropped, and restore fell back to Manual. The snapshot is
+  now held in memory (the source of truth for restore) with localStorage kept
+  only as a best-effort backup, so quick off→on restores the outlet's prior mode
+  regardless of storage pressure. (Diagnosed live: localStorage was at quota with
+  948 keys; snapshot writes were throwing.)
+
+## 3.19.216
+
+### Fixed
+- **Quick-toggle "remember settings" now restores the outlet's mode.** Toggling a
+  scheduled outlet (Cycle/Time Slot/Temperature/…) off then back on with
+  remember-settings enabled dropped it to Manual. The restore re-applied the
+  saved mode but then also sent a bare `switch.turn_on`, which forces Manual and
+  clobbered it. Restore now applies the saved mode/config (and Time Slot periods)
+  without the extra turn-on, so the outlet resumes its previous mode; a plain
+  manual-on is only used when there's no remembered mode.
+
+## 3.19.215
+
+### Fixed
+- **VPD stage buttons auto-stack on mobile.** The Propagation/Vegetative/
+  Flowering/Custom row was forced onto one line and clipped "Custom" on narrow
+  phone widths; it now wraps (centered) so the buttons stack when they don't fit
+  and stay on one line where they do.
+
+## 3.19.214
+
+### Fixed
+- **VPD graph no longer bleeds into the Environment tab.** The new VPD-tab
+  renderer shared the method name `renderVpd()` with the Environment tab's
+  existing "VPD kPa" day/night range summary, so since 3.19.207 the full VPD
+  grid was overriding that summary and rendering at the bottom of Environment.
+  The tab renderer is now `renderVpdTab()`; the Environment tab shows its compact
+  VPD-range summary again, and the grid only appears on the VPD tab.
+
+## 3.19.213
+
+### Fixed
+- **"Save as template" button no longer clips its label.** The button was
+  inheriting the full-width, zero-horizontal-padding plan-button style inside the
+  editor's input row; it now sizes to its text with proper padding.
+
+## 3.19.212
+
+### Added
+- **Planting-plan templates.** Starting a plan now offers **From template** or
+  **Custom**. The template picker lists five built-in **System templates**
+  (Seedling cultivation, Cloning and seedling, Vegetative growth, Flowering
+  period, Dry — Vegetative & Flowering use the exact values from the controller,
+  the rest are sensible editable defaults) plus your own **My templates**.
+  Picking one seeds the plan editor (dates are set by you on apply), where you
+  can edit every target/light and then **Save & activate** to the controller
+  and/or **Save as template** to store your edited version. Per-parameter
+  deadbands show inline. You can also add a template as a stage to an existing
+  plan via **+ From template**. My templates are saved on this device
+  (browser localStorage) and are not pushed to the SF cloud.
+
+## 3.19.211
+
+### Changed
+- **VPD "use planting plan" source is greyed out when no plan is active.** The
+  target-source link only lets you switch to the planting plan when a plan is
+  actually running for the device; otherwise it's shown greyed and
+  non-clickable (with a "No active planting plan" tooltip).
+
+## 3.19.210
+
+### Changed
+- **VPD markers are now labeled circles.** The air point is a white circle and
+  the leaf point a green circle (was a triangle + hollow circle). The on-graph
+  "air"/"leaf" text is gone; instead a second centered legend row under the phase
+  colors keys the markers (● air / ● leaf, leaf shown only when leaf VPD is on).
+
+## 3.19.209
+
+### Changed
+- **VPD tab header rows are now centered.** The growth-stage buttons, the target-
+  source line, the air/leaf VPD readout + status chip, and the Air/RH line are all
+  centered above the chart for a tidier, symmetric layout. (The hollow white
+  circle on the grid is the leaf-VPD point; the triangle is the air point.)
+
+## 3.19.208
+
+### Changed
+- **VPD grid orientation now matches the ha-vpd-chart layout.** Humidity runs
+  along the top of the chart, high on the left → low on the right, and
+  temperature is inverted (low at the top → high at the bottom) — so the moist,
+  low-VPD blue zone sits top-left and the hot/dry red zone bottom-right. The
+  phase legend is centered under the chart, and the stage buttons
+  (Propagation / Vegetative / Flowering / Custom) now fit on a single row.
+
+## 3.19.207
+
+### Added
+- **VPD graph tab.** A new optional "VPD" tab renders a vibrant temperature ×
+  humidity phase chart in the ha-vpd-chart style — distinct bright bands
+  (blue → teal → green → yellow → orange → red) with smooth anti-aliased edges,
+  a live air-VPD marker + crosshair, and axis labels in the panel's own unit
+  (°C/°F). A **Grid / Trend** switch flips to a 24h VPD line (from recorder
+  history); growth-stage buttons (Propagation / Vegetative / Flowering / Custom)
+  set the target band, with an optional **Highlight** mode that dims everything
+  outside the active band and a "use planting plan" source that reads the stage
+  from an active plan. Uses the panel's existing air temp + humidity — no new
+  entities.
+- **Two Settings toggles** under a new "VPD graph" section: **Enable VPD graph**
+  (adds the tab, gated) and, once enabled, **Show leaf VPD too** (adds the leaf
+  VPD reading and a hollow leaf marker alongside air VPD). VPD is also selectable
+  as the card's **Default tab**. Both toggles persist per-panel via
+  `sf.set_card_option` (`vpd_graph` / `vpd_leaf`), so they survive upgrades and
+  sync across your devices.
+
 ## 3.19.206
 
 ### Changed

@@ -40,7 +40,7 @@ CB_FRAME = {
         "fan": {"mOnOff": 1, "mLevel": 7, "shakeLevel": 3, "natural": 0, "modeType": 0},
             "sensors": [{"id": "ABC123", "tempSoil": 22.1, "humiSoil": 45.0, "ECSoil": 1.2}],
         "humidifier": {"on": 1, "mLevel": 2, "modeType": 4},
-        "dehumidifier": {"mLevel": 1},
+        "dehumidifier": {"mLevel": 1, "mOnOff": 0},
         "heater": {"mLevel": 0},
     },
 }

@@ -3,6 +3,165 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.244
+
+### Fixed
+- **Blank device tile during a quick-toggle.** The mode-summary line was being
+  hidden while the optimistic off window was active, leaving the tile looking
+  blank. It now stays visible (the grey off-state already prevents the colour flash).
+- **Quick-toggle now works regardless of mode.** A device idling in an auto mode
+  (e.g. heater in Temperature, not currently heating) counts as "on" for the quick
+  row, so you can quick-toggle it off — previously it could only be toggled while
+  actively running. The quick button also lights when a device is enabled in an
+  auto mode.
+- **Apply/Saving waits for the value to actually change on every tab.** The
+  "Saving…" now watches the entities being changed (Environment targets, device
+  toggles, calibration, …) and clears once one of them updates — no longer showing
+  "done" before the values move. Falls back to a longer grace, 12 s hard cap.
+
+### Changed
+- **Power toggle only shows in Manual mode** for the heater, humidifier,
+  dehumidifier, fan, and blower — the other modes are driven by the mode itself,
+  not the power toggle.
+- **Switching a device to Manual defaults its power toggle to off**, so it doesn't
+  silently stay on when you drop out of an auto mode.
+
+## 3.19.243
+
+### Fixed
+- **Heater/humidifier tile flickered on/off (~every 6 s) while enabled but idle in
+  an auto mode (e.g. Temperature).** The operation log kept replaying its last
+  "on" every status frame while the live reading correctly said the accessory was
+  idle, so the two fought and the tile flickered. The live status level is now the
+  sole source of the running state (it reports the idle 0 correctly); the op log is
+  used only to turn a tile off, never on. Confirmed live: a heater actively heating
+  stays steadily on, and an idle-but-enabled heater no longer flickers.
+
+### Changed
+- **Apply/Save "Saving…" now holds until the toggle actually moves.** For a device
+  Apply it waits for that device's own state to change (with a 12 s safety cap),
+  instead of a short fixed delay — so it no longer shows "done" a few seconds before
+  the switch flips.
+
+## 3.19.242
+
+### Fixed
+- **Dehumidifier tile flashed a stale "Low" / on-state when applying a mode +
+  power-off change.** Two causes: (1) the dehumidifier's level sensor never
+  refreshed from live frames, so it stayed stuck (e.g. "Low") — it's now published
+  authoritatively from the config as the Low/High gear (the dehumidifier has only
+  Low/High levels; on/off is a separate state). (2) Applying a power-off drops the
+  accessory to Manual first, which the controller briefly echoes as an enable
+  before the off; the tile now renders off immediately through that window (like
+  the quick-toggle off), so it no longer flashes on.
+
+### Changed
+- **Apply/Save now shows "Saving…" until the change has actually landed.** The
+  spinner previously cleared after a fixed 1.5 s; it now stays up until the device
+  reports back (with an 8 s safety cap), so it reflects the real write.
+
+## 3.19.241
+
+### Fixed
+- **Fan/blower "Standby Speed" dropdown was empty until you toggled the gear off
+  Automatic and back.** In Environment mode the Standby options are built to sit
+  below the running gear/speed. When the Environment config hadn't been fetched yet
+  the gear read blank (while the selector still showed "Automatic"), which collapsed
+  the Standby range to nothing. A blank/unknown gear is now treated like Automatic —
+  the full Standby range shows immediately, no gear round-trip needed.
+
+## 3.19.240
+
+### Fixed
+- **Brief "Manual" flash on the tile when quick-toggling a scheduled device off.**
+  Quick-off drops a scheduled device (Time Slot / Cycle / Environment) to Manual
+  before powering it off, which momentarily painted the tile in the Manual-mode
+  colour before it went off. The tile now shows OFF immediately when you quick-off
+  (optimistic), so the Manual step never flashes; it falls back to the live state
+  if the power-off doesn't take.
+
+## 3.19.239
+
+### Fixed
+- **Climate tiles briefly flash "on" a few seconds after you switch them off
+  (heater / humidifier, and the heater on power strips).** Turning a climate
+  accessory off from the card is a config change, which the controller's operation
+  log records as a mode change (no "off" entry) — so the op log keeps its last
+  "on" entry. A getDevOpLog fetch 5–15 s later replayed that stale "on" and the
+  bridge flashed the tile on until the next status frame corrected it, even though
+  the device was off. The bridge now treats a config "switched off" (`mOnOff:0`)
+  as authoritative: the op log can no longer turn a switched-off accessory on (a
+  disabled unit can't be running). Verified against live logs where a heater
+  turn-off was followed by a stale opType-1 op-log entry.
+
+## 3.19.238
+
+### Fixed
+- **Dehumidifier stuck showing "on" after being switched off.** Follow-up to
+  3.19.237. The dehumidifier's operation log can miss the turn-off entirely
+  (switching it off via a mode change logs no "off" entry), leaving a stale
+  "on" that the bridge kept republishing over the real state — so the tile stayed
+  on after the unit was switched off. The dehumidifier's on/off is now owned
+  solely by the config `mOnOff` (the actual switch state), which is always
+  current; the op log no longer drives it (the heater and humidifier still use the
+  op log, since their live `level` reports real running state). Verified against
+  the live ac5 logs (config `mOnOff:0` after switch-off).
+
+## 3.19.237
+
+### Fixed
+- **Dehumidifier stuck showing "off" while switched on.** A dehumidifier's live
+  status frame reports only its `level`, which for a dehumidifier is the Low/High
+  **gear** — not a running output (a unit running at Low reports `level:0`). The
+  decoder treated `level:0` as "off" and, because status frames arrive every few
+  seconds, kept forcing the tile off even though the unit was on. The dehumidifier's
+  on/off now comes from its authoritative signals — the config `mOnOff` (switch
+  state) and the operation log (opType 1 on / 2 off) — and the gear `level` is no
+  longer misread as on/off. Heater and humidifier are unchanged (their live `level`
+  really is a running output). Verified against the live ac5 logs (config
+  `mOnOff:1`, op-log `opType 1`).
+
+## 3.19.236
+
+### Changed
+- **Device tiles show the full auto-mode name.** A heater/humidifier/dehumidifier
+  running in an auto mode now reads "Temperature" / "Humidity" in full on the tile
+  instead of the abbreviated "Temp" / "Humid".
+
+## 3.19.235
+
+### Fixed
+- **Climate accessories stuck showing "off" while running (heater / dehumidifier /
+  humidifier).** The op log encodes on/off as `opType` 1 = on and 2 = off, but it
+  also emits `opType: null` entries for mode/level/status changes. Those null
+  heartbeats were being read as a turn-off, so a mode report arriving a second after
+  an accessory turned on flipped its tile (and switch) back to off — and the switch
+  could not be toggled because it already believed it was off. The bus now ignores
+  null-`opType` entries and tracks the newest real on/off transition. Confirmed
+  against live op logs for both heater (devType 25) and dehumidifier (devType 26).
+
+### Added
+- **Hourly tick marks on the log timelines.** Both the Outlets Log and the Device
+  Log now draw subtle vertical gridlines over each timeline track — hourly on the
+  24h range, daily on the 7d range — with matching time labels along the axis, so
+  it's easier to read when a state change happened.
+
+## 3.19.234
+
+### Changed
+- **Settings layout tidy-up.** The "Custom outlet names" description now sits below
+  its toggle (was above). "Show outlet names on quick buttons" moved up to be the
+  first sub-option directly under the "Quick-toggle outlets row" toggle (only shown
+  when that row is on).
+
+## 3.19.233
+
+### Added
+- **Settings toggle: "Show outlet names on quick buttons."** A sub-option under the
+  quick-toggle outlets row. On → buttons show the outlet number + name (e.g.
+  `4-Heater`, or just the number for an unnamed outlet). Off (default) → a status
+  dot + number. Saved server-side with the other card settings.
+
 ## 3.19.231
 
 ### Added

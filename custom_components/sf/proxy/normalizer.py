@@ -727,15 +727,27 @@ def _decode_humidifier(out, e, mod):
 def _decode_dehumidifier(out, e, mod):
     if not mod:
         return
-    active = _climate_on(mod)
-    level = int(_num(mod, "mLevel", "level") or 0)
-    out[f"ggs/ha/{e}/dehumidifier_active/state"] = "ON" if active else "OFF"
-    out[f"ggs/ha/{e}/dehumidifier_level/state"] = (
-        {0: "Low", 1: "High"}.get(level, "Off") if active else "Off"
-    )
-    out[f"ggs/ha/{e}/dehumidifier_mode/state"] = _CLIMATE_MODE_MAP.get(
-        mod.get("modeType"), "Manual"
-    )
+    # The dehumidifier's live `level` (0/1) is the Low/High GEAR, NOT a running
+    # output — a unit running at Low gear reports level:0. So `level` cannot tell
+    # running from idle, and deriving on/off from it forced the tile "off" while
+    # the unit was switched ON (Environment/Humidity auto mode). Only publish the
+    # on/off (and gear display) from an explicit on/mOnOff signal; when the live
+    # frame carries only the gear, leave on/off to the op log + config `mOnOff`,
+    # which are authoritative. (v3.19.237)
+    if "mOnOff" in mod or "on" in mod:
+        on = _on(mod.get("mOnOff")) if "mOnOff" in mod else _on(mod.get("on"))
+        gear = int(_num(mod, "mLevel", "level") or 0)
+        out[f"ggs/ha/{e}/dehumidifier_active/state"] = "ON" if on else "OFF"
+        out[f"ggs/ha/{e}/dehumidifier_level/state"] = (
+            {0: "Low", 1: "High"}.get(gear, "Off") if on else "Off"
+        )
+    # Only set the mode when the frame actually carries a modeType; a bare live
+    # status block (just the gear) would otherwise reset it to "Manual" and fight
+    # the authoritative mode from the config response.
+    if mod.get("modeType") is not None:
+        out[f"ggs/ha/{e}/dehumidifier_mode/state"] = _CLIMATE_MODE_MAP.get(
+            mod.get("modeType"), "Manual"
+        )
     # (Humidity-mode gear Low/High is decoded from config responses in
     # normalize_config_response, not here.)
     # Alarm on a dehumidifier means the collection tank is full.
@@ -819,11 +831,41 @@ def normalize_config_response(mac: str, data: Dict[str, Any]) -> Dict[str, str]:
                     out[f"ggs/ha/{e}/{module}_gear/state"] = \
                         "Automatic" if g == 0 else str(g)
             # Disabling the accessory (mOnOff 0) turns the tile off promptly —
-            # config frames are frequent, live running frames are rare. Only ever
-            # publish OFF here; the ON/idle running state stays with the live
-            # `level` (a config mOnOff:1 just means "enabled", not "running"). (v3.19.145)
-            if "mOnOff" in block and int(block.get("mOnOff") or 0) == 0:
-                out[f"ggs/ha/{e}/{module}_active/state"] = "OFF"
+            # config frames are frequent, live running frames are rare. For the
+            # heater/humidifier only ever publish OFF here; their ON/idle running
+            # state stays with the live `level` (a config mOnOff:1 just means
+            # "enabled", not "running"). (v3.19.145)
+            #
+            # The dehumidifier is the exception: its live `level` is the Low/High
+            # GEAR, not a running output, so the live frame can't report running
+            # state. For it, `mOnOff` is the authoritative on/off — publish BOTH
+            # ways so the tile follows the switch (fixes it stuck "off" while on,
+            # v3.19.237). The op log (opType 1/2) corroborates the transitions.
+            if "mOnOff" in block:
+                mon = int(block.get("mOnOff") or 0)
+                if module == "dehumidifier":
+                    out[f"ggs/ha/{e}/dehumidifier_active/state"] = \
+                        "ON" if mon else "OFF"
+                    # The dehumidifier's level is its GEAR — Low or High only, no
+                    # separate "off" (on/off is the mOnOff/active state). Publish it
+                    # authoritatively from the config `mLevel` (0=Low, 1=High); the
+                    # live status frame never refreshes it, so it would otherwise go
+                    # stale. The tile shows "Off" from the active state, not from the
+                    # level. (v3.19.242)
+                    gear = int(block.get("mLevel") or 0)
+                    out[f"ggs/ha/{e}/dehumidifier_level/state"] = \
+                        {0: "Low", 1: "High"}.get(gear, "Low")
+                elif mon == 0:
+                    out[f"ggs/ha/{e}/{module}_active/state"] = "OFF"
+                # Config-only "switched on/off" flag (the mOnOff setpoint). The op
+                # log drives the heater/humidifier tile's running state, but it
+                # never records a card-issued turn-OFF (that's a config change, not
+                # an actuation, so it logs opType null — not 2), leaving a stale
+                # opType-1 "on" that the op log would flash back ON seconds later.
+                # The bus reads this flag and refuses to turn an accessory ON from
+                # the op log while it's switched off — a disabled unit can't run.
+                # (v3.19.239)
+                out[f"ggs/ha/{e}/{module}_cfg_on/state"] = "ON" if mon else "OFF"
     return out
 
 

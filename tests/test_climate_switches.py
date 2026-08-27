@@ -306,6 +306,38 @@ def test_humidifier_auto_gear_writes_level_field():
     assert blk2["mLevel"] == 1
 
 
+def test_manual_gear_and_power_apply_in_one_write():
+    """v3.19.245: a Manual heater's gear + power are committed in ONE apply_bundle
+    (mLevel + mOnOff in the same config write) so they never race as two writes —
+    which previously applied the STALE level and turned the accessory on
+    unexpectedly. `onoff` -> mOnOff, `gear` -> mLevel, both in one block."""
+    import json
+    from custom_components.sf.proxy.command_handler import _cmd_climate_config
+    state = {"heater": {"modeType": 0, "mOnOff": 0, "mLevel": 8,
+                        "timePeriod": [{"enabled": 1, "weekmask": 127}],
+                        "cycleTime": {"weekmask": 127}}}
+    m = _cmd_climate_config(
+        "MAC", "UID", "heater",
+        json.dumps({"mode": "Manual", "gear": "9", "onoff": "on"}),
+        "apply_bundle", state)
+    blk = m["params"]["heater"]
+    assert blk["modeType"] == 0        # Manual
+    assert blk["mLevel"] == 9          # the level the user PICKED (not the stale 8)
+    assert blk["mOnOff"] == 1          # power on, same write
+    # power-off only, gear untouched -> mOnOff 0, level preserved (no auto-anything)
+    m2 = _cmd_climate_config(
+        "MAC", "UID", "heater", json.dumps({"onoff": "off"}), "apply_bundle", state)
+    blk2 = m2["params"]["heater"]
+    assert blk2["mOnOff"] == 0
+    assert blk2["mLevel"] == 8
+    # gear-only change must NOT turn the (off) heater on
+    m3 = _cmd_climate_config(
+        "MAC", "UID", "heater", json.dumps({"gear": "3"}), "apply_bundle", state)
+    blk3 = m3["params"]["heater"]
+    assert blk3["mLevel"] == 3
+    assert blk3["mOnOff"] == 0         # stayed off
+
+
 def test_humidifier_gear_decoded_from_config_response():
     """v3.19.143: the gear is decoded from CONFIG responses (config `level`,
     0 -> Automatic, 1-4), not the live decoder — a live getDevSta frame's `level`

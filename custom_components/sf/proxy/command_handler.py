@@ -1091,6 +1091,12 @@ def _apply_climate_subfield(block, subfield, value, field):
     cycleTime; mode -> modeType. Raises on unparseable values."""
     if subfield == "mode":
         block["modeType"] = _CLIMATE_MODE_TO_TYPE.get(str(value), 0)
+    elif subfield == "onoff":
+        # Power on/off applied AS PART OF the same config write as the level, so a
+        # Manual gear + power change is ONE atomic command — not two racing writes
+        # that each RMW a stale cache (which applied the wrong level and/or turned
+        # the accessory on unexpectedly). (v3.19.245)
+        block["mOnOff"] = _onoff(value)
     elif subfield in ("gear", "wind", "level"):
         lv = _climate_level_value(field, value)
         if lv is not None:

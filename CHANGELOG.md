@@ -3,6 +3,17 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.245
+
+### Fixed
+- **Setting a Manual heater/humidifier/dehumidifier level applied the wrong value
+  and could turn the accessory on by itself.** The gear and power were sent as two
+  separate config writes that raced — the power write carried the *previous* level
+  and overwrote the one you picked (so L9 became L8), and turning on used that stale
+  level. The gear and power are now committed in a single config write (level +
+  on/off together), so the level you choose is exactly what's applied, and changing
+  the level no longer turns the device on on its own.
+
 ## 3.19.244
 
 ### Fixed

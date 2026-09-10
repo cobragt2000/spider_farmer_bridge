@@ -4,6 +4,37 @@ All notable changes to the **Spider Farmer Hotspot** add-on. The Supervisor
 offers an update whenever the `version` in `config.yaml` increases; the notes
 below are shown on the add-on's Changelog tab.
 
+## 0.8.4
+
+- **New: `block_updates` option.** Off by default. Turn it on to blackhole the
+  firmware host (Alibaba OSS) so controllers can't download OTA updates over the
+  hotspot; MQTT/control (via the local :8883 redirect) and NTP are unaffected. Turn
+  it off to allow updates. Takes effect on add-on restart.
+
+## 0.8.3
+
+- **Fix: firmware/OTA downloads (and NTP) blocked for hotspot clients.** Docker/HAOS
+  run a FORWARD chain with a DROP policy that only passes their own bridge networks;
+  the hotspot subnet isn't one, so client->internet forwarding was silently dropped.
+  DNS, DHCP and the local :8883 redirect still worked (so devices looked connected and
+  control worked), but the controllers couldn't reach the internet — so firmware
+  updates stalled at 0% and you had to move devices to your main network. The add-on
+  now whitelists its subnet in DOCKER-USER (a terminating accept ahead of the FORWARD
+  drop), and the watchdog re-adds it whenever Docker rebuilds that chain. Removed on
+  shutdown so no orphan rules are left behind.
+
+
+## 0.8.2
+
+- **Self-healing NAT/redirect watchdog.** The masquerade (client internet) and the
+  :8883 -> proxy redirect are nft rules the add-on adds at start. If the host
+  rebuilds nftables (Docker/NetworkManager/Supervisor) it can silently drop them —
+  DNS/DHCP keep working, but clients lose internet, so GGS controllers get stuck
+  retrying NTP and never reach the cloud (they look "connected but offline" until an
+  add-on/HA reload). A watchdog now re-checks every ~20s and re-asserts the rules if
+  they've gone missing, so it recovers on its own. It also logs "WATCHDOG: ...
+  reasserting" when it fires — a clear marker for diagnosing the cause.
+
 ## 0.8.1
 
 ### Changed

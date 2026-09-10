@@ -13,7 +13,7 @@
 #   auto    - nmcli if a running NetworkManager is reachable, else hostapd.
 set -uo pipefail
 
-ADDON_VERSION="0.6.7"
+ADDON_VERSION="0.8.5"
 OPTIONS=/data/options.json
 NM_CON="SF-Bridge-Hotspot"
 DNSMASQ_PID=""
@@ -45,6 +45,7 @@ COUNTRY=$(get '.country_code')
 UNMANAGE=$(get '.unmanage_via_nmcli')
 SECURITY=$(get '.security')
 DNS_LOGGING=$(get '.dns_logging')
+BLOCK_UPDATES=$(get '.block_updates')
 PROXY_PORT=$(get '.proxy_port')
 [ -z "${PROXY_PORT}" ] || [ "${PROXY_PORT}" = "null" ] && PROXY_PORT=8883
 # Internet passthrough (NAT to the uplink) is always on — controllers need it
@@ -58,6 +59,80 @@ nft_table() {
   command -v nft >/dev/null 2>&1 || return 1
   nft add table ip sfhs 2>/dev/null || true
   NFT_ADDED=1
+}
+
+# (Re)assert every nft rule the hotspot needs: the uplink masquerade + forward
+# accepts (internet for the clients) and the :8883 -> proxy redirect. Idempotent
+# — our own chains are flushed first so a re-assert never stacks duplicate rules.
+# Split out so the watchdog can re-apply it if HAOS/Docker/NetworkManager rebuild
+# the host nftables and wipe our chains. (v0.8.2)
+apply_nft_rules() {
+  nft_table || return 1
+  nft flush chain ip sfhs post 2>/dev/null || true
+  nft flush chain ip sfhs fwdc 2>/dev/null || true
+  nft flush chain ip sfhs pre  2>/dev/null || true
+  if [ "${INTERNET_ACCESS}" = "true" ]; then
+    echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null \
+      || sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+    nft add chain ip sfhs post '{ type nat hook postrouting priority 100 ; }' 2>/dev/null
+    nft add rule ip sfhs post ip saddr "${PREFIX}.0/24" oifname != "${IFACE}" counter masquerade 2>/dev/null
+    nft add chain ip sfhs fwdc '{ type filter hook forward priority 0 ; }' 2>/dev/null
+    nft add rule ip sfhs fwdc iifname "${IFACE}" ip saddr "${PREFIX}.0/24" counter accept 2>/dev/null
+    nft add rule ip sfhs fwdc oifname "${IFACE}" ct state established,related counter accept 2>/dev/null
+  fi
+  nft add chain ip sfhs pre '{ type nat hook prerouting priority -150 ; }' 2>/dev/null
+  nft add rule ip sfhs pre iifname "${IFACE}" tcp dport 8883 counter redirect to :"${PROXY_PORT}" 2>/dev/null
+  apply_docker_user_accept
+}
+
+# Docker/HAOS run their own `ip filter FORWARD` chain with a DROP policy, letting
+# only their bridge networks through (via DOCKER-USER). Our hotspot subnet isn't a
+# Docker network, so client->internet forwarding falls through to that DROP: DNS,
+# DHCP and the local :8883 redirect keep working (so the app looks connected), but
+# clients can't reach the internet — which silently blocks firmware OTA downloads
+# and NTP ("connected, but the update won't download"). The add-on's own forward
+# ACCEPT can't override another chain's drop, so we whitelist the subnet in
+# DOCKER-USER (a terminating ACCEPT, evaluated before the FORWARD drop). Docker
+# rebuilds DOCKER-USER, so the watchdog re-adds this too. `ip filter` is
+# iptables-nft managed; DOCKER-USER exists specifically for user rules. (v0.8.3)
+apply_docker_user_accept() {
+  [ "${INTERNET_ACCESS}" = "true" ] || return 0
+  command -v nft >/dev/null 2>&1 || return 1
+  nft list chain ip filter DOCKER-USER >/dev/null 2>&1 || return 1   # Docker not up yet
+  nft list chain ip filter DOCKER-USER 2>/dev/null \
+    | grep -q "iifname \"${IFACE}\" ip saddr ${PREFIX}.0/24" \
+    || nft insert rule ip filter DOCKER-USER iifname "${IFACE}" ip saddr "${PREFIX}.0/24" counter accept 2>/dev/null
+  nft list chain ip filter DOCKER-USER 2>/dev/null \
+    | grep -q "oifname \"${IFACE}\" ct state established,related" \
+    || nft insert rule ip filter DOCKER-USER oifname "${IFACE}" ct state established,related counter accept 2>/dev/null
+}
+
+# True when our DOCKER-USER whitelist is present (both directions).
+docker_user_ok() {
+  [ "${INTERNET_ACCESS}" = "true" ] || return 0
+  nft list chain ip filter DOCKER-USER 2>/dev/null \
+    | grep -q "iifname \"${IFACE}\" ip saddr ${PREFIX}.0/24"
+}
+
+# Watchdog check: are our key rules still present? The host periodically rebuilds
+# nftables (Docker/NM/Supervisor), which silently drops our chains — DNS/DHCP keep
+# working (local listeners) but the clients lose their route to the internet, so
+# GGS controllers get stuck retrying NTP and never reach the cloud/proxy. When the
+# rules go missing we re-assert them so it self-heals without an HA reboot.
+reassert_nft_if_missing() {
+  command -v nft >/dev/null 2>&1 || return 0
+  local ok=1
+  nft list chain ip sfhs pre 2>/dev/null | grep -q 'redirect to' || ok=0
+  if [ "${INTERNET_ACCESS}" = "true" ]; then
+    nft list chain ip sfhs post 2>/dev/null | grep -q 'masquerade' || ok=0
+    docker_user_ok || ok=0
+  fi
+  if [ "${ok}" != "1" ]; then
+    log "WATCHDOG: hotspot NAT/forward/redirect rules missing (host rebuilt nftables?) - reasserting."
+    apply_nft_rules \
+      && log "WATCHDOG: rules reasserted (masquerade + DOCKER-USER forward + 8883->:${PROXY_PORT} redirect)." \
+      || log "WATCHDOG: re-assert failed."
+  fi
 }
 
 
@@ -234,6 +309,18 @@ DNSM
 if [ "${DNS_LOGGING}" = "true" ]; then
   printf 'log-dhcp\nlog-queries\n' >> "${DNSMASQ_CONF}"
 fi
+# Optional: block firmware/OTA downloads on the hotspot. The controllers pull
+# firmware over HTTP from Alibaba OSS (mz-iot.oss-accelerate.aliyuncs.com); DNS-
+# blackholing that host makes the download fail while MQTT/control (sf.mqtt ->
+# local proxy) and NTP keep working. Turn on to keep gear from updating over the
+# AP; leave off to allow updates. (v0.8.3)
+if [ "${BLOCK_UPDATES}" = "true" ]; then
+  {
+    echo 'address=/mz-iot.oss-accelerate.aliyuncs.com/0.0.0.0'
+    echo 'address=/oss-accelerate.aliyuncs.com/0.0.0.0'
+  } >> "${DNSMASQ_CONF}"
+  log "block_updates on: firmware host (oss-accelerate.aliyuncs.com) blackholed - OTA downloads blocked, control unaffected."
+fi
 
 # --- cleanup on exit -----------------------------------------------------
 cleanup() {
@@ -243,6 +330,16 @@ cleanup() {
   [ -n "${TCPDUMP_PID}" ] && kill "${TCPDUMP_PID}" 2>/dev/null || true
   # One table holds the redirect + NAT + forward rules, so this removes them all.
   [ -n "${NFT_ADDED}" ] && nft delete table ip sfhs 2>/dev/null || true
+  # Remove the whitelist we inserted into Docker's shared DOCKER-USER chain so we
+  # don't orphan rules there when the add-on stops. (v0.8.3)
+  while nft -a list chain ip filter DOCKER-USER 2>/dev/null \
+        | grep -E "(iifname \"${IFACE}\" ip saddr ${PREFIX}.0/24|oifname \"${IFACE}\" ct state established,related)" \
+        | grep -oE 'handle [0-9]+' | head -1 | grep -q .; do
+    h=$(nft -a list chain ip filter DOCKER-USER 2>/dev/null \
+        | grep -E "(iifname \"${IFACE}\" ip saddr ${PREFIX}.0/24|oifname \"${IFACE}\" ct state established,related)" \
+        | grep -oE 'handle [0-9]+' | head -1 | awk '{print $2}')
+    [ -n "${h}" ] && nft delete rule ip filter DOCKER-USER handle "${h}" 2>/dev/null || break
+  done
   [ -n "${HOSTAPD_PID}" ] && kill "${HOSTAPD_PID}" 2>/dev/null || true
   if [ "${BACKEND}" = "nmcli" ]; then
     nmcli con down "${NM_CON}" 2>/dev/null || true
@@ -405,6 +502,16 @@ if [ "${INTERNET_ACCESS}" = "true" ]; then
     log "WARNING: could not enable internet NAT for the hotspot. Devices that need"
     log "internet before connecting to the cloud may stay offline."
   fi
+  # Docker's FORWARD chain default-drops non-Docker subnets, which silently blocks
+  # client internet (firmware OTA downloads, NTP) even though DNS + the :8883
+  # redirect keep working. Whitelist our subnet in DOCKER-USER so forwarding is
+  # allowed. (v0.8.3)
+  if apply_docker_user_accept; then
+    log "internet access: DOCKER-USER forward whitelist for ${PREFIX}.0/24 added."
+  else
+    log "note: DOCKER-USER not present yet; the watchdog will add the forward"
+    log "whitelist once Docker's chain exists (needed for OTA/NTP over the AP)."
+  fi
 fi
 
 # The device dials the cloud on :8883, but HA's Mosquitto broker owns :8883 on
@@ -449,8 +556,15 @@ if [ "${DNS_LOGGING}" = "true" ] && command -v tcpdump >/dev/null 2>&1; then
 fi
 
 log "Hotspot running. Waiting on services..."
+WATCH=0
 while true; do
   [ -n "${DNSMASQ_PID}" ] && ! kill -0 "${DNSMASQ_PID}" 2>/dev/null && { log "dnsmasq exited."; break; }
   [ -n "${HOSTAPD_PID}" ] && ! kill -0 "${HOSTAPD_PID}" 2>/dev/null && { log "hostapd exited."; break; }
+  # Every ~20s, make sure the host didn't rebuild nftables out from under us and
+  # drop our masquerade/redirect (clients stay associated but lose internet, so
+  # GGS controllers get stuck retrying NTP and never reach the cloud). Re-assert
+  # them so it self-heals without an add-on/HA reload. (v0.8.2)
+  WATCH=$((WATCH + 1))
+  if [ "${WATCH}" -ge 4 ]; then WATCH=0; reassert_nft_if_missing; fi
   sleep 5
 done

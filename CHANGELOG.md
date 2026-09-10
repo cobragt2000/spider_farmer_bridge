@@ -3,6 +3,438 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.289
+
+### Changed
+- **Reboot button moved to Diagnostic.** It now sits under the device's Diagnostic
+  section instead of Configuration.
+
+## 3.19.288
+
+### Fixed
+- **Reboot button now actually appears.** In 3.19.287 the button was hung on the
+  `sys` block, which is decoded to cached header attributes and never reaches the
+  entity-creation path — so no controller ever got the button. It's now created as
+  a device-level control (like Display Off) from the first block a controller
+  reports, so every panel/strip/S-Station gets a **Reboot** button once it's
+  reporting. (No device was harmed by 3.19.287; the button was simply absent.)
+
+## 3.19.287
+
+### Added
+- **Reboot a controller from Home Assistant.** Each controller now has a **Reboot**
+  button (and an `sf.reboot_device` service for automations) that injects the
+  firmware's `setDevRestart` command through the bridge — handy to un-wedge a
+  controller (e.g. one stuck mid-OTA) without walking over to pull its plug. The
+  controller reconnects on its own once it's back up. Gated by **Allow device
+  control** and only active while the controller is online. Only the safe restart
+  command is exposed — the firmware's reset/restore (factory-wipe) commands are not.
+
+## 3.19.286
+
+### Fixed
+- **Hotspot add-on 0.8.5: correct version banner.** The add-on startup log printed a
+  stale version string ("v0.6.7") while running the current code; it now reports its
+  real version. No functional change — forwarding and block_updates behave as in 0.8.4.
+  Both `block_updates` states are now verified on hardware: off = OTA downloads over
+  the AP; on = firmware host resolves to 0.0.0.0 so the download can't start, while
+  MQTT/control and NTP keep working.
+
+## 3.19.285
+
+### Added
+- **Hotspot add-on 0.8.4: block_updates option.** New add-on toggle (off by default)
+  to blackhole the firmware host so controllers can't pull OTA updates over the
+  hotspot; control/MQTT and NTP keep working. Turn off to allow updates.
+
+## 3.19.284
+
+### Fixed
+- **Hotspot add-on 0.8.3: firmware/OTA downloads work on the AP.** Docker/HAOS
+  FORWARD default-drop was silently blocking hotspot clients from the internet, so
+  firmware updates stalled at 0% (control/MQTT still worked via the local redirect,
+  which masked it). The add-on now whitelists its subnet in DOCKER-USER and the
+  watchdog keeps it there — devices can download updates on the hotspot without
+  moving to the main network.
+
+## 3.19.283
+
+### Fixed
+- **S-Station energy now reads in kWh.** The device reports the energy counter in
+  Wh, but the tile published it as-is labelled kWh (e.g. raw 10 showed "10 kWh").
+  Now scaled to kWh (raw ÷ 1000), matching the SF app's Energy Usage (e.g. 0.010
+  kWh). Power (W) and voltage (V) were already correct.
+
+## 3.19.282
+
+### Fixed
+- **Hotspot add-on 0.8.2: self-healing Wi-Fi NAT.** If the host rebuilt nftables and
+  dropped the hotspot's masquerade/redirect rules, clients stayed on Wi-Fi but lost
+  internet and got stuck on NTP (connected-but-offline until a reload). The add-on
+  now re-asserts those rules automatically (~20s watchdog) and logs when it does.
+
+## 3.19.281
+
+### Added
+- **S-Station power tile opens a history graph.** Tapping the Energy Usage (Power)
+  tile now opens the same inline history graph as the other tiles (6h–7d range,
+  tap-for-value), for the power reading.
+
+## 3.19.280
+
+### Added
+- **Outlets on the Overview tab.** New Settings toggle (Settings → Overview → "Show
+  outlets on Overview") appends the outlet tiles to the Overview tab, under Devices,
+  for an all-in-one view. Off by default; saved server-side.
+
+### Changed
+- **Settings sections are collapsible.** Overview, Tile extras, Header connection
+  info, VPD graph, Devices, Outlets and Layout are now collapsible and start
+  collapsed, to cut the initial clutter of the Settings tab.
+
+## 3.19.279
+
+### Changed
+- **Stopping a plan turns the light off.** Disabling a planting plan from the card
+  now drops the light(s) back to Manual and switches them off, instead of leaving
+  them on in Manual.
+
+## 3.19.278
+
+### Fixed
+- **Selecting the plan light mode no longer lands on Manual.** The light-mode write
+  path didn't recognise "PPFD - Plan" (or "Planting Plan"), so choosing it — or the
+  card's auto-switch on plan start — wrote Manual (modeType 0) and the tile showed
+  Manual with no PPFD targets. Both now map to mode 1, so the light enters the plan
+  schedule and the tile shows the PPFD settings.
+
+## 3.19.277
+
+### Changed
+- **Plan light mode shown as "PPFD - Plan".** While a plan runs the light tile now
+  keeps the full PPFD view (target, lighting period, DLI, dimming range) and simply
+  labels the mode "PPFD - Plan" instead of plain "PPFD", so it's clear the schedule
+  comes from the plan. The mode dropdown offers Manual / PPFD - Plan while a plan is
+  active.
+
+## 3.19.276
+
+### Fixed
+- **Planting Plan light tile no longer goes basic.** With a plan running, a light
+  now reads "Planting Plan" whether the controller stores mode 1 or 12, so the mode
+  dropdown (Manual / Planting Plan) matches instead of falling back to "Manual", and
+  the tile/pop show the full plan-driven schedule (PPFD target, lighting period, DLI,
+  dimming range) read-only, with a pointer to edit it on the Planting Plan tab.
+
+## 3.19.275
+
+### Added
+- **Plan-driven light schedule now populates the light entities.** While a plan
+  runs, the light follows the active stage's light schedule (which lives in the
+  plan, not the device light block), so the per-light PPFD/schedule fields — PPFD
+  Start/Stop/Target/Fade, Dimming Range Min/Max, Time Slot schedule, Go Dark and
+  Turn Off — previously sat on "unknown". The integration now publishes the active
+  stage's light1/light2 schedule into those entities, so the card and integration
+  show the real plan-driven light settings.
+
+## 3.19.274
+
+### Changed
+- **Plan light control refined.** Starting a plan from the card now also turns the
+  light(s) on (setting Planting Plan mode alone left them off, as on the SF app),
+  and the light Mode dropdown shows only Manual / Planting Plan while a plan is
+  running (Time Slot and PPFD return when it stops) — matching the app.
+
+## 3.19.273
+
+### Added
+- **Planting Plan light mode.** When a grow plan is running, the controller runs
+  the light in a "Planting Plan" mode (device modeType 1, relabelled from "Time
+  Slot" while a plan is active — matching the SF app, which offers only Manual /
+  Planting Plan for a light during a plan). The integration now decodes and labels
+  this, adds it as a valid light-mode option, and maps it on writes. Starting a plan
+  from the card puts the light(s) into Planting Plan mode automatically (and returns
+  them to Manual when the plan stops), so the light follows the plan and the tile
+  shows the correct mode. Previously the card only wrote the plan block, so the
+  light stayed Manual/off and its PPFD fields never populated.
+
+## 3.19.272
+
+### Fixed
+- **Env outlet direction now tracks changes (Humidify ↔ Dehumidify, Cool ↔ Heat).**
+  An integration-driven outlet was auto-adopted on its FIRST env-mode sighting and
+  never updated, so flipping an outlet's direction (e.g. O4 to Dehumidifying) left
+  the engine running the old direction — a dehumidify outlet behaved like humidify.
+  Auto-adopt now refreshes mode/direction from every env-mode device frame, so the
+  device config is the single source of truth and Temperature/Humidity behave
+  identically. Switching an outlet to a non-env mode hands control back immediately
+  (no persistent block that could re-block a later re-selection).
+
+## 3.19.271
+
+### Added
+- **Cooldown timer settings (card).** A collapsible "Dehumidifier cooldown timer"
+  section in Settings: turn the countdown on/off, choose where it shows (device tile
+  and/or outlet tiles), and set the cooldown length (0.5–15 min). Off by default;
+  saved server-side. The outlet countdown appears on any outlet running as a
+  dehumidifier. (Duration was fixed at 3 min in 3.19.270.)
+
+## 3.19.270
+
+### Added
+- **Dehumidifier cooldown timer on the tile (card).** The unit enforces a ~3-min
+  compressor lockout after it turns off — it can't restart until that elapses, even
+  if SF or the integration commands it on. The dehumidifier device tile now shows a
+  live countdown: "Cooldown m:ss" after it turns off, or "Starts in m:ss" when
+  dehumidification is being demanded but the lockout is still blocking it, with a
+  shrinking bar. Timed from the accessory's last-off, so it's right even if you open
+  the dashboard mid-cooldown.
+
+## 3.19.269
+
+### Added
+- **Humidity outlets on sensorless strips.** The env-outlet engine now also drives
+  Humidity outlets (Humidify / Dehumidify) from the mirrored humidity reading and
+  the strip's Environment humidity target — same hysteresis as Temperature.
+
+### Changed
+- **Env outlets adopt automatically.** An outlet already set to Temperature/Humidity
+  on an external strip (set before updating, or from the SF app) is now picked up by
+  the engine on its own — no need to re-open the card and re-apply. Turning the outlet
+  to Manual/Time Slot/Cycle from the card hands control back.
+- **Acts immediately.** The first decision after adoption/startup no longer waits out
+  the min on/off dwell, so it responds right away instead of after ~2 minutes.
+
+## 3.19.268
+
+### Added
+- **Temperature-driven outlets on sensorless strips.** An AC5/AC10 on an external
+  temperature source has no on-board sensor, so the controller can't run its own
+  Temperature-mode outlet control — the socket never switched. The integration now
+  drives it: set an outlet to Temperature (Cooling/Heating) and it holds the strip's
+  Environment target (day/night) from the mirrored reading, with min on/off dwell to
+  stop rapid cycling. The controller is held in Manual under the hood so the socket
+  actually switches; the card keeps showing the chosen Temperature/Cooling mode.
+  Requires "Allow device control". New service `sf.set_outlet_env` (the card wires
+  this automatically on external strips). S-Station Device Type UI shipped in 3.19.267.
+
+## 3.19.266
+
+### Fixed
+- **External sensor in °F now reads correctly.** A Fahrenheit 3rd-party sensor
+  was converted with the wrong formula (F/1.8), so the tile showed a bogus value
+  (e.g. 106.7 for a 74.8°F sensor). Now uses (F−32)/1.8.
+
+## 3.19.265
+
+### Changed
+- **Switching a strip back to SF cleans up.** When you set a strip's Temperature
+  source back from External to SF, the mirrored temperature/humidity/VPD and the
+  Environment targets are removed (with "Keep offline devices" off), so the card
+  returns to outlet-only. (With it on, they're kept, per the offline-gear policy.)
+
+## 3.19.264
+
+### Fixed
+- **External-sensor strips keep their temp/humidity tiles.** With "Keep offline
+  devices" off, the phantom-block pruner was deleting an external strip's mirrored
+  temperature/humidity right after they were created (the strip reports no SF air
+  sensor of its own). They're now protected, so AC5's borrowed Govee readings show
+  on Overview.
+
+## 3.19.263
+
+### Fixed
+- **Energy Usage tile now finds the power sensors** (their entity ids are
+  name-based: `..._power/voltage/current/energy`), and on an outlet-only device
+  like the S-Station the tile shows on the **Outlets** tab (which has no
+  Overview).
+
+## 3.19.262
+
+### Changed
+- **Display Off is now a dropdown** (Off, 1–10 minutes) instead of an empty
+  number box, matching the SF app's picker.
+
+## 3.19.261
+
+### Fixed
+- **Overview tab restored on environment-capable strips.** An AC5/AC10 with
+  Environment targets or a plan (even with nothing live reporting yet) is no
+  longer treated as outlet-only, so its Overview + Environment tabs stay.
+- **Phantom Indicator Light removed from the S-Station** reliably now — the prune
+  checks the entity registry directly instead of relying on in-memory state, so
+  it fires even right after a restart.
+
+## 3.19.260
+
+### Fixed
+- **Planting Plan restored on external-sensor strips.** A strip using a 3rd-party
+  temp/humidity sensor (e.g. AC5) now shows the Planting Plan under Environment
+  again, so its stage targets can drive smart control. A truly sensorless
+  outlet-only strip still has no plan.
+
+## 3.19.259
+
+### Added
+- **Energy Usage tile on the card** for metered plugs (S-Station) — Power (W)
+  with Voltage / Current / Energy beneath, like the SF app.
+- **Display Off (Auto Screen Off) control** for controllers with a built-in
+  screen (display panels + the S-Station): a 0–10 minute setting (0 = off),
+  mapped to the device's `system.scroff`.
+
+### Fixed
+- **No phantom Indicator Light on the S-Station.** The single-plug S-Station has
+  no status LED (its built-in display shows mode/on), so the Indicator Light is
+  no longer created for it, and any one already created is removed.
+- **Voltage and Current are now regular sensors**, not diagnostics.
+
+## 3.19.258
+
+### Added
+- **Power monitoring for the S-Station (and any metered plug).** When a device
+  reports power in its outlet block, four sensors are created: **Power** (W),
+  **Voltage** (V), **Current** (A), and **Energy** (kWh, for the Energy dashboard).
+  Voltage and Power match the SF app 1:1; Current is scaled from the device's
+  centi-amp reading. (Current/Energy scaling is inferred from an idle sample —
+  worth a sanity check under a real load.)
+
+## 3.19.257
+
+### Fixed
+- **No CO2 targets on a sensor without CO2.** An external-sensor strip (3-in-1
+  temp/humidity/VPD, no CO2) no longer shows CO2 Target Day/Night or CO2 Dead
+  Zone on its Environment device; any leftover CO2 targets are removed.
+
+## 3.19.256
+
+### Added
+- **Smart control (v1): closed-loop humidity → dehumidifier.** Enable it under the
+  card's Settings → **Smart control** and the integration holds your humidity
+  target itself — smarter than SF's coarse Humidity mode: turns the dehumidifier
+  on at Low, escalates Low→High if humidity isn't falling, and eases back to Low
+  as it nears target to avoid overshoot, with min on/off timers. Runs continuously
+  in Home Assistant (no dashboard needed). A clear warning notes that, while on,
+  the integration drives the gear (full Manual) and overrides SF's automation; on
+  an HA restart the gear holds its last state. (New `sf.set_smart_control`
+  service.)
+- **Environment targets return on external-sensor strips.** Once a strip is on a
+  3rd-party temp/humidity sensor, its Environment tab and target setpoints come
+  back (for planting-plan targets) — still no air calibration (no SF probe).
+
+## 3.19.255
+
+### Changed
+- **Temperature source is now a collapsible section** (like "Colours & tile
+  appearance") and its controls reuse the card's standard styles — `.seg`
+  buttons and a `.toggle-row` + capped `<select>` for each entity picker — so it
+  matches the rest of Settings instead of the earlier inline/wrapping layout.
+
+## 3.19.254
+
+### Changed
+- **Temperature source picker now uses the card's standard Apply/Discard bar**
+  instead of its own button, and the SF sensor / External sensor buttons are
+  compact — matching the rest of Settings.
+
+## 3.19.253
+
+### Added
+- **External temperature source for outlet-only strips.** A power strip with no
+  Spider Farmer air sensor can borrow a 3rd-party Home Assistant temperature/
+  humidity sensor. Pick it under the card's Settings → **Temperature source**
+  (SF sensor / External sensor); the readings then appear on the card and as
+  `sensor.sf_<strip>_temperature` / `_humidity` (with a derived VPD), so you can
+  drive the strip's outlets from your own automations. Also settable via the new
+  `sf.set_strip_sensor` service. (Phase 1 — automatic outlet control from the
+  external sensor comes next.)
+- **PPFD target on the Current PPFD tile.** While a grow plan is running and a
+  light is in PPFD mode, the tile shows that light's PPFD setpoint beneath the
+  live reading.
+
+## 3.19.252
+
+### Fixed
+- **Indicator Light no longer greyed out on outlet-only strips.** The strip's
+  status-LED switch is now created alongside the outlets (it isn't tied to a
+  sensor block), so a pure-outlet AC5/AC10 gets a live, toggleable Indicator
+  Light instead of an "unavailable" leftover.
+
+### Changed
+- **Outlet-only strips no longer carry sensor-only entities.** A power strip with
+  no air sensor won't create Leaf VPD, leaf offsets, the Planting Plan sensor/
+  toggle, or the air-calibration numbers. Existing leftovers are removed
+  automatically when "Keep offline devices" is unchecked (Settings → the
+  integration's Configure). Leave it checked and they're preserved.
+
+## 3.19.251
+
+### Fixed
+- **AC5/AC10 can be picked as a card again.** The card editor's Panel device
+  dropdown was only offering display panels and single-plug S-Stations; power
+  strips with only outlets are now selectable.
+- **No more phantom "… Environment" device on sensorless strips.** A power strip
+  (AC5/AC10/S-Station) only gets Environment target entities once an air sensor
+  is actually attached. With "Keep offline devices" off, a leftover phantom
+  Environment device on a sensorless strip is cleaned up automatically.
+
+### Added
+- **Outlet-only card mode.** A strip with just outlets (no air sensor, soil, or
+  climate/light devices) now hides the Environment, VPD, Calibration, Alerts and
+  Overview tabs and the settings that don't apply — a clean outlet-control card.
+- **Tile appearance: reset now clears the border too**, and a new "Apply
+  appearance to" control chooses whether the custom look applies to sensor,
+  device, and/or outlet tiles.
+
+## 3.19.250
+
+### Fixed
+- **"Keep offline devices" now takes effect immediately.** Unchecking it
+  previously did nothing until a full restart; the option is now applied live,
+  so phantom accessory blocks are cleaned up on the next device report. (Whole
+  offline devices are still removed via each device page's Delete button.)
+
+## 3.19.249
+
+### Changed
+- Tile-extras description updated — the tile history graph is now "6h–7d,
+  selectable" (was fixed "6-hour").
+
+## 3.19.248
+
+### Changed
+- **"Colours & tile appearance" is now a distinct collapsible bar** (boxed,
+  tappable) instead of a plain label.
+- Renamed the VPD-graph leaf toggle to **"Enable Leaf VPD."**
+
+## 3.19.247
+
+### Changed
+- **Tile appearance moved into a collapsible "Colours & tile appearance" section**
+  alongside the other tile colour options in Settings, and its border/background
+  now use the same colour-picker (pinwheel) as the rest.
+- **Tile graph gained x-axis tick marks + time/date labels** (clock times for the
+  hour ranges, dates for 7d).
+
+### Fixed
+- **Graph point selection now sticks when you tap it** — a click pins the point
+  (value + time stay shown) instead of clearing when your finger leaves; hovering
+  still previews.
+- **Leaf VPD, when disabled, no longer appears under the Calibration tab.**
+
+## 3.19.246
+
+### Added
+- **Tile appearance customization (Settings).** New section to set the corner
+  radius, border width, border color, and background for all tiles, with a live
+  preview. Saved server-side.
+- **Tile graph: time-range dropdown.** Pick 6h / 12h / 24h / 7d for the inline
+  history graph; the choice is remembered server-side.
+- **Tile graph: point details.** Tap or hover a point on the graph to read its
+  value and time in the header; a marker + guide line follow your finger.
+- **Leaf VPD show/hide toggle (Settings).** Turns the Leaf VPD tile and its target
+  settings on or off.
+
 ## 3.19.245
 
 ### Fixed

@@ -69,7 +69,8 @@ class SfOutletSwitch(SfEntity, SwitchEntity):
 
 class SfLedSwitch(SfEntity, SwitchEntity):
     """The strip's physical indicator LED. State from the top-level
-    ``outlet.led`` field; command writes ``["outlet","led"] = 0/1`` (3.19.94)."""
+    ``outlet.led`` field; command writes ``["outlet","led"] = 0/1`` (3.19.94).
+    Only AC5/AC10 power strips have this LED — NOT the single-plug S-Station."""
 
     _attr_device_class = SwitchDeviceClass.SWITCH
 

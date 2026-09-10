@@ -19,7 +19,7 @@ from .const import (
     DOMAIN, CONF_LISTEN_PORT, CONF_UPSTREAM_HOST, CONF_UPSTREAM_PORT,
     DEFAULT_LISTEN_PORT, DEFAULT_UPSTREAM_HOST, DEFAULT_UPSTREAM_PORT,
     CONF_ALLOW_CONTROL, CONF_BLOCK_CLOUD, CONF_DIAG_PER_BOOT,
-    CONF_KEEP_OFFLINE, DATA_BUS,
+    CONF_KEEP_OFFLINE, CONF_STRIP_SENSORS, CONF_SMART_CONTROL, CONF_OUTLET_ENV, DATA_BUS,
     DATA_PROXY, DATA_PROXY_TASK, PLATFORMS,
     CONF_DIAG_LOG, CONF_DIAG_PATH, DEFAULT_DIAG_PATH,
     CONF_DIAG_DAYS, DEFAULT_DIAG_DAYS, CONF_PRESERVE_ON_REMOVE,
@@ -159,6 +159,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # already in the registry, so powered-off gear survives the restart
     # with restored state instead of vanishing until it next reports.
     bus.restore_registered_entities()
+
+    # v3.19.253: set up external-sensor mirroring for any outlet-only strip
+    # configured to borrow a 3rd-party HA temp/humidity entity.
+    bus.apply_strip_sensors(cfg.get(CONF_STRIP_SENSORS) or {})
+    # v3.19.256: start the smart-control loop for any configured device.
+    bus.apply_smart_control(cfg.get(CONF_SMART_CONTROL) or {})
+    # v3.19.268: start integration-driven env outlet control (sensorless strips).
+    bus.apply_outlet_env(cfg.get(CONF_OUTLET_ENV) or {})
 
     # Bridge is up — retained-"online" parity
     bus.publish(HA_STATUS_TOPIC, "online")
@@ -609,6 +617,28 @@ _SENSOR_HEATING_SCHEMA = vol.Schema({
     vol.Required("entity_id"): cv.entity_ids,
     vol.Required("on"): vol.Any(bool, int),
 })
+_REBOOT_SCHEMA = vol.Schema({
+    vol.Required("entity_id"): cv.entity_ids,
+})
+_STRIP_SENSOR_SCHEMA = vol.Schema({
+    vol.Required("entity_id"): cv.entity_ids,
+    vol.Required("source"): vol.In(["sf", "external"]),
+    vol.Optional("temp_entity", default=""): cv.string,
+    vol.Optional("humi_entity", default=""): cv.string,
+})
+_SMART_CONTROL_SCHEMA = vol.Schema({
+    vol.Required("entity_id"): cv.entity_ids,
+    vol.Required("enabled"): vol.Any(bool, int),
+    vol.Optional("settings", default={}): dict,
+})
+_OUTLET_ENV_SCHEMA = vol.Schema({
+    vol.Required("entity_id"): cv.entity_ids,
+    vol.Required("enabled"): vol.Any(bool, int),
+    # mode "Temperature" (v1); dir "Cooling"/"Heating". Extra tuning is optional.
+    vol.Optional("mode", default="Temperature"): cv.string,
+    vol.Optional("direction", default="Cooling"): cv.string,
+    vol.Optional("settings", default={}): dict,
+})
 # Wire module names the apply-bundle command path understands.
 _APPLY_MODULES = {"fan", "blower", "heater", "humidifier", "dehumidifier",
                   "light", "light2"}
@@ -758,6 +788,32 @@ def _async_register_services(hass: HomeAssistant) -> None:
                     "Bridge integration options to start/stop sensor cleaning")
             await proxy.set_sensor_heating(mac, on)
 
+    async def _reboot_device(call: ServiceCall) -> None:
+        """Reboot the controller(s) behind the given entity(ies) — the firmware's
+        setDevRestart. Gated by Allow device control; a target that's offline is
+        skipped with a warning."""
+        from homeassistant.exceptions import HomeAssistantError
+        ent_reg = er.async_get(hass)
+        seen: set[str] = set()
+        for eid in call.data.get("entity_id", []):
+            ent = ent_reg.async_get(eid)
+            uid = ent.unique_id if ent else ""
+            if not uid or not uid.startswith("ggs_"):
+                _LOGGER.warning("reboot_device: %s is not a Spider Farmer entity", eid)
+                continue
+            mac = uid[4:].split("_", 1)[0]
+            if mac in seen:
+                continue           # one reboot per controller even if several entities target it
+            seen.add(mac)
+            proxy = _proxy_for_entity(hass, ent)
+            if proxy is None:
+                continue
+            if not getattr(proxy, "allow_control", False):
+                raise HomeAssistantError(
+                    "Device control is disabled — enable it in the Spider Farmer "
+                    "Bridge integration options to reboot a device")
+            await proxy.reboot_device(mac)
+
     async def _set_card_option(call: ServiceCall) -> None:
         """Persist a per-panel card display option (e.g. the out-of-range
         colour mode) in the config entry so it survives upgrades and syncs
@@ -791,6 +847,121 @@ def _async_register_services(hass: HomeAssistant) -> None:
             hass.config_entries.async_update_entry(entry, options=opts)
             async_dispatcher_send(hass, SIGNAL_DEVICE_AVAIL_FMT.format(mac))
 
+    async def _set_strip_sensor(call: ServiceCall) -> None:
+        """Set an outlet-only strip's temperature source (v3.19.253): "sf" (its
+        own sensor) or "external" (mirror a 3rd-party HA temp/humidity entity).
+        Stored per-MAC in the config entry's ``strip_sensors`` option and applied
+        live by _async_update_listener."""
+        source = str(call.data.get("source") or "sf")
+        temp_e = str(call.data.get("temp_entity") or "")
+        humi_e = str(call.data.get("humi_entity") or "")
+        ent_reg = er.async_get(hass)
+        for eid in call.data.get("entity_id", []):
+            ent = ent_reg.async_get(eid)
+            uid = ent.unique_id if ent else ""
+            if not uid or not uid.startswith("ggs_"):
+                _LOGGER.warning("set_strip_sensor: %s is not a Spider Farmer entity", eid)
+                continue
+            mac = uid[4:].split("_", 1)[0]
+            entry = hass.config_entries.async_get_entry(ent.config_entry_id)
+            if entry is None:
+                continue
+            opts = dict(entry.options or {})
+            strip = {**(opts.get(CONF_STRIP_SENSORS) or {})}
+            if source == "external" and (temp_e or humi_e):
+                strip[mac] = {"source": "external", "temp": temp_e, "humi": humi_e}
+            else:
+                strip.pop(mac, None)   # back to SF sensor / cleared
+            opts[CONF_STRIP_SENSORS] = strip
+            # Mirror into card_options so the card's Settings picker can read the
+            # current selection back (it reads the alarm_settings sensor).
+            from homeassistant.helpers.dispatcher import async_dispatcher_send
+            from .const import SIGNAL_DEVICE_AVAIL_FMT
+            card_opts = {**(opts.get("card_options") or {})}
+            mac_opts = {**(card_opts.get(mac) or {})}
+            mac_opts["temp_source"] = source
+            mac_opts["ext_temp"] = temp_e if source == "external" else ""
+            mac_opts["ext_humi"] = humi_e if source == "external" else ""
+            card_opts[mac] = mac_opts
+            opts["card_options"] = card_opts
+            hass.config_entries.async_update_entry(entry, options=opts)
+            async_dispatcher_send(hass, SIGNAL_DEVICE_AVAIL_FMT.format(mac))
+
+    async def _set_smart_control(call: ServiceCall) -> None:
+        """Enable/disable + tune smart control for a device (v3.19.256). Stored
+        per-MAC in the ``smart_control`` option; the loop is (re)started live by
+        _async_update_listener. Also mirrored into card_options as a JSON blob so
+        the card's Smart-control section reads the current settings back."""
+        import json as _json
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+        from .const import SIGNAL_DEVICE_AVAIL_FMT
+        enabled = bool(call.data.get("enabled"))
+        settings = call.data.get("settings") or {}
+        ent_reg = er.async_get(hass)
+        for eid in call.data.get("entity_id", []):
+            ent = ent_reg.async_get(eid)
+            uid = ent.unique_id if ent else ""
+            if not uid or not uid.startswith("ggs_"):
+                _LOGGER.warning("set_smart_control: %s is not a Spider Farmer entity", eid)
+                continue
+            mac = uid[4:].split("_", 1)[0]
+            entry = hass.config_entries.async_get_entry(ent.config_entry_id)
+            if entry is None:
+                continue
+            opts = dict(entry.options or {})
+            sc = {**(opts.get(CONF_SMART_CONTROL) or {})}
+            merged = {**(sc.get(mac) or {}), **settings, "enabled": enabled}
+            sc[mac] = merged
+            opts[CONF_SMART_CONTROL] = sc
+            card_opts = {**(opts.get("card_options") or {})}
+            mac_opts = {**(card_opts.get(mac) or {})}
+            mac_opts["smart"] = _json.dumps(merged)
+            card_opts[mac] = mac_opts
+            opts["card_options"] = card_opts
+            hass.config_entries.async_update_entry(entry, options=opts)
+            async_dispatcher_send(hass, SIGNAL_DEVICE_AVAIL_FMT.format(mac))
+
+    async def _set_outlet_env(call: ServiceCall) -> None:
+        """Enable/disable integration-driven env control for one outlet on a
+        sensorless strip (v3.19.268). Stored per-(MAC, outlet) in ``outlet_env``;
+        the loop is (re)started live by _async_update_listener. The chosen mode is
+        held virtually so the card keeps showing Temperature/Cooling."""
+        enabled = bool(call.data.get("enabled"))
+        mode = str(call.data.get("mode") or "Temperature")
+        direction = str(call.data.get("direction") or "Cooling")
+        settings = call.data.get("settings") or {}
+        ent_reg = er.async_get(hass)
+        for eid in call.data.get("entity_id", []):
+            ent = ent_reg.async_get(eid)
+            m = re.match(r"^ggs_([0-9a-f]+)_outlet_(\d+)_", ent.unique_id or "" if ent else "")
+            if not m:
+                _LOGGER.warning("set_outlet_env: %s is not an outlet entity", eid)
+                continue
+            mac, n = m.group(1), m.group(2)
+            entry = hass.config_entries.async_get_entry(ent.config_entry_id)
+            if entry is None:
+                continue
+            data = hass.data.get(DOMAIN, {}).get(ent.config_entry_id)
+            bus = data.get(DATA_BUS) if isinstance(data, dict) else None
+            opts = dict(entry.options or {})
+            oe = {**(opts.get(CONF_OUTLET_ENV) or {})}
+            per_mac = {**(oe.get(mac) or {})}
+            if enabled:
+                per_mac[n] = {**(per_mac.get(n) or {}), **settings,
+                              "enabled": True, "mode": mode, "dir": direction}
+            else:
+                # Release: drop the entry (no persistent tombstone) and hand the
+                # outlet back immediately; an env-mode frame re-adopts it later.
+                per_mac.pop(n, None)
+                if bus is not None:
+                    bus.release_outlet_env(mac, int(n))
+            if per_mac:
+                oe[mac] = per_mac
+            else:
+                oe.pop(mac, None)
+            opts[CONF_OUTLET_ENV] = oe
+            hass.config_entries.async_update_entry(entry, options=opts)
+
     if not hass.services.has_service(DOMAIN, "set_se_schedule"):
         hass.services.async_register(
             DOMAIN, "set_se_schedule", _set_se_schedule, schema=_SCHEDULE_SCHEMA)
@@ -809,6 +980,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
     if not hass.services.has_service(DOMAIN, "set_card_option"):
         hass.services.async_register(
             DOMAIN, "set_card_option", _set_card_option, schema=_CARD_OPTION_SCHEMA)
+    if not hass.services.has_service(DOMAIN, "reboot_device"):
+        hass.services.async_register(
+            DOMAIN, "reboot_device", _reboot_device, schema=_REBOOT_SCHEMA)
     if not hass.services.has_service(DOMAIN, "set_plan"):
         hass.services.async_register(
             DOMAIN, "set_plan", _set_plan, schema=_SET_PLAN_SCHEMA)
@@ -816,6 +990,18 @@ def _async_register_services(hass: HomeAssistant) -> None:
         hass.services.async_register(
             DOMAIN, "set_sensor_heating", _set_sensor_heating,
             schema=_SENSOR_HEATING_SCHEMA)
+    if not hass.services.has_service(DOMAIN, "set_strip_sensor"):
+        hass.services.async_register(
+            DOMAIN, "set_strip_sensor", _set_strip_sensor,
+            schema=_STRIP_SENSOR_SCHEMA)
+    if not hass.services.has_service(DOMAIN, "set_smart_control"):
+        hass.services.async_register(
+            DOMAIN, "set_smart_control", _set_smart_control,
+            schema=_SMART_CONTROL_SCHEMA)
+    if not hass.services.has_service(DOMAIN, "set_outlet_env"):
+        hass.services.async_register(
+            DOMAIN, "set_outlet_env", _set_outlet_env,
+            schema=_OUTLET_ENV_SCHEMA)
 
 
 def _integration_version() -> str:
@@ -857,6 +1043,7 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
     """Apply option changes live without reloading the integration."""
     data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
     proxy: MITMProxy | None = data.get(DATA_PROXY)
+    bus = data.get(DATA_BUS)
     if proxy is None:
         await hass.config_entries.async_reload(entry.entry_id)
         return
@@ -883,6 +1070,28 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         # Mode is chosen at connect time — sever sessions so each controller
         # reconnects into the new (local-only or relay) path within seconds.
         proxy.close_all_sessions()
+    # Keep-offline: previously only read at setup, so unchecking "Keep offline
+    # devices" did nothing until a full restart (v3.19.250 fix). Apply live —
+    # once False, prune_blocks (called on each device report) removes phantom
+    # accessory blocks on the next report cycle. This is per-block cleanup on
+    # devices that ARE reporting; whole offline devices are still removed only
+    # via the device page's Delete button (async_remove_config_entry_device).
+    if bus is not None:
+        new_keep = bool(cfg.get(CONF_KEEP_OFFLINE, True))
+        if bus.keep_offline != new_keep:
+            bus.keep_offline = new_keep
+            _LOGGER.info(
+                "Spider Farmer Bridge: keep offline devices %s%s",
+                "enabled" if new_keep else "disabled",
+                "" if new_keep else " — phantom accessory blocks will prune on next report",
+            )
+        # External-sensor mirroring — apply live so the card's Temperature
+        # source picker (via sf.set_strip_sensor) takes effect without a reload.
+        bus.apply_strip_sensors(cfg.get(CONF_STRIP_SENSORS) or {})
+        # Smart control — apply live so the card's enable/tuning takes effect.
+        bus.apply_smart_control(cfg.get(CONF_SMART_CONTROL) or {})
+        # Env outlet control — apply live so an outlet mode change takes effect.
+        bus.apply_outlet_env(cfg.get(CONF_OUTLET_ENV) or {})
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

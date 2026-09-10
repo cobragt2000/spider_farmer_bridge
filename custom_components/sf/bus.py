@@ -226,6 +226,34 @@ class SfBus:
         self._soil_label: dict[str, str] = {}        # serial -> app label (senConfig)
         self._soil_cfg_cache: dict[str, dict] = {}   # serial -> full senConfig entry
         self._air_cal: dict[str, dict] = {}          # mac -> air calibration block
+        self._air_seen: set[str] = set()             # macs that reported temp/humi
+                                                     # (gates Environment targets on
+                                                     # strips — v3.19.251)
+        # External-sensor mirroring for outlet-only strips (v3.19.253): a strip
+        # with no SF sensor can borrow a 3rd-party HA temp/humidity entity, which
+        # we mirror onto its temperature/humidity/vpd topics. mac -> unsubscribe.
+        self._ext_cancels: dict[str, object] = {}
+        # Macs currently on an external sensor — they get the Environment target
+        # entities back (for planting-plan targets), even without an SF sensor
+        # (v3.19.256). Still no air calibration (there's no SF probe to trim).
+        self._ext_air: set[str] = set()
+        # Smart control engine (v3.19.256): mac -> config, per-mac loop state,
+        # macs already commanded once this session, and the periodic timer.
+        self._smart_cfg: dict[str, dict] = {}
+        self._smart_state: dict[str, object] = {}
+        self._smart_primed: set[str] = set()
+        self._smart_timer = None
+        # Integration-driven env outlet control (v3.19.268): a sensorless strip's
+        # outlet set to Temperature (Cooling/Heating) can't run on the device, so
+        # we drive it from the mirrored reading + env target. mac -> {n: cfg},
+        # per-(mac,n) loop state, and (mac,n) already primed this session. The
+        # chosen mode is held VIRTUALLY (device stays Manual so mOnOff switches):
+        # _outlet_env_view keeps the mode/direction the card should display.
+        self._outlet_env: dict[str, dict[int, dict]] = {}
+        self._outlet_env_state: dict[tuple, object] = {}
+        self._outlet_env_primed: set[tuple] = set()
+        self._led_pruned: set[str] = set()          # macs whose phantom Indicator
+                                                     # Light was removed (v3.19.260)
         self._alarm_events: dict[str, dict] = {}     # mac -> {id: event}
         self._alarm_seeded: set[str] = set()         # macs seen once (don't fire on backfill)
         self._oplog_events: dict[str, dict] = {}     # mac -> {id: op entry}
@@ -648,35 +676,601 @@ class SfBus:
         # its host panel still nests once both are up — not only on the first
         # block report.
         self._update_strip_nesting(device_cfg)
-        # Environment target device: one per panel (CB) and per power strip
-        # (AC5/AC10), created once, if enabled in options. v3.19.90: the strips
-        # carry the same "target" block as the panel (day/night temp/humidity/
-        # CO2 setpoints + deadband) — confirmed from device config — so they get
-        # the same Environment entities; their state/writes flow through the
-        # type-agnostic normalizer/command paths.
-        if (device_cfg.get("type", "") or "").lower() in (
-            "cb", "ps5", "ps10", "st"
-        ):
-            mac = _mac(device_cfg.get("mac", ""))
-            if f"ggs_{mac}_env_temp_day" not in self._registered:
-                # Ensure the panel device exists first so the env device's
-                # via_device link resolves and it nests under the panel.
-                from homeassistant.helpers import device_registry as dr
-                from .const import DOMAIN
-                from .entity_defs import _device_name, _device_model
-                entry = self.hass.config_entries.async_get_entry(self.entry_id)
-                if entry is not None:
-                    dr.async_get(self.hass).async_get_or_create(
-                        config_entry_id=entry.entry_id,
-                        identifiers={(DOMAIN, f"ggs_{mac}")},
-                        name=_device_name(device_cfg),
-                        manufacturer="Spider Farmer",
-                        model=_device_model(device_cfg),
-                    )
-                self._add_defs(build_env_entities(
-                    device_cfg, slot=self._slot_for_cfg(device_cfg)))
+        # Environment target device (see _ensure_env_device).
+        self._ensure_env_device(device_cfg)
         # v3.0.12: no entities on faith — groups are created via
         # blocks_seen()/outlet_seen() from what the device actually reports.
+
+    def _ensure_env_device(self, device_cfg: dict) -> None:
+        """Create the Environment target device for a panel/strip.
+
+        One per display panel (CB) and per power strip (AC5/AC10/S-Station).
+        v3.19.90: strips carry the same "target" block as the panel (day/night
+        temp/humidity/CO2 setpoints + deadband) — so they get the same
+        Environment entities; state/writes flow through the type-agnostic
+        normalizer/command paths.
+
+        v3.19.251: strips only get the Environment device once an air sensor is
+        actually attached (temp/humi evidence). Without a sensor the setpoints
+        are meaningless and showed up as a phantom "… Environment" device under
+        AC5/AC10. CB display panels keep the target device unconditionally (the
+        panel is the environment controller even before a probe is plugged in)."""
+        dtype = (device_cfg.get("type", "") or "").lower()
+        if dtype not in ("cb", "ps5", "ps10", "st"):
+            return
+        mac = _mac(device_cfg.get("mac", ""))
+        if (dtype in ("ps5", "ps10", "st")
+                and mac not in self._air_seen and mac not in self._ext_air):
+            # No sensor of any kind on this strip (SF or external) — don't create
+            # Environment targets, and clean up any sensor-derived phantoms left
+            # from before the gate (same policy as prune_blocks: only when
+            # keep_offline is off). A strip on an external sensor (in _ext_air)
+            # keeps its Environment targets for planting-plan use.
+            if not self.keep_offline:
+                self._prune_strip_extras(device_cfg)
+            return
+        # An external-sensor strip has no CO2 sensor (its 3-in-1 is temp/humi/
+        # VPD), so it must not get CO2 target entities (v3.19.257).
+        include_co2 = mac not in self._ext_air
+        if f"ggs_{mac}_env_temp_day" not in self._registered:
+            # Ensure the panel device exists first so the env device's
+            # via_device link resolves and it nests under the panel.
+            from homeassistant.helpers import device_registry as dr
+            from .const import DOMAIN
+            from .entity_defs import _device_name, _device_model
+            entry = self.hass.config_entries.async_get_entry(self.entry_id)
+            if entry is not None:
+                dr.async_get(self.hass).async_get_or_create(
+                    config_entry_id=entry.entry_id,
+                    identifiers={(DOMAIN, f"ggs_{mac}")},
+                    name=_device_name(device_cfg),
+                    manufacturer="Spider Farmer",
+                    model=_device_model(device_cfg),
+                )
+            self._add_defs(build_env_entities(
+                device_cfg, slot=self._slot_for_cfg(device_cfg),
+                include_co2=include_co2))
+        if not include_co2:
+            self._prune_env_co2(mac)   # remove any leftover CO2 targets
+
+    def _note_air_evidence(self, blocks: set, device_cfg: dict) -> None:
+        """Record air-sensor evidence for a MAC, then (un)build its Environment
+        target device. Called on each block report. _ensure_env_device creates
+        the device when a strip has air evidence and prunes leftover sensor-
+        derived phantoms when it does not (and keep_offline is off)."""
+        if {"sensor:temp", "sensor:humi"} & blocks:
+            self._air_seen.add(_mac(device_cfg.get("mac", "")))
+        self._ensure_env_device(device_cfg)
+
+    # Sensor-derived entity groups that don't belong on an outlet-only strip
+    # (no air sensor): leaf-VPD family, grow-plan, and air calibration. The
+    # Environment target entities are added on top from build_env_entities.
+    _STRIP_PHANTOM_SUFFIXES = (
+        "leaf_vpd", "leaf_offset", "leaf_offset_night", "leaf_vpd_min", "leaf_vpd_max",
+        "plan", "plan_enabled",
+        "cal_air_temp", "cal_air_humidity", "cal_ppfd", "cal_co2",
+    )
+
+    def _prune_uids(self, uids: set) -> int:
+        """Remove a set of our entity unique_ids from the registry. Returns the
+        number removed. No-op for uids that aren't registered."""
+        registry = er.async_get(self.hass)
+        from .const import DOMAIN
+        removed = 0
+        for entity in list(registry.entities.values()):
+            if entity.platform != DOMAIN or entity.unique_id not in uids:
+                continue
+            registry.async_remove(entity.entity_id)
+            self._registered.discard(entity.unique_id)
+            self._pruned.add(entity.unique_id)
+            removed += 1
+        return removed
+
+    def _prune_env_co2(self, mac: str) -> None:
+        """Remove the CO2 Environment target entities for a device with no CO2
+        sensor (e.g. an external-sensor strip). No-op if none are registered."""
+        removed = self._prune_uids({
+            f"ggs_{mac}_env_co2_day", f"ggs_{mac}_env_co2_night",
+            f"ggs_{mac}_env_co2_deadband",
+        })
+        if removed:
+            _LOGGER.info("Removed %d phantom CO2 targets from %s (no CO2 sensor)",
+                         removed, mac)
+
+    def _strip_without_air(self, mac_raw: str) -> bool:
+        """True for a power strip (AC5/AC10/S-Station) that has not reported an
+        air sensor this session — an outlet-only strip. Such a strip must not
+        get sensor-derived entities (Environment, leaf VPD, grow-plan, air
+        calibration): they are meaningless without a sensor and showed up as
+        phantoms. (v3.19.252)"""
+        dtype = (self._type_for_mac(mac_raw) or "").lower()
+        return dtype in ("ps5", "ps10", "st") and _mac(mac_raw) not in self._air_seen
+
+    def _prune_strip_extras(self, device_cfg: dict) -> None:
+        """Remove sensor-derived phantom entities from a strip that has no air
+        sensor — Environment targets, leaf-VPD family, grow-plan, and air
+        calibration. No-op for entities that aren't registered. (v3.19.252)"""
+        mac = _mac(device_cfg.get("mac", ""))
+        targets = {f"ggs_{mac}_{sfx}" for sfx in self._STRIP_PHANTOM_SUFFIXES}
+        targets |= {
+            d.unique_id for d in build_env_entities(
+                device_cfg, slot=self._slot_for_cfg(device_cfg))
+        }
+        registry = er.async_get(self.hass)
+        from .const import DOMAIN
+        removed = 0
+        for entity in list(registry.entities.values()):
+            if entity.platform != DOMAIN or entity.unique_id not in targets:
+                continue
+            registry.async_remove(entity.entity_id)
+            self._registered.discard(entity.unique_id)
+            self._pruned.add(entity.unique_id)
+            removed += 1
+        if removed:
+            _LOGGER.info(
+                "Pruned %d sensor-derived phantom entities from outlet-only "
+                "strip %s (no air sensor)", removed, mac,
+            )
+            DIAG.bus_event(f"prune_strip_extras {mac} removed={removed}")
+
+    # ── External sensor mirroring (v3.19.253) ─────────────────────────────
+    @callback
+    def apply_strip_sensors(self, strip_sensors: dict) -> None:
+        """(Re)configure external-sensor mirroring from the config-entry option
+        ``strip_sensors`` = {mac_lc: {source, temp, humi}}. For each strip set to
+        source=external with a chosen temp/humi entity, create the strip's
+        temperature/humidity/vpd sensor entities and mirror the external HA
+        entity's live state onto their topics (temp converted to wire °C; VPD
+        derived). SF-source strips (or cleared config) tear their mirror down."""
+        from homeassistant.helpers.event import async_track_state_change_event
+        wanted = {
+            _mac(mac): cfg for mac, cfg in (strip_sensors or {}).items()
+            if isinstance(cfg, dict) and cfg.get("source") == "external"
+            and (cfg.get("temp") or cfg.get("humi"))
+        }
+        prev_ext = set(self._ext_air)
+        self._ext_air = set(wanted)   # gates Environment targets on these strips
+        # Drop listeners for strips no longer external.
+        for mac in [m for m in self._ext_cancels if m not in wanted]:
+            try:
+                self._ext_cancels.pop(mac)()
+            except Exception:  # noqa: BLE001 — best-effort teardown
+                pass
+        # Switched a strip back to SF (no external sensor): the mirrored
+        # temperature/humidity/vpd are now stale HA-only entities. Remove them
+        # when keep_offline is off (same policy as other prunes); a strip with a
+        # real SF sensor re-creates them from evidence. (v3.19.264)
+        if not self.keep_offline:
+            for mac in prev_ext - set(wanted):
+                removed = self._prune_uids({
+                    f"ggs_{mac}_temperature", f"ggs_{mac}_humidity",
+                    f"ggs_{mac}_vpd",
+                })
+                # Also drop the Environment targets / plan so the card returns to
+                # outlet-only immediately (a strip with a real SF sensor re-creates
+                # everything from evidence on its next report).
+                self._prune_strip_extras({"mac": mac, "type": self._type_for_mac(mac)})
+                if removed:
+                    _LOGGER.info(
+                        "Removed %d external-mirror sensors from %s "
+                        "(switched back to SF)", removed, mac)
+        for mac, cfg in wanted.items():
+            temp_id = cfg.get("temp") or None
+            humi_id = cfg.get("humi") or None
+            dcfg = {"mac": mac, "type": self._type_for_mac(mac) or "ps10"}
+            slot = self._slot_for_cfg(dcfg)
+            blocks = set()
+            if temp_id:
+                blocks.add("sensor:temp")
+            if humi_id:
+                blocks.add("sensor:humi")
+            if temp_id and humi_id:
+                blocks.add("sensor:vpd")
+            defs = [
+                d for d in build_device_entities(
+                    dcfg, include_outlets=False, blocks=blocks, slot=slot)
+                if (d.field or "") in ("temperature", "humidity", "vpd")
+                and d.unique_id not in self._registered
+            ]
+            # Clear any prior prune mark so _add_defs actually (re)creates them —
+            # prune_blocks may have removed them before the external gate. (264)
+            for d in defs:
+                self._pruned.discard(d.unique_id)
+            if defs:
+                self._add_defs(defs)
+            # Bring back the Environment target entities (temp/humidity/CO2
+            # setpoints) so planting plans have targets on this strip.
+            self._ensure_env_device(dcfg)
+            # (Re)subscribe to the chosen external entities.
+            watch = [x for x in (temp_id, humi_id) if x]
+            if mac in self._ext_cancels:
+                try:
+                    self._ext_cancels.pop(mac)()
+                except Exception:  # noqa: BLE001
+                    pass
+
+            @callback
+            def _changed(_event, _mac=mac, _t=temp_id, _h=humi_id) -> None:
+                self._publish_ext(_mac, _t, _h)
+
+            self._ext_cancels[mac] = async_track_state_change_event(
+                self.hass, watch, _changed)
+            self._publish_ext(mac, temp_id, humi_id)   # initial paint
+
+    @callback
+    def _publish_ext(self, mac: str, temp_id, humi_id) -> None:
+        """Mirror the external temp/humi entities onto the strip's topics and
+        derive VPD (kPa). Temperature is converted to wire °C to match a real
+        SF sensor (the temperature entity displays it in the user's unit)."""
+        import math
+        air_c = None
+        rh = None
+        if temp_id:
+            st = self.hass.states.get(temp_id)
+            try:
+                val = float(st.state)
+                unit = (st.attributes.get("unit_of_measurement") or "°C")
+                # °F -> wire °C is (F - 32) / 1.8. The SF temperature sensor then
+                # converts back to the user's unit for display. (v3.19.266)
+                air_c = (val - 32.0) / 1.8 if ("F" in unit or "℉" in unit) else val
+                self.publish(f"ggs/ha/{mac}/temperature/state", f"{air_c:.2f}")
+            except (AttributeError, ValueError, TypeError):
+                pass
+        if humi_id:
+            st = self.hass.states.get(humi_id)
+            try:
+                rh = float(st.state)
+                self.publish(f"ggs/ha/{mac}/humidity/state", f"{rh:.1f}")
+            except (AttributeError, ValueError, TypeError):
+                pass
+        if air_c is not None and rh is not None:
+            svp = 0.6108 * math.exp(17.27 * air_c / (air_c + 237.3))
+            vpd = max(0.0, svp * (1.0 - rh / 100.0))
+            self.publish(f"ggs/ha/{mac}/vpd/state", f"{vpd:.2f}")
+
+    # ── Smart control engine (v3.19.256) ──────────────────────────────────
+    # Card-configured closed-loop control. v1: humidity -> dehumidifier, driven
+    # in FULL MANUAL (fallback #3: on HA downtime the gear holds its last state;
+    # SF does not resume). The decision logic is the pure decide() in
+    # smart_control.py; this is the thin async loop that reads the sensor and
+    # issues the resulting gear via the normal apply_bundle command path.
+    def apply_smart_control(self, smart: dict) -> None:
+        """(Re)configure smart control from the ``smart_control`` option =
+        {mac_lc: {enabled, humidity, target, deadband, ...}}. Starts a periodic
+        loop while any entry is enabled; stops it otherwise."""
+        from datetime import timedelta
+        from homeassistant.helpers.event import async_track_time_interval
+        self._smart_cfg = {
+            _mac(mac): cfg for mac, cfg in (smart or {}).items()
+            if isinstance(cfg, dict) and cfg.get("enabled")
+        }
+        # Forget loop state + priming for macs no longer controlled.
+        for mac in list(self._smart_state):
+            if mac not in self._smart_cfg:
+                self._smart_state.pop(mac, None)
+                self._smart_primed.discard(mac)
+        self._ensure_control_timer()
+
+    def _ensure_control_timer(self) -> None:
+        """Start/stop the 15s control tick based on whether ANY loop is active
+        (smart-control dehumidifier and/or env-driven outlets)."""
+        from datetime import timedelta
+        from homeassistant.helpers.event import async_track_time_interval
+        want_timer = bool(self._smart_cfg or self._outlet_env)
+        if want_timer and self._smart_timer is None:
+            self._smart_timer = async_track_time_interval(
+                self.hass, self._smart_tick, timedelta(seconds=15))
+        elif not want_timer and self._smart_timer is not None:
+            self._smart_timer()
+            self._smart_timer = None
+
+    async def _smart_tick(self, _now=None) -> None:
+        """One control pass over every enabled smart-control device."""
+        import time as _time
+        from .smart_control import DehumConfig, DehumState, decide, OFF, LOW, HIGH
+        allow = bool(getattr(self.proxy, "allow_control", False)) if self.proxy else False
+        now = _time.monotonic()
+        for mac, cfg in list(self._smart_cfg.items()):
+            slot = self._slot_for_cfg({"mac": mac, "type": self._type_for_mac(mac)})
+            humidity_id = cfg.get("humidity") or f"sensor.sf_{slot}_humidity"
+            st_obj = self.hass.states.get(humidity_id)
+            try:
+                rh = float(st_obj.state)
+            except (AttributeError, ValueError, TypeError):
+                rh = None
+            dcfg = DehumConfig(
+                target=float(cfg.get("target", 55)),
+                deadband=float(cfg.get("deadband", 5)),
+                escalate_after_s=float(cfg.get("escalate_after_s", 300)),
+                escalate_drop=float(cfg.get("escalate_drop", 1)),
+                ease_band=float(cfg.get("ease_band", 3)),
+                min_on_s=float(cfg.get("min_on_s", 120)),
+                min_off_s=float(cfg.get("min_off_s", 120)),
+            )
+            prev = self._smart_state.get(mac, DehumState(cmd=OFF, since=now))
+            nxt = decide(prev, rh, dcfg, now)
+            self._smart_state[mac] = nxt
+            first = mac not in self._smart_primed
+            if not allow:
+                continue   # device control disabled — engine can't actuate
+            if first or nxt.cmd != prev.cmd:
+                self._smart_primed.add(mac)
+                await self._smart_actuate(mac, nxt.cmd)
+        await self._env_outlet_tick(allow, now)
+
+    async def _smart_actuate(self, mac: str, cmd: str) -> None:
+        """Issue the dehumidifier gear via apply_bundle (full Manual)."""
+        import json as _json
+        from .smart_control import LOW, HIGH
+        if cmd == LOW:
+            payload = {"mode": "Manual", "onoff": 1, "auto_gear": "Low"}
+        elif cmd == HIGH:
+            payload = {"mode": "Manual", "onoff": 1, "auto_gear": "High"}
+        else:  # OFF
+            payload = {"mode": "Manual", "onoff": 0}
+        DIAG.bus_event(f"smart_control {mac} dehumidifier -> {cmd}")
+        await self.async_command(
+            f"ggs/ha/{mac}/dehumidifier/apply_bundle/set", _json.dumps(payload))
+
+    # ── Integration-driven env outlet control (v3.19.268) ─────────────────────
+    # A sensorless strip's outlet set to Temperature can't run on the device, so
+    # the card registers it here (sf.set_outlet_env) and we drive it from the
+    # mirrored temperature + the strip's env target. The device is held in Manual
+    # (so mOnOff actually switches the socket); the chosen mode is virtual — see
+    # env_outlet_mode_override(), which keeps the card showing Temperature/Cooling.
+    def apply_outlet_env(self, outlet_env: dict) -> None:
+        """(Re)configure env outlet control from the ``outlet_env`` option =
+        {mac_lc: {"<n>": {enabled, mode, dir, ...}}}. Explicit enabled entries are
+        merged over any AUTO-adopted outlets (device-frame driven) so an unrelated
+        option save never drops them. Release is immediate/in-memory (see
+        release_outlet_env) — there is no persistent block, so re-selecting an env
+        mode simply re-adopts from the next device frame."""
+        opt: dict[str, dict[int, dict]] = {}
+        for mac_raw, outs in (outlet_env or {}).items():
+            if not isinstance(outs, dict):
+                continue
+            mac = _mac(mac_raw)
+            for n_raw, cfg in outs.items():
+                if not isinstance(cfg, dict) or not cfg.get("enabled"):
+                    continue
+                try:
+                    n = int(n_raw)
+                except (ValueError, TypeError):
+                    continue
+                opt.setdefault(mac, {})[n] = cfg
+        new: dict[str, dict[int, dict]] = {}
+        for mac, outs in self._outlet_env.items():   # keep auto-adopted entries
+            for n, cfg in outs.items():
+                if cfg.get("_auto"):
+                    new.setdefault(mac, {})[n] = cfg
+        for mac, outs in opt.items():                # explicit config wins
+            for n, cfg in outs.items():
+                new.setdefault(mac, {})[n] = cfg
+        for key in list(self._outlet_env_state):
+            mac, n = key
+            if n not in new.get(mac, {}):
+                self._outlet_env_state.pop(key, None)
+                self._outlet_env_primed.discard(key)
+        self._outlet_env = new
+        self._ensure_control_timer()
+        for mac, outs in self._outlet_env.items():
+            for n in outs:
+                self._publish_env_outlet_mode(mac, n)
+
+    def release_outlet_env(self, mac_raw: str, n: int) -> None:
+        """Hand an outlet back (user picked a non-env mode). Drops it from the
+        control set immediately; the device already has the new mode, so nothing
+        re-adopts it until an env-mode frame is seen again."""
+        mac = _mac(mac_raw)
+        if mac in self._outlet_env and n in self._outlet_env[mac]:
+            del self._outlet_env[mac][n]
+            if not self._outlet_env[mac]:
+                del self._outlet_env[mac]
+        self._outlet_env_state.pop((mac, n), None)
+        self._outlet_env_primed.discard((mac, n))
+        self._ensure_control_timer()
+
+    def maybe_adopt_env_outlet(self, mac_raw: str, n: int, modetype,
+                               temp_add, humi_add) -> None:
+        """Auto-adopt (and keep in sync) an outlet the device reports in an
+        Environment mode on a SENSORLESS (external-source) strip, so it's driven
+        without the user re-applying it in the card — and even if it was set from
+        the SF app. modeType 3=Temperature, 4=Humidity; direction from tempAdd
+        (1=Heating/2=Cooling) / humiAdd (1=Humidifying/2=Dehumidifying).
+
+        This runs on every env-mode config frame, so a direction/mode CHANGE
+        (e.g. Humidifying -> Dehumidifying) refreshes the auto-adopted entry — the
+        device config is the source of truth. Non-env frames (modeType 0, i.e. the
+        Manual we force to drive the socket) are ignored so we never wipe it. An
+        explicit card-configured entry (not `_auto`) is never overridden here."""
+        mac = _mac(mac_raw)
+        if mac not in self._ext_air:
+            return
+        try:
+            mt = int(modetype)
+        except (ValueError, TypeError):
+            return
+        if mt == 3:
+            cfg = {"enabled": True, "mode": "Temperature", "_auto": True,
+                   "dir": "Heating" if temp_add == 1 else "Cooling"}
+        elif mt == 4:
+            cfg = {"enabled": True, "mode": "Humidity", "_auto": True,
+                   "dir": "Humidifying" if humi_add == 1 else "Dehumidifying"}
+        else:
+            return   # not an env-mode frame — leave any existing entry alone
+        existing = self._outlet_env.get(mac, {}).get(n)
+        if existing is not None:
+            if not existing.get("_auto"):
+                return   # explicit card config wins — don't override
+            if existing.get("mode") == cfg["mode"] and existing.get("dir") == cfg["dir"]:
+                return   # unchanged
+            # Direction/mode changed — reset loop state so it re-decides now.
+            self._outlet_env_state.pop((mac, n), None)
+            self._outlet_env_primed.discard((mac, n))
+        self._outlet_env.setdefault(mac, {})[n] = cfg
+        DIAG.bus_event(f"outlet_env adopt {mac} O{n} {cfg['mode']}/{cfg['dir']}")
+        self._ensure_control_timer()
+        self._publish_env_outlet_mode(mac, n)
+
+    def plan_active(self, mac_raw: str) -> bool:
+        """True when this device's grow-plan is enabled/running."""
+        st = self._plan_state.get(_mac(mac_raw))
+        if not st:
+            return False
+        if st.get("active"):
+            return True
+        prog = st.get("progress") or {}
+        return bool(prog.get("isPlanRun"))
+
+    def light_mode_label_override(self, mac_raw: str, topic: str, val: str) -> str:
+        """While a plan is running a light's mode is 'Planting Plan' — the SF app
+        only offers Manual / Planting Plan then. The device still stores the raw
+        modeType (1 = Time Slot, 12 = PPFD); either non-Manual mode is shown as
+        'Planting Plan' while the plan is active, so the mode entity, dropdown and
+        tile all agree. (v3.19.273 / v3.19.276)"""
+        if val not in ("Time Slot", "PPFD"):
+            return val
+        import re as _re
+        if not _re.search(r"/light_\d+_mode/state$", topic):
+            return val
+        return "PPFD - Plan" if self.plan_active(mac_raw) else val
+
+    def _publish_env_outlet_mode(self, mac: str, n: int) -> None:
+        """Publish the VIRTUAL outlet mode/direction for an env-controlled outlet
+        so the card shows Temperature/Cooling even though the device is Manual."""
+        cfg = self._outlet_env.get(mac, {}).get(n)
+        if not cfg:
+            return
+        base = f"ggs/ha/{mac}/outlet_{n}"
+        mode = cfg.get("mode") or "Temperature"
+        self.publish(f"{base}_mode/state", mode, retain=True)
+        d = str(cfg.get("dir") or "").lower()
+        if mode == "Humidity":
+            self.publish(f"{base}_humidity_device/state",
+                         "Dehumidifying" if d.startswith("dehum") else "Humidifying",
+                         retain=True)
+        else:
+            self.publish(f"{base}_temp_device/state",
+                         "Heating" if d.startswith("heat") else "Cooling", retain=True)
+
+    def env_outlet_mode_override(self, mac: str, topic: str, val: str) -> str:
+        """Hook for the config-decode publish path: replace the device-reported
+        Manual mode (and its temp_device) with the VIRTUAL env mode for any outlet
+        we're driving. Leaves every other topic untouched."""
+        if not self._outlet_env:
+            return val
+        m = _mac(mac)
+        outs = self._outlet_env.get(m)
+        if not outs:
+            return val
+        import re as _re
+        mt = _re.match(
+            rf"ggs/ha/{m}/outlet_(\d+)_(mode|temp_device|humidity_device)/state$", topic)
+        if not mt:
+            return val
+        n = int(mt.group(1))
+        cfg = outs.get(n)
+        if not cfg:
+            return val
+        field = mt.group(2)
+        d = str(cfg.get("dir") or "").lower()
+        if field == "mode":
+            return cfg.get("mode") or val
+        if field == "humidity_device":
+            return "Dehumidifying" if d.startswith("dehum") else "Humidifying"
+        return "Heating" if d.startswith("heat") else "Cooling"
+
+    def env_outlet_modetype_override(self, mac: str, n: int, modetype):
+        """The visibility driver keys sub-entity display off the device modeType;
+        for an env-controlled outlet the device is Manual (0) but the card must
+        keep the Temperature sub-controls, so report the virtual modeType (3)."""
+        cfg = self._outlet_env.get(_mac(mac), {}).get(n)
+        if not cfg:
+            return modetype
+        return {"Temperature": 3, "Humidity": 4, "CO2": 5}.get(cfg.get("mode"), modetype)
+
+    def _env_is_day(self, slot: str, now_dt) -> bool:
+        """Day/night from the strip's env window text entities (HH:MM); defaults
+        to day if unset/unparseable."""
+        def _mins(eid, dflt):
+            st = self.hass.states.get(eid)
+            try:
+                h, m = str(st.state).split(":")
+                return int(h) * 60 + int(m)
+            except (AttributeError, ValueError, TypeError):
+                return dflt
+        start = _mins(f"text.sf_{slot}_env_day_start", 5 * 60)
+        end = _mins(f"text.sf_{slot}_env_day_end", 20 * 60)
+        cur = now_dt.hour * 60 + now_dt.minute
+        return start <= cur < end if start <= end else (cur >= start or cur < end)
+
+    async def _env_outlet_tick(self, allow: bool, now: float) -> None:
+        """One control pass over every env-controlled outlet (Temperature or
+        Humidity). Humidity reuses the same hysteresis: humidify behaves like
+        "heat" (on when low), dehumidify like "cool" (on when high)."""
+        if not self._outlet_env:
+            return
+        from homeassistant.util import dt as dt_util
+        from .smart_control import TempConfig, TempState, decide_temp, OFF, ON
+        now_dt = dt_util.now()
+        for mac, outs in list(self._outlet_env.items()):
+            slot = self._slot_for_cfg({"mac": mac, "type": self._type_for_mac(mac)})
+            day = self._env_is_day(slot, now_dt)
+            for n, cfg in list(outs.items()):
+                self._publish_env_outlet_mode(mac, n)   # keep the display fresh
+                mode = (cfg.get("mode") or "Temperature")
+                d = str(cfg.get("dir", "")).lower()
+                if mode == "Humidity":
+                    reading = self._num_state(f"sensor.sf_{slot}_humidity")
+                    target = self._num_state(
+                        f"number.sf_{slot}_env_humi_{'day' if day else 'night'}")
+                    deadband = self._num_state(f"number.sf_{slot}_env_humi_deadband")
+                    # dehumidify -> on when high ("cool"); humidify -> on when low ("heat")
+                    direction = "cool" if d.startswith("dehum") else "heat"
+                    dz_default = 2.0
+                else:  # Temperature
+                    reading = self._num_state(f"sensor.sf_{slot}_temperature")
+                    target = self._num_state(
+                        f"number.sf_{slot}_env_temp_{'day' if day else 'night'}")
+                    deadband = self._num_state(f"number.sf_{slot}_env_temp_deadband")
+                    direction = "heat" if d.startswith("heat") else "cool"
+                    dz_default = 1.1111
+                if target is None:
+                    continue
+                tcfg = TempConfig(
+                    target=target,
+                    deadband=float(cfg.get("deadband",
+                                          deadband if deadband is not None else dz_default)),
+                    direction=direction,
+                    min_on_s=float(cfg.get("min_on_s", 120)),
+                    min_off_s=float(cfg.get("min_off_s", 120)),
+                )
+                key = (mac, n)
+                first = key not in self._outlet_env_primed
+                # First sighting: pre-date the dwell so the initial decision can
+                # act immediately (no 2-min wait on startup / after adoption).
+                prev = self._outlet_env_state.get(
+                    key, TempState(cmd=OFF, since=now - max(tcfg.min_on_s, tcfg.min_off_s)))
+                nxt = decide_temp(prev, reading, tcfg, now)
+                self._outlet_env_state[key] = nxt
+                if not allow:
+                    continue
+                if first or nxt.cmd != prev.cmd:
+                    self._outlet_env_primed.add(key)
+                    DIAG.bus_event(
+                        f"outlet_env {mac} O{n} {mode}/{direction} val={reading} "
+                        f"target={target} -> {nxt.cmd}")
+                    await self.async_command(
+                        f"ggs/ha/{mac}/outlet_{n}/set",
+                        "ON" if nxt.cmd == ON else "OFF")
+
+    def _num_state(self, eid: str):
+        """Read a numeric HA state, or None if missing/non-numeric."""
+        st = self.hass.states.get(eid)
+        try:
+            return float(st.state)
+        except (AttributeError, ValueError, TypeError):
+            return None
 
     @callback
     def retype_device(self, device_cfg: dict) -> None:
@@ -1003,7 +1597,9 @@ class SfBus:
             return
         mac = _mac(mac_raw)
         self._air_cal[mac] = dict(cal)
-        if f"ggs_{mac}_cal_air_temp" not in self._registered and mac in self.device_display:
+        if (f"ggs_{mac}_cal_air_temp" not in self._registered
+                and mac in self.device_display
+                and not self._strip_without_air(mac_raw)):
             cfg = {"mac": mac_raw, "type": self._type_for_mac(mac_raw)}
             self._add_defs(build_air_calibration_entities(
                 cfg, slot=self._slot_for_cfg(cfg)))
@@ -1195,6 +1791,11 @@ class SfBus:
         registered = f"ggs_{mac}_plan" in self._registered
         if not registered and not (active or present):
             return  # no plan capability seen — don't create the entity
+        if (not registered and self._strip_without_air(mac_raw)
+                and mac not in self._ext_air):
+            return  # truly sensorless outlet-only strip — a grow plan doesn't
+                    # apply. A strip on an external sensor (in _ext_air) DOES get
+                    # the plan, so its targets can drive smart control. (v3.19.260)
         if not registered and mac in self.device_display:
             cfg = {"mac": mac_raw, "type": self._type_for_mac(mac_raw)}
             slot = self._slot_for_cfg(cfg)
@@ -1209,6 +1810,51 @@ class SfBus:
         }
         self.publish(f"ggs/ha/{mac}/plan/state", _json.dumps(payload))
         self.publish(f"ggs/ha/{mac}/plan_enabled/state", "ON" if active else "OFF")
+        self._publish_plan_light(mac_raw, active, st, progress)
+
+    def _publish_plan_light(self, mac_raw: str, active: bool,
+                            st: dict, progress: dict) -> None:
+        """While a plan runs the light follows the active stage's light schedule
+        (which lives in the plan, not the device light block), so the per-light
+        PPFD/schedule entities would otherwise sit on 'unknown'. Publish the
+        active stage's light1/light2 schedule into those entities so the card and
+        integration show the real plan-driven light settings. (v3.19.275)"""
+        if not active:
+            return
+        stages = st.get("stages") or []
+        if not stages:
+            return
+        sid = progress.get("stageId")
+        stage = next((s for s in stages if s.get("stageId") == sid), stages[0])
+        from .tempunits import c_to_disp, abs_bound
+        mac = _mac(mac_raw)
+        floor = abs_bound(59)   # below the valid 59-122°F / 15-50°C range == "Off"
+
+        def thr(c):
+            v = c_to_disp(c)
+            return str(v) if v is not None and v >= floor else "0"
+
+        for key, num in (("light1", 1), ("light2", 2)):
+            L = stage.get(key)
+            if not isinstance(L, dict):
+                continue
+            base = f"ggs/ha/{mac}/light_{num}"
+            pub = {
+                f"{base}_go_dark/state": thr(L.get("go_dark") or 0),
+                f"{base}_turn_off/state": thr(L.get("turn_off") or 0),
+                f"{base}_schedule_start/state": L.get("ts_start", "00:00"),
+                f"{base}_schedule_stop/state": L.get("ts_stop", "00:00"),
+                f"{base}_schedule_brightness/state": str(int(L.get("ts_bri", 0) or 0)),
+                f"{base}_fade/state": str(int(L.get("ts_fade", 0) or 0)),
+                f"{base}_ppfd_target/state": str(int(L.get("ppfd_target", 0) or 0)),
+                f"{base}_ppfd_start/state": L.get("ppfd_start", "00:00"),
+                f"{base}_ppfd_stop/state": L.get("ppfd_stop", "00:00"),
+                f"{base}_ppfd_fade/state": str(int(L.get("ppfd_fade", 0) or 0)),
+                f"{base}_ppfd_min/state": str(int(L.get("ppfd_min", 0) or 0)),
+                f"{base}_ppfd_max/state": str(int(L.get("ppfd_max", 0) or 0)),
+            }
+            for topic, value in pub.items():
+                self.publish(topic, value, retain=True)
 
     def apply_soil_labels(self, mac_raw: str, entries: list) -> None:
         """App-set soil-probe names (senConfig[].label): store per serial and
@@ -1345,6 +1991,31 @@ class SfBus:
                 _LOGGER.info("Outlet reported — creating entity %s", unique_id)
                 DIAG.bus_event(f"outlet_seen {unique_id}")
                 self._add_defs(defs)
+
+        # Indicator LED — a device-level switch tied to hasOutlets, NOT to any
+        # EVIDENCE_BLOCK. On a pure-outlet strip nothing calls blocks_seen (no
+        # sensor blocks), so the LED was never (re)created and its old registry
+        # entry showed "unavailable" — greyed out (v3.19.252). Create it here,
+        # alongside the outlets, keyed on its own unique_id like the mode select.
+        led_uid = f"ggs_{mac}_indicator_light"
+        led_defs = [
+            d for d in build_device_entities(device_cfg, slot=slot)
+            if d.unique_id == led_uid
+        ]
+        if led_defs:
+            if led_uid not in self._registered:
+                self._pruned.discard(led_uid)
+                DIAG.bus_event(f"outlet_seen {led_uid}")
+                self._add_defs(led_defs)
+        elif mac not in self._led_pruned:
+            # Device has no status LED (single-plug S-Station) — its built-in
+            # display shows mode/on. Remove any phantom Indicator Light created
+            # before the gate. Check the REGISTRY directly (not _registered,
+            # which may be empty right after a restart). Once per MAC. (v3.19.260)
+            self._led_pruned.add(mac)
+            if self._prune_uids({led_uid}):
+                _LOGGER.info("Removed phantom Indicator Light from %s (no LED)", mac)
+                DIAG.bus_event(f"prune_indicator {mac}")
 
         # v3.11.1a: per-outlet Mode selector + current mode's config — created
         # INDEPENDENTLY of the switch. The keep-offline restore re-registers the
@@ -1520,6 +2191,10 @@ class SfBus:
         these data blocks — create their entity groups if missing."""
         self._update_strip_nesting(device_cfg)
         blocks = set(seen) & set(EVIDENCE_BLOCKS)
+        # Air-sensor evidence gates the Environment target device on strips
+        # (v3.19.251) — do this before the empty-blocks bail-out so a strip that
+        # reports nothing but outlets can still have a leftover phantom cleaned.
+        self._note_air_evidence(blocks, device_cfg)
         if not blocks:
             return
         toggles = self._toggles_for(mac_raw)
@@ -1573,6 +2248,17 @@ class SfBus:
                 blocks=set(evidence) & set(EVIDENCE_BLOCKS), toggles=toggles,
             )
         }
+        # An external-sensor strip mirrors a 3rd-party temp/humidity onto its
+        # temperature/humidity/vpd entities — those aren't in the device's own
+        # evidence, so keep them from being pruned as phantoms. (v3.19.264)
+        if _mac(mac_raw) in self._ext_air:
+            keep |= {
+                d.unique_id for d in build_device_entities(
+                    device_cfg, include_outlets=False,
+                    blocks={"sensor:temp", "sensor:humi", "sensor:vpd"},
+                    toggles=toggles,
+                )
+            }
         for block in EVIDENCE_BLOCKS:
             if block in evidence:
                 continue
@@ -1646,6 +2332,22 @@ class SfBus:
                 "Spider Farmer Bridge integration options"
             )
         await self.proxy.handle_command(topic, payload)
+
+    async def reboot_device(self, mac: str) -> None:
+        """Reboot a controller (setDevRestart), gated by Allow device control
+        like every other actuation. Raised errors surface in the HA UI."""
+        if self.proxy is None:
+            raise HomeAssistantError("Spider Farmer Bridge proxy is not running")
+        if not self.proxy.allow_control:
+            raise HomeAssistantError(
+                "Device control is disabled — enable it in the "
+                "Spider Farmer Bridge integration options to reboot a device"
+            )
+        ok = await self.proxy.reboot_device(mac)
+        if not ok:
+            raise HomeAssistantError(
+                "Device is offline — it must be connected to the bridge to reboot"
+            )
 
     # ── Convenience for entities ───────────────────────────────────────────
 

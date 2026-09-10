@@ -184,6 +184,9 @@ EVIDENCE_BLOCKS = (
     "light", "light2", "fan", "blower",
     "humidifier", "dehumidifier", "heater",
     "selight", "sys",
+    # Power monitoring (S-Station / metered plugs): the outlet block carries
+    # vRms/aRms/wattP/energy. (v3.19.258)
+    "power",
     # sensorHeating is only present while an air-sensor self-clean runs (when
     # temp/humi are withheld), so it's its own evidence token — that way the
     # cleaning entities still get created for a controller that is mid-clean at
@@ -332,6 +335,39 @@ def build_device_entities(
               icon="mdi:ethernet", entity_category="diagnostic"),
         ]
 
+    # ── Power monitoring (v3.19.258): S-Station / metered plugs report RMS
+    # voltage/current, active power and cumulative energy in the outlet block. ─
+    if want("power"):
+        defs += [
+            d("sensor", "pm_power", "Power", unit="W",
+              device_class="power", state_class="measurement", icon="mdi:flash"),
+            d("sensor", "pm_voltage", "Voltage", unit="V",
+              device_class="voltage", state_class="measurement",
+              icon="mdi:sine-wave"),
+            d("sensor", "pm_current", "Current", unit="A",
+              device_class="current", state_class="measurement",
+              icon="mdi:current-ac"),
+            d("sensor", "pm_energy", "Energy", unit="kWh",
+              device_class="energy", state_class="total_increasing",
+              icon="mdi:lightning-bolt"),
+        ]
+
+    # ── Display Off / Auto Screen Off (v3.19.259) — controllers with a built-in
+    # screen (display panels + the S-Station) auto-dim after N minutes (0=off). ─
+    if dtype in ("cb", "st"):
+        defs.append(d("select", "display_off", "Display Off",
+                      options=["Off"] + [str(i) for i in range(1, 11)],
+                      entity_category="config", icon="mdi:monitor-off"))
+
+    # Reboot button (v3.19.288): one per GGS controller. Injects the firmware's
+    # setDevRestart. Created like display_off — a device-level control, NOT gated
+    # on a data block (the sys block never reaches blocks_seen, so it can't hang
+    # there), so it's created from the first evidence block the controller
+    # reports. Gated by Allow device control + online at press time.
+    if dtype in ("cb", "ps5", "ps10", "st"):
+        defs.append(d("button", "reboot", "Reboot",
+                      kind="reboot", entity_category="diagnostic", icon="mdi:restart"))
+
     if dtype in _FULL_TYPES:
         # Day/night flags (v3.19.41): reported inside the sensor block.
         if want("sensor:isDaySensor"):
@@ -348,8 +384,11 @@ def build_device_entities(
                 d("switch", f"outlet_{n}", f"Outlet {n}", device_class="outlet")
             )
 
-    # ── Indicator Light (physical status LED on the strip) ───────────────
-    if caps["hasOutlets"]:
+    # ── Indicator Light (physical status LED) ────────────────────────────
+    # Only the AC5/AC10 power strips have the status LED. The single-plug
+    # S-Station (st) has no LED — its built-in display shows mode/on — so it
+    # must NOT get a (phantom) Indicator Light. (v3.19.259)
+    if caps["hasOutlets"] and dtype in ("ps5", "ps10"):
         defs.append(d("switch", "indicator_light", "Indicator Light",
                       icon="mdi:led-on", kind="led"))
 
@@ -496,7 +535,9 @@ def build_device_entities(
             continue
         defs += [
             d("select", f"{lf}_mode", f"{ln} Mode", icon="mdi:cog",
-              options=["Manual", "Time Slot", "PPFD"],
+              # "PPFD - Plan" is mode 1/12 relabelled while a plan runs; keep it a
+              # valid option so the state never lands off-list. (v3.19.273)
+              options=["Manual", "Time Slot", "PPFD", "PPFD - Plan"],
               command_field=cf, command_subfield="mode"),
             # 0 == Off (disabled); otherwise 59-122 °F / 15-50 °C.
             d("number", f"{lf}_go_dark", f"{ln} Go Dark", unit=tu.unit(),
@@ -1019,11 +1060,15 @@ def build_outlet_mode_config(mac_raw, n, slot, device_name, device_model, mode,
     return []   # Manual and anything else: no extra entities
 
 
-def build_env_entities(device_cfg, slot):
+def build_env_entities(device_cfg, slot, include_co2=True):
     """Environment target entities for a display panel, grouped on their own
     HA device (SF Environment {last4}). Temperatures are shown in degF to
     match the SF app (the wire is degC; the command layer converts).
-    One env target block exists per display panel."""
+    One env target block exists per display panel.
+
+    include_co2=False omits the CO2 target/dead-zone entities — used for devices
+    with no CO2 sensor (e.g. an external-sensor strip on a 3-in-1 temp/humidity/
+    VPD probe), so they don't show phantom CO2 targets. (v3.19.257)"""
     mac_raw = device_cfg.get("mac", "")
     mac = _mac(mac_raw)
     last4 = mac[-4:].upper()
@@ -1074,4 +1119,6 @@ def build_env_entities(device_cfg, slot):
           min_value=10, max_value=250, step=10, num_mode="box",
           icon="mdi:arrow-expand-vertical"),
     ]
+    if not include_co2:
+        defs = [d for d in defs if not (d.field or "").startswith("env_co2")]
     return defs

@@ -180,3 +180,145 @@ set_sensor_heating:
       required: true
       selector:
         boolean:
+
+set_strip_sensor:
+  name: Strip temperature source
+  description: >-
+    Choose the temperature/humidity source for an outlet-only power strip (AC5/
+    AC10/S-Station): its own SF sensor, or a 3rd-party HA temp/humidity entity
+    mirrored onto the strip for outlet automations. Used by the tent card's
+    Settings tab.
+  fields:
+    entity_id:
+      name: Strip entity
+      description: Any Spider Farmer entity on the target strip.
+      required: true
+      selector:
+        entity:
+          integration: sf
+    source:
+      name: Source
+      description: sf = the strip's own sensor; external = a 3rd-party HA sensor.
+      required: true
+      selector:
+        select:
+          options:
+            - sf
+            - external
+    temp_entity:
+      name: External temperature entity
+      description: HA temperature entity to mirror (when source = external).
+      required: false
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+    humi_entity:
+      name: External humidity entity
+      description: HA humidity entity to mirror (when source = external).
+      required: false
+      selector:
+        entity:
+          domain: sensor
+          device_class: humidity
+
+set_smart_control:
+  name: Smart control (dehumidifier)
+  description: >-
+    Enable/disable and tune the integration's closed-loop humidity control for a
+    device. WARNING: when enabled, the integration drives the dehumidifier gear
+    (full Manual) and overrides SF's own automation. Used by the tent card's
+    Settings tab.
+  fields:
+    entity_id:
+      name: Device entity
+      description: Any Spider Farmer entity on the target device.
+      required: true
+      selector:
+        entity:
+          integration: sf
+    enabled:
+      name: Enabled
+      description: On = integration drives the dehumidifier; Off = hand control back.
+      required: true
+      selector:
+        boolean:
+    settings:
+      name: Settings
+      description: >-
+        Tuning dict: humidity (entity_id), target, deadband, escalate_after_s,
+        escalate_drop, ease_band, min_on_s, min_off_s.
+      required: false
+      selector:
+        object:
+
+set_outlet_env:
+  name: Env outlet control (sensorless strip)
+  description: >-
+    Enable/disable integration-driven Temperature (Cooling/Heating) control for a
+    single outlet on a strip that has no SF air sensor (AC5/AC10 on an external
+    temp source). The outlet can't run this on the device, so the integration
+    drives it from the mirrored temperature and the strip's env target. WARNING:
+    when enabled, the integration owns that outlet (held in Manual on the device);
+    the card still shows the chosen Temperature/Cooling mode. Used by the tent
+    card's outlet popup on external strips.
+  fields:
+    entity_id:
+      name: Outlet entity
+      description: Any entity of the target outlet (its switch or mode select).
+      required: true
+      selector:
+        entity:
+          integration: sf
+    enabled:
+      name: Enabled
+      description: On = integration drives the outlet; Off = hand control back to the device.
+      required: true
+      selector:
+        boolean:
+    mode:
+      name: Mode
+      description: Env mode to hold — Temperature or Humidity.
+      required: false
+      default: Temperature
+      selector:
+        select:
+          options:
+            - Temperature
+            - Humidity
+    direction:
+      name: Direction
+      description: >-
+        Temperature: Cooling (on when warm) or Heating (on when cold).
+        Humidity: Dehumidifying (on when humid) or Humidifying (on when dry).
+      required: false
+      default: Cooling
+      selector:
+        select:
+          options:
+            - Cooling
+            - Heating
+            - Humidifying
+            - Dehumidifying
+    settings:
+      name: Settings
+      description: "Optional tuning dict: deadband, min_on_s, min_off_s."
+      required: false
+      selector:
+        object:
+
+reboot_device:
+  name: Reboot device
+  description: >-
+    Reboot a Spider Farmer controller via the bridge (the firmware's
+    setDevRestart). The controller reconnects on its own once it's back up.
+    Requires "Allow device control" to be enabled in the integration options;
+    a controller that is offline is skipped.
+  fields:
+    entity_id:
+      name: Device
+      description: Any entity belonging to the controller you want to reboot.
+      required: true
+      selector:
+        entity:
+          integration: sf

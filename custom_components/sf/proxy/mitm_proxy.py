@@ -925,6 +925,29 @@ class MITMProxy:
         _LOGGER.info("set_sensor_heating: on=%s -> %s", 1 if on else 0, mac)
         return True
 
+    async def reboot_device(self, mac: str) -> bool:
+        """Reboot one controller — the firmware's ``setDevRestart`` device-mgmt
+        command (confirmed in the GGS firmware's JSON-API method table, triggers
+        its "device restart countdown 1s..." then a clean restart). Envelope
+        matches every other injected command (setSensorHeating/setDevTimezone):
+        method + pid + empty params + msgId + uid. The controller reconnects on
+        its own once it's back up. NOT setDevReset/setDevRestore — those are
+        config/factory wipes and are deliberately not exposed."""
+        sess = self._sessions.get(_mac(mac))
+        if sess is None:
+            _LOGGER.warning("reboot_device: no active session for mac=%s", mac)
+            return False
+        payload = {
+            "method": "setDevRestart",
+            "pid": sess.mac_raw.upper().replace(":", ""),
+            "params": {},
+            "msgId": str(int(time.time() * 1000)),
+            "uid": sess.uid,
+        }
+        await sess.inject(payload)
+        _LOGGER.info("reboot_device: setDevRestart -> %s", mac)
+        return True
+
     # ── Device clock / timezone sync ──────────────────────────────────────
     # Controllers keep their own real-time clock; if it drifts, schedules and
     # cycle timers fire at the wrong wall-clock time. On connect the bridge
@@ -1578,6 +1601,13 @@ def _process_publish(
         # (added even when the value is 0 — presence is the signal).
         if "lightModel" in d:
             present.add("selight")
+        # Power monitoring (v3.19.258): the outlet block carries vRms/aRms/
+        # wattP/energy on metered plugs (S-Station). Own evidence token so the
+        # power sensors are created only when actually reported.
+        outlet_pm = d.get("outlet")
+        if isinstance(outlet_pm, dict) and any(
+                k in outlet_pm for k in ("vRms", "aRms", "wattP", "energy")):
+            present.add("power")
         new_blocks = present - session.evidence
         session.evidence.update(new_blocks)
         if new_blocks and session.device_type and session.device_cfg:
@@ -1906,6 +1936,17 @@ def _process_publish(
                 # never had a plan, so a plan can be started from the card.
                 _env_capable = isinstance(_cf, dict) and isinstance(_cf.get("target"), dict)
                 _pln(session.mac_raw, _plan_on, _plan_stages, _has_plan or _env_capable)
+            # Display Off / Auto Screen Off from configFile.system.scroff (seconds
+            # -> HA minutes, 0 = off). (v3.19.259)
+            _sys = _cfp.get("system") if isinstance(_cfp, dict) else None
+            if isinstance(_sys, dict) and "scroff" in _sys:
+                try:
+                    _mins = max(0, min(10, int(_sys["scroff"]) // 60))
+                except (ValueError, TypeError):
+                    _mins = 0
+                mqtt_client.publish(
+                    f"ggs/ha/{session.mac_raw}/display_off/state",
+                    "Off" if _mins == 0 else str(_mins), retain=True, qos=0)
         # Environment target block also arrives inside getConfigFile (not just a
         # targeted getConfigField ["target"]). Publish the base target as-is; it
         # is what the manual Environment editor uses when no plan is active.
@@ -1950,18 +1991,36 @@ def _process_publish(
                 strip_type = block
             if not target_mac:
                 continue
-            # app -> HA: publish decoded state so the mode entities update
+            # app -> HA: publish decoded state so the mode entities update. An
+            # env-controlled outlet (integration-driven on a sensorless strip) is
+            # Manual on the device but must SHOW its virtual Temperature/Cooling
+            # mode — env_outlet_mode_override swaps those topics. (v3.19.268)
             from .normalizer import normalize_outlet_config
+            _env_ovr = getattr(mqtt_client, "env_outlet_mode_override", None)
             for topic, val in normalize_outlet_config(target_mac, blk).items():
+                if _env_ovr is not None:
+                    val = _env_ovr(target_mac, topic, val)
                 mqtt_client.publish(topic, val, retain=True, qos=0)
-            # drive dynamic visibility from the device's real modeType
+            # drive dynamic visibility from the device's real modeType (or the
+            # virtual modeType for an env-controlled outlet)
             set_mode = getattr(mqtt_client, "set_outlet_mode_from_device", None)
-            if set_mode is not None:
-                for ok, ov in blk.items():
-                    if ok.startswith("O") and ok[1:].isdigit() and isinstance(ov, dict):
-                        n = int(ok[1:])
-                        set_mode(target_mac, n, ov.get("modeType"),
-                                 {"mac": target_mac, "type": strip_type})
+            _mt_ovr = getattr(mqtt_client, "env_outlet_modetype_override", None)
+            _adopt = getattr(mqtt_client, "maybe_adopt_env_outlet", None)
+            for ok, ov in blk.items():
+                if not (ok.startswith("O") and ok[1:].isdigit() and isinstance(ov, dict)):
+                    continue
+                n = int(ok[1:])
+                raw_mt = ov.get("modeType")
+                # Auto-adopt an env-mode outlet on a sensorless strip BEFORE the
+                # override, from the device's real modeType/direction. (v3.19.269)
+                if _adopt is not None and raw_mt is not None:
+                    _adopt(target_mac, n, raw_mt, ov.get("tempAdd"), ov.get("humiAdd"))
+                if set_mode is not None:
+                    mt = raw_mt
+                    if _mt_ovr is not None:
+                        mt = _mt_ovr(target_mac, n, mt)
+                    set_mode(target_mac, n, mt,
+                             {"mac": target_mac, "type": strip_type})
         # The Indicator Light confirm poll is a *targeted* getConfigField
         # ["outlet","led"], so the device answers with a bare {"led": N} — no
         # "outlet" wrapper, so the block loop above misses it and the switch
@@ -2007,12 +2066,18 @@ def _process_publish(
         # modeType for fans and climate accessories (config responses were
         # these frames, leaving those sensors stale/unknown).
         from .normalizer import normalize_config_response
+        _lbl = getattr(mqtt_client, "light_mode_label_override", None)
         for topic, value in normalize_config_response(session.mac_raw, data).items():
+            if _lbl is not None:
+                value = _lbl(session.mac_raw, topic, value)
             mqtt_client.publish(topic, value, retain=True, qos=0)
     else:
         normalized = normalize_status(
             session.mac, data, mac=session.mac_raw, fan_cache=session.fan_state,
             light_cache=session.light_state, climate_cache=session.device_state,
         )
+        _lbl = getattr(mqtt_client, "light_mode_label_override", None)
         for topic, value in normalized.items():
+            if _lbl is not None:
+                value = _lbl(session.mac_raw, topic, value)
             mqtt_client.publish(topic, value, retain=True, qos=0)

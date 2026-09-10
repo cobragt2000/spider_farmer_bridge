@@ -321,6 +321,8 @@ _SE_MODE_LABELS = {0: "Manual", 1: "Automatic", 2: "Automatic (Standby)"}
 _OUTLET_TYPE_TO_MODE = {
     0: "Manual", 1: "Time Slot", 2: "Cycle", 3: "Temperature",
     4: "Humidity", 5: "CO2", 14: "Drip Irrigation",
+    # S-Station Blower device type (fan-priority env mode). (v3.19.263)
+    7: "Blower (Temperature Priority)", 8: "Blower (Humidity Priority)",
 }
 _OUTLET_TEMP = {1: "Heating", 2: "Cooling"}
 _OUTLET_HUMI = {1: "Humidifying", 2: "Dehumidifying"}
@@ -666,6 +668,26 @@ def _decode_outlets(out, e, outlet):
             n = int(key[1:])
             state = "ON" if _on(_num(val, "mOnOff", "on")) else "OFF"
             out[f"ggs/ha/{e}/outlet_{n}/state"] = state
+    # Power monitoring (v3.19.258): the S-Station reports RMS voltage/current,
+    # active power and cumulative energy at the outlet-block top level. Voltage
+    # (vRms) and power (wattP) match the SF app 1:1; current (aRms) is scaled —
+    # the app shows ~0.03 A for a raw 4, i.e. centi-amps, so divide by 100.
+    if "vRms" in outlet:
+        out[f"ggs/ha/{e}/pm_voltage/state"] = str(outlet["vRms"])
+    if "wattP" in outlet:
+        out[f"ggs/ha/{e}/pm_power/state"] = str(outlet["wattP"])
+    if "energy" in outlet:
+        # The raw energy counter is in Wh; the SF app shows kWh (raw 10 -> app
+        # 0.010 kWh). Publish kWh = raw/1000. (v3.19.283)
+        try:
+            out[f"ggs/ha/{e}/pm_energy/state"] = f"{float(outlet['energy']) / 1000.0:.3f}"
+        except (ValueError, TypeError):
+            pass
+    if "aRms" in outlet:
+        try:
+            out[f"ggs/ha/{e}/pm_current/state"] = f"{float(outlet['aRms']) / 100.0:.2f}"
+        except (ValueError, TypeError):
+            pass
 
 
 def _decode_soil(out, e, sensors):

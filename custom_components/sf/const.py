@@ -12,6 +12,23 @@ DEFAULT_UPSTREAM_PORT = 8883   # real Spider Farmer cloud port (unchanged)
 CONF_ALLOW_CONTROL = "allow_control"
 CONF_BLOCK_CLOUD = "block_cloud"
 CONF_KEEP_OFFLINE = "keep_offline_entities"
+# Per-strip external sensor config (v3.19.253): {mac_lc: {source, temp, humi}}.
+# source "sf" (default, use the strip's own sensor) or "external" (mirror a
+# 3rd-party HA temp/humidity entity onto the strip for outlet automations).
+CONF_STRIP_SENSORS = "strip_sensors"
+# Per-device smart-control config (v3.19.256): {mac_lc: {enabled, humidity,
+# target, deadband, escalate_after_s, escalate_drop, ease_band, min_on_s,
+# min_off_s}}. The integration closed-loop-drives the dehumidifier to hold the
+# humidity target (full Manual). WARNING to surface in the card: when enabled the
+# integration controls the gear, overriding SF's own automation.
+CONF_SMART_CONTROL = "smart_control"
+# Per-outlet integration-driven env control on a sensorless strip (v3.19.268):
+# {mac_lc: {"<n>": {enabled, mode, dir, deadband?, min_on_s?, min_off_s?}}}.
+# On an AC5/AC10 using an external temp source, an outlet set to Temperature
+# (Cooling/Heating) can't run on the device (no sensor) — the integration drives
+# it from the mirrored reading + the strip's env target, holding the chosen mode
+# virtually so the card still shows Temperature/Cooling.
+CONF_OUTLET_ENV = "outlet_env"
 CONF_ENV_ENTITIES = "environment_entities"
 CONF_PRESERVE_ON_REMOVE = "preserve_on_remove"
 CONF_DIAG_LOG      = "diagnostic_log"
@@ -28,7 +45,7 @@ DATA_PROXY_TASK = "proxy_task"
 DATA_PROXY      = "proxy"
 DATA_BUS        = "bus"
 
-PLATFORMS = ["binary_sensor", "fan", "light", "number", "select", "sensor", "switch", "text"]
+PLATFORMS = ["binary_sensor", "button", "fan", "light", "number", "select", "sensor", "switch", "text"]
 
 # Dispatcher signals
 SIGNAL_AVAILABILITY = "sf_availability"

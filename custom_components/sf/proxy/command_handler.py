@@ -57,6 +57,11 @@ _FAN_ENV_SUBMODE_TO_TYPE = {
 _LIGHT_EFFECT_TO_MODE = {
     "Manual": 0,
     "Schedule": 1,
+    "Time Slot": 1,
+    # While a plan is running the card labels the light mode "PPFD - Plan" (same
+    # modeType 1; the schedule is sourced from the active plan stage).
+    "PPFD - Plan": 1,
+    "Planting Plan": 1,
     "PPFD": 12,
     "Modus: Manual / Timer": 0,
 }
@@ -64,6 +69,8 @@ _LIGHT_EFFECT_TO_MODE = {
 _OUTLET_MODE_TO_TYPE = {
     "Manual": 0, "Time Slot": 1, "Cycle": 2, "Temperature": 3,
     "Humidity": 4, "CO2": 5, "Drip Irrigation": 14,
+    # S-Station Blower device type: a fan-priority env mode (v3.19.263).
+    "Blower (Temperature Priority)": 7, "Blower (Humidity Priority)": 8,
 }
 # Outlet device-type dropdowns -> field value.
 _OUTLET_TEMP_DEVICE = {"Heating": 1, "Cooling": 2}
@@ -101,7 +108,10 @@ _LIGHT_SUBFIELDS = {
     "apply_bundle",
 }
 # Light Mode select label -> modeType (panel Light 1/2). 12 == PPFD.
-_LIGHT_MODE_LABEL_TO_TYPE = {"Manual": 0, "Time Slot": 1, "PPFD": 12}
+# "PPFD - Plan" / "Planting Plan" = mode 1 relabelled while a plan runs (the
+# schedule comes from the active plan stage). (v3.19.278)
+_LIGHT_MODE_LABEL_TO_TYPE = {"Manual": 0, "Time Slot": 1, "PPFD": 12,
+                             "PPFD - Plan": 1, "Planting Plan": 1}
 # Fan/blower setting subfields handled by the fan-config write path.
 _FAN_SUBFIELDS = {
     "mode", "preset_mode", "env_submode",
@@ -297,6 +307,21 @@ def translate_command(
         # HA turn-on lights the LED and HA matches the SF app. (v3.19.173)
         return {"method": "setConfigField", "pid": mac,
                 "params": {"keyPath": ["outlet", "led"], "led": 0 if _onoff(value) else 1},
+                "msgId": _msg_id(), "uid": uid}
+
+    if field == "display_off":
+        # Auto Screen Off (the app's "Display off") — ["system","scroff"] in
+        # seconds. The HA select is "Off" or 1-10 (minutes). (v3.19.259)
+        s = str(value).strip().lower()
+        if s in ("off", "0", ""):
+            secs = 0
+        else:
+            try:
+                secs = max(0, min(600, int(round(float(value) * 60))))
+            except (ValueError, TypeError):
+                secs = 0
+        return {"method": "setConfigField", "pid": mac,
+                "params": {"keyPath": ["system", "scroff"], "scroff": secs},
                 "msgId": _msg_id(), "uid": uid}
 
     if field == "plan_enabled":
@@ -678,6 +703,11 @@ def _apply_outlet_subfield(obj, sub, value) -> bool:
     the field was recognised and applied, False for an unknown subfield or a bad
     value. Shared by the per-field write path and the atomic mode+config write."""
     try:
+        if sub == "dev_type":
+            # S-Station socket Device Type index (devType 0-9). The card writes
+            # this alongside mode+direction so saves match the app. (v3.19.263)
+            obj["devType"] = int(float(value))
+            return True
         if sub == "temp_device":
             v = _OUTLET_TEMP_DEVICE.get(str(value))
             if v is None:

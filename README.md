@@ -12,9 +12,10 @@
 [![Downloads](https://img.shields.io/github/downloads/cobragt2000/spider_farmer_bridge/total?color=orange&label=downloads)](https://github.com/cobragt2000/spider_farmer_bridge/releases)
 
 Local control and monitoring for **Spider Farmer GGS (Genius Grow System)**
-devices — Display Panels, AC5/AC10 power strips, light controllers, grow
-lights, climate gear, and 3-in-1 soil probes — as **native Home Assistant
-entities**. No cloud API, no MQTT broker, no polling the app.
+devices — Display Panels, AC5/AC10 power strips, the S-Station single-outlet
+metered plug, light controllers, grow lights, climate gear, and 3-in-1 soil
+probes — as **native Home Assistant entities**. No cloud API, no MQTT broker,
+no polling the app.
 
 It works by transparently proxying each device's own TLS connection to the
 Spider Farmer cloud: devices keep working in the SF app exactly as before,
@@ -217,6 +218,8 @@ accordingly.
 | Blower | Blower (on/off + speed, 25 % floor), **Blower Speed** slider (0 = Off, 25–100 %) + speed sensor, Mode |
 | SE Lights | Standalone SE-series (SE4500 etc.): dimmable light, Manual/Automatic mode, schedule start/end, schedule brightness, sunrise/sunset fade (0-30 min, one setting drives both ends of the schedule), plus Brightness/Mode/Active sensors |
 | Climate | Humidifier / Dehumidifier / Heater: manual On/Off switch, Level control (heater 1-10, humidifier 1-4, dehumidifier Low/High), Active, Level, Mode, Tank / Status |
+| Power | Power (W), Voltage (V), Current (A), Energy (kWh) — on metered plugs (the S-Station), matching the SF app's Energy Usage |
+| Controls | **Reboot** button (Diagnostic) per controller; **Display Off** auto-screen-off timer on devices with a screen |
 | Soil probes | Temperature, Moisture, EC per probe (auto-discovered), plus per-device **Soil Avg** Temperature / Moisture / EC across a controller's probes |
 
 📋 **Full entity reference:** every entity the integration creates — grouped by
@@ -280,6 +283,15 @@ mappings.
 read-only and commands raise a visible error. The command layer (outlets,
 lights with brightness, fan gears/oscillation, blower with its 25 % floor)
 is tested end-to-end against real injected payloads.
+
+**Reboot a controller.** Each GGS controller exposes a **Reboot** button (in its
+Diagnostic section) that restarts it via the firmware's own `setDevRestart`
+command — handy to recover a controller that's wedged (for example stuck
+mid-firmware-update) without power-cycling it by hand. It's gated by the same
+**Allow device control** switch and only works while the controller is online;
+the device reconnects on its own once it's back up. The `sf.reboot_device`
+service does the same from automations. Only the safe restart is exposed — the
+firmware's factory reset/restore commands are deliberately not.
 
 ---
 
@@ -377,6 +389,14 @@ Full steps in [`spider_farmer_hotspot/DOCS.md`](spider_farmer_hotspot/DOCS.md).
 
 The add-on's status page lists every connected controller with its signal, link
 speed, and lease — so you can confirm the gear joined the AP at a glance.
+
+**Firmware updates on the hotspot.** Controllers can download their own firmware
+updates while joined to the AP — the add-on gives them a normal path to the
+internet, so you don't have to move gear back to your main network to update. If
+you'd rather hold your controllers on a known-good firmware, turn on the add-on's
+**`block_updates`** option: it blackholes only the firmware-download host, so OTA
+updates can't start, while MQTT/control and time sync keep working normally. Turn
+it back off to let an update through.
 
 <p align="center"><img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Hotspot_01.png" width="900" alt="Spider Farmer Hotspot add-on status page — connected controllers with signal, link speed, IP, and lease"></p>
 

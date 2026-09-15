@@ -128,6 +128,32 @@ strip, and an **Outlets Log** tab with a 24h/7d on-off timeline per outlet.
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_08.png" width="330" alt="Copy an outlet's mode + config to other outlets across strips" />
 </p>
 
+The **Settings** tab groups every option into alphabetized, collapsible sections — all saved to the controller so they follow you across your devices and survive upgrades:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_Settings_01.png" width="260" alt="Settings tab — alphabetized, collapsible sections" />
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_Settings_02.png" width="245" alt="Settings — Colours & Tile Appearance (per-mode outlet/device colours, corner radius, border)" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_Settings_03.png" width="245" alt="Settings — Devices (Device Log tab, quick-toggle row, remember on toggle)" />
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_Settings_04.png" width="245" alt="Settings — Header Connection Info (online + Wi-Fi signal, custom signal source)" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_Settings_05.png" width="245" alt="Settings — Layout (resize the card, tiles per row)" />
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_Settings_06.png" width="245" alt="Settings — Layout expanded (scale slider + tiles per row)" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_Settings_07.png" width="245" alt="Settings — Outlets (custom names, Outlets Log, quick-toggle row, remember on toggle)" />
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_Settings_08.png" width="245" alt="Settings — Overview (outlets on Overview, quick-toggle row, hide Energy tile)" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_Settings_09.png" width="245" alt="Settings — Temperature Source (borrow a 3rd-party sensor for a sensorless strip)" />
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_Settings_10.png" width="245" alt="Settings — Tile Extras (target/range line, trend arrows, dead-zone band, device mode summary, 12h time)" />
+  <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_Settings_11.png" width="245" alt="Settings — VPD Graph (Leaf VPD tile, VPD graph, Leaf VPD overlay)" />
+</p>
+
 The `custom:ppfd-3d-card` 3D PPFD visualizer (SE4500 / SE5000 / SF2000 / SF7000 / G1000W):
 
 <p align="center">

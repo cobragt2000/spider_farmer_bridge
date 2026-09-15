@@ -71,6 +71,9 @@ _OUTLET_MODE_TO_TYPE = {
     "Humidity": 4, "CO2": 5, "Drip Irrigation": 14,
     # S-Station Blower device type: a fan-priority env mode (v3.19.263).
     "Blower (Temperature Priority)": 7, "Blower (Humidity Priority)": 8,
+    # "Light Env" is integration-driven with no device modeType — writing it
+    # leaves the device in Manual so the bus can toggle the socket (v3.19.292).
+    "Light Env": 0,
 }
 # Outlet device-type dropdowns -> field value.
 _OUTLET_TEMP_DEVICE = {"Heating": 1, "Cooling": 2}

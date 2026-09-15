@@ -348,15 +348,27 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
                     title="", data=dict(self._entry.options or {})
                 )
 
-        if not slots and not soil_slots:
+        # Only show slots whose device still exists — a removed controller's
+        # stale mapping lingers in options (so returning hardware keeps its
+        # entity_ids) but is hidden here instead of listing as 'unknown device'.
+        # The full `slots` map is still used for the save merge below. (v3.19.306)
+        present = present_macs(self.hass, self._entry)
+        visible_slots = {m: s for m, s in slots.items() if m in present}
+        # Hide orphaned soil probes too — a probe whose parent controller was
+        # removed has no live entity (so it's absent from soil_cb) and lingers as
+        # a bare "soil1/soil2". The bus prune purges these from options; hiding
+        # them here keeps the screen clean immediately. (v3.19.309)
+        visible_soil = {s: v for s, v in soil_slots.items() if s.lower() in soil_cb}
+
+        if not visible_slots and not visible_soil:
             return self.async_abort(reason="no_devices")
 
         schema_fields = {
             vol.Required(mac, default=slot): str
-            for mac, slot in sorted(slots.items(), key=lambda kv: kv[1])
+            for mac, slot in sorted(visible_slots.items(), key=lambda kv: kv[1])
         }
         for serial, slot in sorted(
-            soil_slots.items(), key=lambda kv: scoped(kv[0], kv[1])
+            visible_soil.items(), key=lambda kv: scoped(kv[0], kv[1])
         ):
             schema_fields[
                 vol.Optional(f"soil:{serial}", default=scoped(serial, slot))
@@ -371,11 +383,11 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
 
         mapping_lines = "\n".join(
             f"{slot}  =  {names.get(mac, 'unknown device')}  ({mac})"
-            for mac, slot in sorted(slots.items(), key=lambda kv: kv[1])
+            for mac, slot in sorted(visible_slots.items(), key=lambda kv: kv[1])
         ) + "\n" + "\n".join(
             f"{scoped(serial, slot)}  =  {_kind(serial)}Soil probe {serial}"
             for serial, slot in sorted(
-                soil_slots.items(), key=lambda kv: scoped(kv[0], kv[1])
+                visible_soil.items(), key=lambda kv: scoped(kv[0], kv[1])
             )
         )
         return self.async_show_form(
@@ -520,6 +532,24 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
 
 # ── Accessory-decision helpers for the "Device accessories" options step ────
 
+def present_macs(hass, entry) -> set:
+    """MACs that still have a device-registry entry under this config entry —
+    i.e. controllers that actually exist. A removed/unplugged device (pruned by
+    keep-offline, or manually deleted) is gone from here, but its stale slot may
+    still linger in device_slots/components options. The config screens filter to
+    this set so a removed device stops showing as 'unknown device'. The slot
+    mapping itself is left intact so returning hardware keeps its entity_ids.
+    (v3.19.306)"""
+    from homeassistant.helpers import device_registry as dr
+    dev_reg = dr.async_get(hass)
+    out: set = set()
+    for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+        for domain, ident in device.identifiers:
+            if domain == DOMAIN and str(ident).startswith("ggs_"):
+                out.add(str(ident)[4:])
+    return out
+
+
 def toggleable_candidates(hass, entry, only_mac=None, extra=None):
     """Return [(mac, block)] pairs — EVERY controller device paired with all
     three toggleable accessories (Light 1, Light 2, Fan), always shown so it's
@@ -538,6 +568,10 @@ def toggleable_candidates(hass, entry, only_mac=None, extra=None):
             macs.add(uid[4:].partition("_")[0])
     macs |= set((entry.options or {}).get("components", {}).keys())
     macs |= set(slots.keys())
+    # Hide controllers that no longer exist (removed/pruned) — their stale slot
+    # may linger in options but the device is gone. `extra` (a device being
+    # added mid-flow) bypasses the filter. (v3.19.306)
+    macs &= present_macs(hass, entry)
     macs |= set(extra or {})
 
     order = {b: i for i, b in enumerate(TOGGLEABLE_BLOCKS)}
@@ -582,7 +616,9 @@ def component_device_names(hass, entry) -> dict:
         for domain, ident in device.identifiers:
             if domain == DOMAIN and ident.startswith("ggs_"):
                 out[ident[4:]] = device.name_by_user or device.name
-    return {m: (out.get(m) or slots.get(m) or m) for m in set(out) | set(slots)}
+    # Only devices that still exist — a removed controller's stale slot is not
+    # surfaced (was showing as 'unknown device'). (v3.19.306)
+    return {m: (out.get(m) or slots.get(m) or m) for m in set(out)}
 
 
 def device_toggle_blocks(hass, entry, mac) -> list:

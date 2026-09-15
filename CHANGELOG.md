@@ -3,6 +3,230 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.310
+
+### Changed
+- **Temperature source setting now warns about the Spider Farmer app.** While a
+  3rd-party (External) sensor is in use, a bold note makes clear you must control
+  the device from Home Assistant only — the Spider Farmer app has no access to
+  your 3rd-party sensor and will fight the integration's control.
+
+### Docs
+- Added a Card **Settings** tab walkthrough (screenshots of every section) to the
+  README.
+
+## 3.19.309
+
+### Fixed
+- **Removing a controller no longer leaves orphaned soil probes.** When a device
+  is deleted (or pruned with "Keep offline devices" off), its soil-probe mappings
+  are cleared too, so the Device mappings screen no longer lists stale "soil1 /
+  soil2" entries for gone hardware. Probes on a still-present device (or merely
+  offline) are untouched.
+
+## 3.19.308
+
+### Fixed
+- **CO2 Environment targets now appear on any device with a CO2 sensor** —
+  including an S-Station (or strip/panel) that borrows a 3rd-party
+  temperature/humidity sensor but reports CO2 from its own 3-in-1. CO2 targets
+  were previously dropped for every external-sensor device.
+- **A light in Manual mode no longer shows a schedule on its tile.** The stored
+  (inactive) schedule is hidden in Manual — so it no longer lingers after a
+  planting plan stops. Time Slot / PPFD modes still show their schedule.
+
+## 3.19.307
+
+### Fixed
+- **Reboot button now appears on the AC5 / AC10 power strips.** The per-controller
+  Reboot button was only created for devices that report an air-sensor block, so
+  pure-outlet / external-sensor strips (which report none) never got one. It's now
+  created for every controller.
+- **Cleaned up a stale "Display Off" entity** left on display panels adopted before
+  Display Off became a dropdown — the old version showed as "unavailable" and is
+  now removed on startup.
+
+## 3.19.306
+
+### Added
+- **Ignore a device's own temp/humidity when it's using a 3rd-party sensor.** A
+  device with its own SF probe (S-Station 3-in-1, a display panel) plus an external
+  sensor no longer flip-flops between the two — its onboard temperature/humidity/VPD
+  is suppressed so only the external sensor drives them. PPFD, CO2 and everything
+  else are unaffected. Applies to any device type.
+
+### Fixed
+- **Removing a device now clears all of its traces.** Pruning (with "Keep offline
+  devices" off) or deleting an offline device removes not just its entities but its
+  stored slot mapping, accessory decisions and per-device settings, so it no longer
+  lingers as "unknown device" in the Device mappings / accessories screens.
+
+## 3.19.305
+
+### Added
+- **"Keep offline devices" off now removes whole gone controllers.** Previously,
+  unchecking it only pruned phantom accessory blocks on a *reporting* device; a
+  controller that was unplugged or removed lingered on the device page. It's now
+  removed after a startup grace window (so a slow-reconnecting device is spared)
+  and immediately when you toggle the option off. The default (on) still preserves
+  dormant gear.
+
+## 3.19.304
+
+### Fixed
+- **Dehumidifier cooldown pill no longer shows a phantom lockout after an HA
+  restart.** The countdown was derived from the switch's last-changed time, which
+  resets on restart — so a device that never ran looked like it had "just turned
+  off." The card now tracks real on→off transitions, and falls back to the switch
+  time only while dehumidification is actually demanded.
+
+## 3.19.303
+
+### Added
+- **Planting-plan stage light on the stage card.** Each plan stage now shows its
+  light schedule (photoperiod + brightness / PPFD target) on one line under
+  Temp / Humidity / CO2.
+
+### Fixed
+- **Environment tiles follow the running plan stage.** While a planting plan runs,
+  the temperature / humidity / CO2 target tiles show the *active stage's* targets
+  and update when the plan advances a stage; they revert to your manual targets
+  when the plan stops.
+
+## 3.19.302
+
+### Added
+- **Two new card settings (Overview section):** "Show quick-toggle row on Overview"
+  adds the outlet quick-toggle buttons to the Overview tab; "Hide Energy Usage
+  tile" hides the S-Station / metered-plug power tile.
+
+### Fixed
+- **S-Station outlet rename now saves.** Entering a custom name in the S-Station's
+  Device Type editor now arms the Apply bar and commits the name.
+
+## 3.19.301
+
+### Fixed
+- **Env outlet modes now survive an HA restart.** On an external-sensor strip the
+  integration parks the outlet in Manual to drive the socket, so there was no
+  device evidence to re-adopt from on reboot — the Temperature/Humidity (Cooling/
+  Heating/Humidify/Dehumidify) mode was lost and the tile fell back to Manual.
+  Adopted env outlets are now persisted to the config entry and reloaded on
+  startup. If you set a real non-env mode (Time Slot/Cycle/etc.) from the SF app,
+  the entry is released automatically.
+- **Dehumidifier cooldown pill reads "Cooldown" (not "Starts in") when it isn't
+  being called for.** "Starts in" now shows only when RH is above the actual
+  turn-on point (target + deadband) — i.e. it genuinely wants to run but is locked
+  out. Also fixed the day/night target used for that check: with no is_day entity
+  (external-sensor strips) it now falls back to the env day-cycle window instead of
+  defaulting to the night target.
+
+## 3.19.300
+
+### Fixed
+- **Env-driven outlets react to threshold changes in ~2–3s instead of up to a
+  minute.** Two causes fixed: (1) the control loop now runs **event-driven** — it
+  watches the input sensor and the env target/deadband entities and evaluates the
+  moment one changes, instead of only on the 15s periodic tick (still kept as a
+  backstop); (2) a **setpoint change** (editing a target/deadband, or a day↔night
+  flip) now resets the anti-cycle dwell, so the outlet acts on the new threshold
+  immediately instead of waiting out the up-to-120s min-on/min-off from the last
+  toggle. Applies to Heating/Cooling and Humidify/Dehumidify outlets. The deadband
+  still provides hysteresis, and the dehumidifier compressor cooldown is unchanged.
+
+## 3.19.299
+
+### Changed
+- **Config/target edits reflect on the tiles ~1.2s sooner.** The post-write
+  confirm poll delay was lowered from 2.0s to 0.8s. It's safe: the write is always
+  sent before the confirm read and the controller processes messages in order, so
+  the read still reflects the new value. (Environment targets, calibration, alarm
+  thresholds, etc.) The controller's own reply time (~1–2.5s) still applies on top.
+
+## 3.19.298
+
+### Fixed
+- **Outlet on/off now updates fast AND correctly.** The 3.19.296 approach
+  (publishing the switch state from the config confirm) could stick a stale value
+  on an integration-driven env outlet — that was reverted. Instead, after any
+  outlet write (a manual toggle or the integration's env drive), the proxy now
+  polls the live `getDevSta` ~2s later, so the tile flips from the authoritative
+  live state in ~2s instead of waiting for the next ~10s self-report.
+- **Outlet cooldown countdown is now an overlay** pinned to the tile's middle-
+  right, so it no longer changes the tile's height (compact, smaller font).
+
+## 3.19.297
+
+### Changed
+- **S-Station Device Type "Grow light" renamed to "Light Env"** to match the
+  outlet mode label used on the AC5/AC10 strips.
+
+## 3.19.296
+
+### Changed
+- **Outlet on/off reflects in ~2s instead of ~10s.** After a toggle (manual or
+  integration-driven), the proxy's config confirm poll now also publishes the
+  outlet's on/off state, so the tile flips at the ~2s confirm instead of waiting
+  for the next live report. Scheduled/cycle outlets are unaffected (their live
+  on/off still comes from the device report, so no flicker).
+
+## 3.19.295
+
+### Changed
+- **Settings tab sections are now alphabetical** (Colours & tile appearance,
+  Dehumidifier cooldown timer, Devices, Header connection info, Layout, Outlets,
+  Overview, Smart control, Temperature source, Tile extras, VPD graph).
+- **Outlet cooldown countdown moved to the middle of the tile** (right under the
+  On/Off value) instead of the bottom.
+
+## 3.19.294
+
+### Added
+- **Light Env on the S-Station.** The single-plug S-Station's Device Type picker
+  now offers **Grow light**, with a Day/Night selector — the same environment
+  day/night-cycle outlet as on the AC5/AC10 strips.
+
+## 3.19.293
+
+### Fixed
+- **Light Env tile now colours as an environment mode** (green), instead of
+  falling back to the Manual accent. Also reworded the mode note to "Follows the
+  environment day/night cycle (from Environment/Planting Plan)".
+
+## 3.19.292
+
+### Added
+- **New outlet mode: "Light Env".** An outlet set to Light Env follows the
+  environment/planting-plan day-cycle window — ON during the **Day** phase by
+  default (a grow light), or during **Night** (a Day/Night selector in the outlet
+  editor). It works on any strip's outlets and needs no sensor: the integration
+  reads the day-cycle start/stop times (which the plan advances stage to stage)
+  and drives the socket, holding the device in Manual. Gated by **Allow device
+  control**. The tile shows a Day/Night sub-label. (S-Station single-plug device-
+  type UI entry to follow.)
+
+## 3.19.291
+
+### Fixed
+- **Dehumidifier cooldown timer section now appears only where relevant.** It was
+  gated on "the card has any outlets," so it showed on strips with no dehumidifying
+  outlet and hid on cards that lacked outlets. It now shows only when the card
+  actually controls a dehumidifier — a dehumidifier device, or an outlet set to
+  Humidity/Dehumidifying.
+- **Env-outlet direction sub-label shows instantly.** The Cooling/Heating and
+  Humidifying/Dehumidifying line on an outlet tile used to appear only after the
+  integration's config confirm-poll echoed the direction back (a few seconds'
+  lag). The card now shows the chosen direction immediately on Apply; the live
+  value takes over once it lands.
+
+## 3.19.290
+
+### Docs
+- **README updated** for the recent additions: the per-controller Reboot button +
+  `sf.reboot_device` service, the S-Station metered plug and its Power/Voltage/
+  Current/Energy entities, and the hotspot add-on's `block_updates` option (block
+  or allow firmware OTA updates over the AP).
+
 ## 3.19.289
 
 ### Changed

@@ -250,6 +250,89 @@ async def test_external_mirror_survives_prune_blocks(hass: HomeAssistant):
     assert f"ggs_{PS10_LC}_humidity" in _uids(hass, entry)
 
 
+async def test_external_mirror_suppresses_device_air(hass: HomeAssistant):
+    """v3.19.306: a device with its OWN temp/hum probe (S-Station 3-in-1, a
+    display panel) plus an external mirror must not flip-flop — the device's own
+    temperature/humidity/vpd reports are dropped while the mirror owns them, but
+    PPFD (and everything else) still passes through."""
+    import json
+    from custom_components.sf.proxy.mitm_proxy import ProxySession, _process_publish
+    from custom_components.sf.proxy.mqtt_parser import MQTTPacket, MQTT_PUBLISH
+
+    hass.states.async_set("sensor.ext_t", "22.0",
+                          {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set("sensor.ext_h", "60.0",
+                          {"unit_of_measurement": "%", "device_class": "humidity"})
+    ST, ST_LC = "0A1B2C3D4E2A", "0a1b2c3d4e2a"
+    entry = await _setup(hass, options={
+        "device_slots": {ST_LC: "st1"},
+        "strip_sensors": {ST_LC: {"source": "external", "temp": "sensor.ext_t", "humi": "sensor.ext_h"}},
+    })
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+
+    # The mirror painted the external value onto the device's air topic.
+    assert bus.states.get(f"ggs/ha/{ST_LC}/temperature/state") == "22.00"
+
+    # Predicate: air fields suppressed, PPFD not.
+    assert bus.device_air_suppressed(ST, f"ggs/ha/{ST_LC}/temperature/state") is True
+    assert bus.device_air_suppressed(ST, f"ggs/ha/{ST_LC}/humidity/state") is True
+    assert bus.device_air_suppressed(ST, f"ggs/ha/{ST_LC}/vpd/state") is True
+    assert bus.device_air_suppressed(ST, f"ggs/ha/{ST_LC}/ppfd/state") is False
+
+    # The device now reports its OWN 3-in-1: temp 30 / humi 40 / ppfd 250.
+    pkt = MQTTPacket(
+        packet_type=MQTT_PUBLISH, flags=0, payload=b"",
+        topic=f"SF/GGS/PS/API/UP/{ST}",
+        message=json.dumps({
+            "method": "getDevSta", "uid": "u1",
+            "data": {"sensor": {"temp": 30.0, "humi": 40.0, "ppfd": 250}},
+        }).encode(),
+    )
+    session = ProxySession(ST, bus)
+    _process_publish(session, pkt, bus)
+    if session.initial_poll_task:
+        session.initial_poll_task.cancel()
+    await hass.async_block_till_done()
+
+    # Onboard temp/humi did NOT overwrite the mirror; PPFD came through.
+    assert bus.states.get(f"ggs/ha/{ST_LC}/temperature/state") == "22.00"
+    assert bus.states.get(f"ggs/ha/{ST_LC}/humidity/state") == "60.0"
+    assert bus.states.get(f"ggs/ha/{ST_LC}/ppfd/state") == "250"
+
+
+async def test_external_device_with_co2_keeps_co2_targets(hass: HomeAssistant):
+    """v3.19.308: an external temp/humi mirror device whose OWN sensor block also
+    reports CO2 (the S-Station 3-in-1) must KEEP CO2 Environment targets — the
+    old rule dropped CO2 for every external device, losing CO2 on the S-Station.
+    Also exercises the add-just-CO2 path (temp/humi targets already existed)."""
+    hass.states.async_set("sensor.e_t", "22.0",
+                          {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set("sensor.e_h", "60.0",
+                          {"unit_of_measurement": "%", "device_class": "humidity"})
+    ST, ST_LC = "0A1B2C3D4E2B", "0a1b2c3d4e2b"
+    entry = await _setup(hass, options={
+        "device_slots": {ST_LC: "st1"},
+        "strip_sensors": {ST_LC: {"source": "external", "temp": "sensor.e_t", "humi": "sensor.e_h"}},
+    })
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+
+    # External mirror created temp/humi targets but (correctly) NO CO2 yet.
+    assert f"ggs_{ST_LC}_env_temp_day" in _uids(hass, entry)
+    assert f"ggs_{ST_LC}_env_co2_day" not in _uids(hass, entry)
+
+    # The device now reports its own CO2 sensor → CO2 targets appear (added on
+    # top of the existing temp/humi ones, no re-adopt).
+    cfg = {"mac": ST, "type": "st"}
+    bus._note_air_evidence({"sensor:co2"}, cfg)
+    await hass.async_block_till_done()
+
+    uids = _uids(hass, entry)
+    assert f"ggs_{ST_LC}_env_co2_day" in uids
+    assert f"ggs_{ST_LC}_env_co2_night" in uids
+    assert f"ggs_{ST_LC}_env_co2_deadband" in uids
+    assert f"ggs_{ST_LC}_env_temp_day" in uids   # temp/humi untouched
+
+
 async def test_external_switch_back_returns_to_outlet_only(hass: HomeAssistant):
     """v3.19.264: switching a strip from External back to SF (keep-offline off)
     removes the mirrored temp/humidity AND the Environment targets, so the card

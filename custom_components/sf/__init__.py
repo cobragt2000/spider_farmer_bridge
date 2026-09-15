@@ -92,6 +92,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # entities; drop the old read-only sensor-domain versions.
     _migrate_cal_to_editable(hass, entry)
 
+    # One-time (3.19.307): Display Off changed number -> select; drop the stale
+    # number-domain ghost left on display panels adopted before the change.
+    _migrate_display_off_to_select(hass, entry)
+
     # One-time (3.19.103): soil calibration/substrate entity ids were never
     # re-homed when a Display Panel's dp slot changed, so a dp1<->dp2 swap left
     # them stranded on the other panel (their device name showed the wrong
@@ -557,6 +561,33 @@ def _migrate_cal_to_editable(hass: HomeAssistant, entry: ConfigEntry) -> None:
         _LOGGER.info(
             "Removed %d read-only calibration sensor(s) now replaced by "
             "editable number/select entities", removed)
+
+
+def _migrate_display_off_to_select(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """3.19.307: "Display Off / Auto Screen Off" was a number entity before it
+    became a select (Off / 1–10 min). The two live under different domains but
+    share the unique_id ``ggs_<mac>_display_off``, so the stale number-domain
+    entity lingers on the device page as an unavailable "no longer provided"
+    ghost (seen on display panels adopted before the change). Remove it; the
+    select platform recreates the editable version with the same unique_id.
+    Idempotent."""
+    import re
+    from homeassistant.helpers import entity_registry as er
+
+    ent_reg = er.async_get(hass)
+    uid_re = re.compile(r"^ggs_[0-9a-f]+_display_off$")
+    removed = 0
+    for e in list(er.async_entries_for_config_entry(ent_reg, entry.entry_id)):
+        if e.domain == "number" and uid_re.match(e.unique_id or ""):
+            try:
+                ent_reg.async_remove(e.entity_id)
+                removed += 1
+            except KeyError:
+                pass
+    if removed:
+        _LOGGER.info(
+            "Removed %d stale number-domain Display Off entity(ies) now "
+            "replaced by the select version", removed)
 
 
 def _seed_component_decisions(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -1073,9 +1104,10 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
     # Keep-offline: previously only read at setup, so unchecking "Keep offline
     # devices" did nothing until a full restart (v3.19.250 fix). Apply live —
     # once False, prune_blocks (called on each device report) removes phantom
-    # accessory blocks on the next report cycle. This is per-block cleanup on
-    # devices that ARE reporting; whole offline devices are still removed only
-    # via the device page's Delete button (async_remove_config_entry_device).
+    # accessory BLOCKS on the next report cycle, and prune_offline_devices()
+    # removes whole devices that aren't connected right now (v3.19.304 — closes
+    # the gap where an unplugged/removed controller lingered on the device page
+    # until manually deleted).
     if bus is not None:
         new_keep = bool(cfg.get(CONF_KEEP_OFFLINE, True))
         if bus.keep_offline != new_keep:
@@ -1083,8 +1115,10 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
             _LOGGER.info(
                 "Spider Farmer Bridge: keep offline devices %s%s",
                 "enabled" if new_keep else "disabled",
-                "" if new_keep else " — phantom accessory blocks will prune on next report",
+                "" if new_keep else " — pruning phantom blocks + offline devices",
             )
+            if not new_keep:
+                bus.prune_offline_devices()
         # External-sensor mirroring — apply live so the card's Temperature
         # source picker (via sf.set_strip_sensor) takes effect without a reload.
         bus.apply_strip_sensors(cfg.get(CONF_STRIP_SENSORS) or {})
@@ -1125,6 +1159,12 @@ async def async_remove_config_entry_device(
                     "reconnects (power it off first for permanent removal)",
                     mac,
                 )
+            elif bus is not None:
+                # Offline delete = permanent removal: wipe every stored trace
+                # (device_slots, components, per-mac runtime dicts) so nothing
+                # lingers as "unknown device" in the config screens. A connected
+                # delete keeps the slot so the device returns unchanged. (v3.19.306)
+                bus.purge_device_slots({mac})
     return True
 
 

@@ -849,7 +849,13 @@ OUTLET_MODES = [
 ]
 OUTLET_MODE_TO_TYPE = {name: mt for name, mt in OUTLET_MODES}
 OUTLET_TYPE_TO_MODE = {mt: name for name, mt in OUTLET_MODES}
-OUTLET_MODE_NAMES = [name for name, _ in OUTLET_MODES]
+# Virtual outlet modes the integration drives (no device modeType). The device is
+# held in Manual and the bus toggles the socket; the card shows the virtual mode.
+# "Light Env" (v3.19.292): follow the environment/planting-plan day-cycle window
+# (on during Day by default, or Night). Selecting it writes Manual to the device
+# (see command_handler) and enables sf.set_outlet_env.
+OUTLET_VIRTUAL_MODES = ["Light Env"]
+OUTLET_MODE_NAMES = [name for name, _ in OUTLET_MODES] + OUTLET_VIRTUAL_MODES
 
 # Substrate options for the 3-in-1 soil probe (senConfig.soilType index).
 SUBSTRATE_OPTIONS = ["Clay soil", "Coco coir", "Peat soil"]

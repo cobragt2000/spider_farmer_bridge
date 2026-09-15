@@ -146,3 +146,12 @@ def decide_temp(
     if want_off and (now - state.since) >= cfg.min_on_s:
         return TempState(cmd=OFF, since=now)
     return state
+
+
+def decide_light(is_day: bool, direction: str) -> str:
+    """"Light Env" outlet: follow the environment/planting-plan day-cycle window.
+    direction "Day" (default) = ON during the day window (a grow light), "Night" =
+    ON during the night window. Pure and stateless — day/night flips at most a
+    couple of times a day, so no dwell/hysteresis is needed. Returns ON/OFF."""
+    want_day = not str(direction or "").strip().lower().startswith("night")
+    return ON if (bool(is_day) == want_day) else OFF

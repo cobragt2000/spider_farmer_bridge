@@ -981,6 +981,11 @@ def normalize_outlet_config(mac: str, block: Dict[str, Any]) -> Dict[str, str]:
         base = f"ggs/ha/{e}/outlet_{n}"
         if o.get("modeType") in _OUTLET_TYPE_TO_MODE:
             out[f"{base}_mode/state"] = _OUTLET_TYPE_TO_MODE[o["modeType"]]
+        # NOTE: intentionally do NOT publish outlet_{n}/state (on/off) from the
+        # config here. The live getDevSta `on` is the only authority for the
+        # switch's running state — a config snapshot's mOnOff can lag/disagree for
+        # an integration-driven env outlet and would stick a stale value on the
+        # tile (reverted v3.19.296 confirm-poll experiment, v3.19.298).
         if o.get("tempAdd") in _OUTLET_TEMP:
             out[f"{base}_temp_device/state"] = _OUTLET_TEMP[o["tempAdd"]]
         if o.get("humiAdd") in _OUTLET_HUMI:

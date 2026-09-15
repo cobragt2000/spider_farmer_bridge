@@ -66,6 +66,17 @@ For controllers that report the `sys` block. Grouped under Diagnostic.
 | WiFi Connected | `wifi_connected` | binary_sensor | Wi-Fi link up. |
 | Ethernet Connected | `eth_connected` | binary_sensor | Ethernet link up. |
 
+## Device controls
+
+Per-controller controls, created for the controller itself (not tied to a sensor
+block).
+
+| Entity | Suffix | Domain | Description |
+|---|---|---|---|
+| Reboot | `reboot` | button | Reboots the controller (firmware `setDevRestart`). One per controller — display panels, AC5 / AC10 power strips, and the S-Station. Diagnostic category; only acts when *Allow device control* is on and the controller is online. |
+| Display Off | `display_off` | select | Auto screen-off delay (`Off` / `1`–`10` minutes) for controllers with a built-in screen (display panels, S-Station). Config category. |
+| Indicator Light | `indicator_light` | switch | The physical status LED on the AC5 / AC10 power strips. |
+
 ## Alarm & event feed
 
 One set per controller once it has alarm/notification data. See the card's Log and

@@ -50,6 +50,26 @@ async def test_reboot_button_entity_created_end_to_end(hass: HomeAssistant):
     assert reboot[0].entity_id.startswith("button.")
 
 
+async def test_reboot_button_created_for_pure_outlet_strip(hass: HomeAssistant):
+    """A ps5/ps10 power strip on an external sensor (or sensorless) reports NO SF
+    sensor block, so blocks_seen never runs for it — the Reboot button must still
+    be created via the outlet_seen path (like the Indicator LED). This was the
+    live bug: ac5/ac10 had no Reboot while dp2/st1 did. (v3.19.307)"""
+    entry = await _setup(hass)
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+    strip_mac, strip_lc = "0A1B2C3D4E18", "0a1b2c3d4e18"
+    cfg = {"mac": strip_mac, "type": "ps10"}
+    bus.register_device(cfg)
+    # ONLY the outlet evidence path — no blocks_seen (no sensor block on a strip).
+    bus.outlet_seen(strip_mac, 1, cfg)
+    await hass.async_block_till_done()
+    reg = er.async_get(hass)
+    ents = er.async_entries_for_config_entry(reg, entry.entry_id)
+    reboot = [e for e in ents if e.unique_id == f"ggs_{strip_lc}_reboot"]
+    assert reboot, "reboot button not created for a pure-outlet strip"
+    assert reboot[0].entity_id.startswith("button.")
+
+
 async def test_reboot_command_payload():
     """setDevRestart envelope: method + empty params + pid + uid."""
     from custom_components.sf.proxy.mitm_proxy import MITMProxy, _mac

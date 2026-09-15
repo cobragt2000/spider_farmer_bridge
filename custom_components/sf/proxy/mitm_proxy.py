@@ -291,8 +291,12 @@ class ProxySession:
         self.last_nonzero_level: Dict[str, int] = {}
         self.fan_state:   Dict[str, dict] = {}
         self.light_state: Dict[str, dict] = {}
-        # Echo-triggered config confirm polling (v3.0.5)
-        self.confirm_delay: float = 2.0
+        # Echo-triggered config confirm polling (v3.0.5). The write is always
+        # injected before this confirm read, and the controller processes
+        # messages in order, so the read always reflects the just-written value —
+        # a short delay just avoids racing the transmit. Lowered 2.0 -> 0.8s so
+        # target/config edits reflect on the tiles ~1.2s sooner (v3.19.299).
+        self.confirm_delay: float = 0.8
         self._pending_confirms: set = set()
         self.initial_poll_task: Optional[asyncio.Task] = None
         # Alarm-log cursor paging (v3.19.50). The controller pages its alarm
@@ -339,9 +343,16 @@ class ProxySession:
             _LOGGER.info("[%s] injected: %s", self.mac, payload.get("params", {}))
             DIAG.inject(self.mac, payload)
             if payload.get("method") == "setConfigField":
-                self.schedule_confirm_for(
-                    (payload.get("params") or {}).get("keyPath")
-                )
+                kp = (payload.get("params") or {}).get("keyPath")
+                self.schedule_confirm_for(kp)
+                # Outlet on/off write (manual toggle OR the integration's env
+                # drive): also poll the LIVE device status shortly after so the
+                # switch tile flips in ~2s from the authoritative getDevSta `on`,
+                # instead of waiting for the next ~10s self-report. Uses the live
+                # source (not the config snapshot, which can lag for an
+                # integration-driven env outlet). (v3.19.298)
+                if isinstance(kp, (list, tuple)) and kp and str(kp[0]) == "outlet":
+                    self.schedule_devsta_poll()
             elif payload.get("method") == "setConfigFile":
                 self.schedule_configfile_confirm()
         except Exception as exc:
@@ -357,6 +368,34 @@ class ProxySession:
             self.schedule_configfile_confirm()
         else:
             self.schedule_config_confirm(keypath)
+
+    def schedule_devsta_poll(self, delay: Optional[float] = None) -> None:
+        """Request a fresh live status frame shortly after an outlet write, so the
+        switch tile flips in ~2s from getDevSta's authoritative `on` field. The
+        device answers getDevSta on demand (the SF app uses it the same way). A
+        no-op speed-up: if the device doesn't answer, the next self-report still
+        carries the state. Deduped so rapid writes coalesce to one poll."""
+        key = ("__devsta__",)
+        if key in self._pending_confirms:
+            return
+        self._pending_confirms.add(key)
+
+        async def _poll() -> None:
+            try:
+                await asyncio.sleep(self.confirm_delay if delay is None else delay)
+                await self.inject({
+                    "method": "getDevSta",
+                    "pid":    self.mac_raw,
+                    "msgId":  str(int(time.time() * 1000)),
+                    "uid":    self.uid,
+                })
+                _LOGGER.debug("[%s] live getDevSta poll sent", self.mac)
+            except Exception as exc:
+                _LOGGER.debug("[%s] getDevSta poll failed: %s", self.mac, exc)
+            finally:
+                self._pending_confirms.discard(key)
+
+        asyncio.create_task(_poll())
 
     def schedule_config_confirm(self, keypath, delay: Optional[float] = None) -> None:
         """A setConfigField just went to the device (from the SF app via the
@@ -1030,6 +1069,12 @@ class MITMProxy:
                 pass
         _LOGGER.info("Severed session for %s (device deletion)", mac)
         return True
+
+    def has_session(self, mac: str) -> bool:
+        """True when a device currently has a live proxy session. Used by the
+        keep-offline whole-device prune so a connected controller is never
+        removed even if its availability publish lagged. (v3.19.304)"""
+        return mac in self._sessions or _mac(mac) in self._sessions
 
     def close_all_sessions(self) -> None:
         """Sever every device connection (v3.2.2 reload fix). Closing the
@@ -1948,14 +1993,19 @@ def _process_publish(
                     f"ggs/ha/{session.mac_raw}/display_off/state",
                     "Off" if _mins == 0 else str(_mins), retain=True, qos=0)
         # Environment target block also arrives inside getConfigFile (not just a
-        # targeted getConfigField ["target"]). Publish the base target as-is; it
-        # is what the manual Environment editor uses when no plan is active.
+        # targeted getConfigField ["target"]). Cache it for the manual Environment
+        # editor. Publish it to the env tiles ONLY when no plan is active: while a
+        # plan runs the ACTIVE STAGE's target drives the tiles (apply_plan ->
+        # _publish_plan_target), and the base block is the paused manual target —
+        # publishing it here would clobber the per-stage values on every
+        # getConfigFile and stop the tiles tracking stage advances. (v3.19.303)
         _tgt = _target_from(d)
         if _tgt:
             session.env_cfg = dict(_tgt)
-            from .normalizer import normalize_target
-            for topic, val in normalize_target(session.mac_raw, _tgt).items():
-                mqtt_client.publish(topic, val, retain=True, qos=0)
+            if not session.plan_active:
+                from .normalizer import normalize_target
+                for topic, val in normalize_target(session.mac_raw, _tgt).items():
+                    mqtt_client.publish(topic, val, retain=True, qos=0)
 
     # ── Outlet config cache (v3.11.1a3): the whole ps5/ps10/outlet block
     # comes back from getConfigField ["device", <block>] as
@@ -2067,7 +2117,10 @@ def _process_publish(
         # these frames, leaving those sensors stale/unknown).
         from .normalizer import normalize_config_response
         _lbl = getattr(mqtt_client, "light_mode_label_override", None)
+        _sup = getattr(mqtt_client, "device_air_suppressed", None)
         for topic, value in normalize_config_response(session.mac_raw, data).items():
+            if _sup is not None and _sup(session.mac_raw, topic):
+                continue  # external mirror owns this air field
             if _lbl is not None:
                 value = _lbl(session.mac_raw, topic, value)
             mqtt_client.publish(topic, value, retain=True, qos=0)
@@ -2077,7 +2130,10 @@ def _process_publish(
             light_cache=session.light_state, climate_cache=session.device_state,
         )
         _lbl = getattr(mqtt_client, "light_mode_label_override", None)
+        _sup = getattr(mqtt_client, "device_air_suppressed", None)
         for topic, value in normalized.items():
+            if _sup is not None and _sup(session.mac_raw, topic):
+                continue  # onboard temp/hum/vpd suppressed — external mirror owns it
             if _lbl is not None:
                 value = _lbl(session.mac_raw, topic, value)
             mqtt_client.publish(topic, value, retain=True, qos=0)

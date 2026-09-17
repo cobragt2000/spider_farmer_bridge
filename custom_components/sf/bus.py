@@ -918,6 +918,12 @@ class SfBus:
         # temperature/humidity/vpd are now stale HA-only entities. Remove them
         # when keep_offline is off (same policy as other prunes); a strip with a
         # real SF sensor re-creates them from evidence. (v3.19.264)
+        # A strip that's no longer external runs its outlet env modes natively on
+        # the device — hand every env-adopted outlet back so we stop virtualizing
+        # / re-parking them (else native mode changes revert). Runs regardless of
+        # keep_offline, before the entity prune below. (v3.19.313)
+        for mac in prev_ext - set(wanted):
+            self.release_all_env_outlets(mac)
         if not self.keep_offline:
             for mac in prev_ext - set(wanted):
                 removed = self._prune_uids({
@@ -944,10 +950,19 @@ class SfBus:
                 blocks.add("sensor:humi")
             if temp_id and humi_id:
                 blocks.add("sensor:vpd")
+            # Keep the air sensors AND the Leaf-VPD family (leaf_vpd sensor +
+            # day/night Leaf Offset + Leaf VPD min/max). The leaf-VPD sensor is
+            # self-computed in HA from air temp + humidity + offset (no device
+            # topic), so on an external strip with both temp and humidity mirrored
+            # it works the moment its entities exist — previously the filter dropped
+            # the whole family, so external strips never showed Leaf VPD. (v3.19.314)
+            _keep = ("temperature", "humidity", "vpd",
+                     "leaf_vpd", "leaf_offset", "leaf_offset_night",
+                     "leaf_vpd_min", "leaf_vpd_max")
             defs = [
                 d for d in build_device_entities(
                     dcfg, include_outlets=False, blocks=blocks, slot=slot)
-                if (d.field or "") in ("temperature", "humidity", "vpd")
+                if (d.field or "") in _keep
                 and d.unique_id not in self._registered
             ]
             # Clear any prior prune mark so _add_defs actually (re)creates them —
@@ -1192,6 +1207,25 @@ class SfBus:
         for mac, outs in opt.items():                # explicit config wins
             for n, cfg in outs.items():
                 new.setdefault(mac, {})[n] = cfg
+        # Temperature/Humidity env control is only for external-source strips.
+        # Drop any such entry on a strip that isn't external — e.g. a strip
+        # switched back to its own SF sensor (3-in-1) before v3.19.313, whose
+        # stale outlet_env entries would otherwise keep re-parking its outlets in
+        # Manual and revert every native mode change. Light Env (sensorless
+        # day/night switching) is valid on any strip and is kept. apply_strip_sensors
+        # runs first, so self._ext_air is authoritative here. Dropped in-memory
+        # each load (the tick also guards); the persisted copy is purged on the
+        # live external->SF transition in apply_strip_sensors, not here — this runs
+        # during setup and must not write the config entry (would trigger a reload
+        # mid-setup). (v3.19.313)
+        for mac in [m for m in new if m not in self._ext_air]:
+            for n in list(new[mac]):
+                if (new[mac][n].get("mode") or "Temperature") == "Light Env":
+                    continue
+                self.publish(f"ggs/ha/{mac}/outlet_{n}_mode/state", "Manual", retain=True)
+                new[mac].pop(n, None)
+            if not new[mac]:
+                new.pop(mac, None)
         for key in list(self._outlet_env_state):
             mac, n = key
             if n not in new.get(mac, {}):
@@ -1217,6 +1251,30 @@ class SfBus:
         self._outlet_env_primed.discard((mac, n))
         self._outlet_env_setpoint.pop((mac, n), None)
         self._ensure_control_timer()
+
+    def release_all_env_outlets(self, mac_raw: str) -> None:
+        """Release EVERY env-controlled outlet on a strip and forget the persisted
+        copies. Called when a strip is no longer external-source (v3.19.313): on a
+        strip with its own SF sensor (e.g. the 3-in-1) the outlets run their env
+        modes natively on the device, so the integration must stop virtualizing /
+        driving them — otherwise it keeps re-parking them in Manual and every
+        native mode change reverts. Republishes the real (Manual) mode so the card
+        drops the stale virtual Temperature/Humidity display at once."""
+        mac = _mac(mac_raw)
+        outs = self._outlet_env.get(mac)
+        if not outs:
+            return
+        for n, cfg in list(outs.items()):
+            # Light Env is sensorless (day/night) and valid on any strip — keep it.
+            if (cfg.get("mode") or "Temperature") == "Light Env":
+                continue
+            # Un-virtualize the display before the override stops covering it: the
+            # device is parked in Manual (modeType 0), so that's the real mode now.
+            base = f"ggs/ha/{mac}/outlet_{n}"
+            self.publish(f"{base}_mode/state", "Manual", retain=True)
+            self.release_outlet_env(mac, n)
+            self._persist_outlet_env_del(mac, n)
+        DIAG.bus_event(f"outlet_env release_all {mac} (no longer external)")
 
     def maybe_adopt_env_outlet(self, mac_raw: str, n: int, modetype,
                                temp_add, humi_add) -> None:
@@ -1424,11 +1482,18 @@ class SfBus:
             TempConfig, TempState, decide_temp, decide_light, OFF, ON)
         now_dt = dt_util.now()
         for mac, outs in list(self._outlet_env.items()):
+            mac_is_ext = mac in self._ext_air
             slot = self._slot_for_cfg({"mac": mac, "type": self._type_for_mac(mac)})
             day = self._env_is_day(slot, now_dt)
             for n, cfg in list(outs.items()):
-                self._publish_env_outlet_mode(mac, n)   # keep the display fresh
                 mode = (cfg.get("mode") or "Temperature")
+                # Temperature/Humidity env control is external-only: on a strip
+                # with its own SF sensor those outlets run natively on the device,
+                # so never drive them from here. Light Env (sensorless day/night
+                # switching) is valid on any strip and always runs. (v3.19.313)
+                if not mac_is_ext and mode != "Light Env":
+                    continue
+                self._publish_env_outlet_mode(mac, n)   # keep the display fresh
                 d = str(cfg.get("dir", "")).lower()
                 if mode == "Light Env":
                     # Purely day/night — no sensor/target. decide_light gives the
@@ -2120,6 +2185,17 @@ class SfBus:
             if not isinstance(L, dict):
                 continue
             base = f"ggs/ha/{mac}/light_{num}"
+            # Floor a PPFD light's target/dimming to the valid range so the number
+            # entities (min 20 µmol / 11%) accept the publish — a below-min value is
+            # rejected by HA and the entity stays 'unknown', which blanked the tile's
+            # µmol/DLI. Matches the card + save-path floor. (v3.19.316)
+            ppfd_t = int(L.get("ppfd_target", 0) or 0)
+            ppfd_lo = int(L.get("ppfd_min", 0) or 0)
+            ppfd_hi = int(L.get("ppfd_max", 0) or 0)
+            if L.get("mode") == "PPFD":
+                ppfd_t = max(20, ppfd_t)
+                ppfd_lo = min(100, max(11, ppfd_lo))
+                ppfd_hi = 100 if ppfd_hi < ppfd_lo else min(100, ppfd_hi)
             pub = {
                 f"{base}_go_dark/state": thr(L.get("go_dark") or 0),
                 f"{base}_turn_off/state": thr(L.get("turn_off") or 0),
@@ -2127,12 +2203,12 @@ class SfBus:
                 f"{base}_schedule_stop/state": L.get("ts_stop", "00:00"),
                 f"{base}_schedule_brightness/state": str(int(L.get("ts_bri", 0) or 0)),
                 f"{base}_fade/state": str(int(L.get("ts_fade", 0) or 0)),
-                f"{base}_ppfd_target/state": str(int(L.get("ppfd_target", 0) or 0)),
+                f"{base}_ppfd_target/state": str(ppfd_t),
                 f"{base}_ppfd_start/state": L.get("ppfd_start", "00:00"),
                 f"{base}_ppfd_stop/state": L.get("ppfd_stop", "00:00"),
                 f"{base}_ppfd_fade/state": str(int(L.get("ppfd_fade", 0) or 0)),
-                f"{base}_ppfd_min/state": str(int(L.get("ppfd_min", 0) or 0)),
-                f"{base}_ppfd_max/state": str(int(L.get("ppfd_max", 0) or 0)),
+                f"{base}_ppfd_min/state": str(ppfd_lo),
+                f"{base}_ppfd_max/state": str(ppfd_hi),
             }
             for topic, value in pub.items():
                 self.publish(topic, value, retain=True)

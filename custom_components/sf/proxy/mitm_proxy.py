@@ -277,6 +277,10 @@ class ProxySession:
         self.max_outlet_seen: int = 0
         self.frames_seen: int = 0
         self.first_frame_at: float = 0.0
+        # Heartbeat staleness (v3.19.320): last time ANY frame arrived, and whether
+        # the offline sweep has flagged this device silent.
+        self.last_frame_at: float = time.monotonic()
+        self._stale_offline: bool = False
         self.type_conclusive: bool = False
         self._created_at: float = time.monotonic()
         self._last_discovery_at: float = 0.0
@@ -288,6 +292,7 @@ class ProxySession:
         self.senconfig: list = []                    # full ["device","senConfig"] array cache
         self.alarm_cfg: dict = {}                    # top-level ["alarm"] block cache
         self.plan_cfg: dict = {}                     # configFile.plan block cache (RMW plan writes)
+        self.plan_stage_id = None                    # running stage id (for in-plan light edits)
         self.last_nonzero_level: Dict[str, int] = {}
         self.fan_state:   Dict[str, dict] = {}
         self.light_state: Dict[str, dict] = {}
@@ -511,6 +516,10 @@ class MITMProxy:
         # alike (both funnel through this proxy). HA keeps full read + control;
         # the phone app and cloud firmware updates stop working while on.
         self.block_cloud: bool = False
+        # Device offline (data-staleness) timeout in seconds — a controller silent
+        # this long is flipped to unavailable by the heartbeat sweep. 0 = disabled
+        # (connection-only availability, as before). (v3.19.320)
+        self.offline_timeout: float = 0.0
         # Republish discovery for this many seconds after startup
         self._start_time: float = time.monotonic()
         self._discovery_window_sec: float = 30.0
@@ -564,6 +573,42 @@ class MITMProxy:
             except Exception as exc:
                 _LOGGER.warning("Config poll error: %s", exc)
                 await asyncio.sleep(30)
+
+    async def offline_sweep_loop(self) -> None:
+        """Heartbeat staleness sweep (v3.19.320): every few seconds, flip any
+        controller that has gone silent past ``offline_timeout`` to unavailable —
+        so a hard power/Wi-Fi loss (which never sends a clean disconnect) shows up
+        quickly instead of waiting for the TCP/MQTT keepalive to drop. The device
+        self-reports every ~6-10s; a frame arriving clears the flag and republishes
+        online (see _process_publish). ``offline_timeout`` 0 disables the check."""
+        while True:
+            try:
+                await asyncio.sleep(5)
+                self._offline_sweep_once()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:  # noqa: BLE001 — sweep must never die
+                _LOGGER.warning("offline sweep error: %s", exc)
+                await asyncio.sleep(10)
+
+    def _offline_sweep_once(self, now: Optional[float] = None) -> None:
+        """One heartbeat pass: flag any session silent past offline_timeout. No-op
+        when the timeout is disabled (0)."""
+        to = self.offline_timeout
+        if not to or to <= 0:
+            return
+        if now is None:
+            now = time.monotonic()
+        for sess in list(self._sessions.values()):
+            last = getattr(sess, "last_frame_at", None)
+            if last is None:
+                continue
+            if (now - last) > to and not getattr(sess, "_stale_offline", False):
+                sess._stale_offline = True
+                _LOGGER.info(
+                    "[%s] no frame for %.0fs (> %.0fs) — marking offline",
+                    sess.mac, now - last, to)
+                sess.publish_availability("offline")
 
     async def _poll_session(self, sess: ProxySession) -> None:
         # Outlet config: poll the whole block(s) this device exposes so the
@@ -806,6 +851,9 @@ class MITMProxy:
             env_cfg=cmd_sess.env_cfg or None,
             cal_cfg=cmd_sess.cal_cfg or None,
             senconfig=cmd_sess.senconfig or None,
+            plan_active=cmd_sess.plan_active,
+            plan_cfg=cmd_sess.plan_cfg or None,
+            plan_stage_id=getattr(cmd_sess, "plan_stage_id", None),
         )
         if payload:
             # Optimistically fold a read-modify-write block back into the session
@@ -818,7 +866,21 @@ class MITMProxy:
             # calibration / alarm blocks. (v3.19.111)
             params = payload.get("params") or {}
             kp = params.get("keyPath")
-            if kp == ["target"] and isinstance(params.get("target"), dict):
+            if kp == ["plan"] and isinstance(params.get("plan"), dict):
+                # A light edit routed into the running plan — fold the new plan back
+                # so a follow-up edit in the same Apply builds on it. (v3.19.316)
+                cmd_sess.plan_cfg = params["plan"]
+                cmd_sess.plan_active = bool(params["plan"].get("enabled"))
+            elif kp == ["plan", "enabled"]:
+                # A plan start/stop — keep the cached plan's enabled flag and the
+                # session's plan_active in sync, so a light write routed into the
+                # plan right after can't hand back a stale enabled and un-stop it.
+                # (v3.19.319)
+                _en = bool(params.get("enabled"))
+                if isinstance(cmd_sess.plan_cfg, dict):
+                    cmd_sess.plan_cfg["enabled"] = 1 if _en else 0
+                cmd_sess.plan_active = _en
+            elif kp == ["target"] and isinstance(params.get("target"), dict):
                 cmd_sess.env_cfg = params["target"]
             elif kp == ["calibration"] and isinstance(params.get("calibration"), dict):
                 cmd_sess.cal_cfg = params["calibration"]
@@ -853,6 +915,16 @@ class MITMProxy:
                 blk_name = kp[1] if (len(kp) == 3 and kp[0] == "device") else "outlet"
                 cmd_sess.outlet_cfg.setdefault(f"{blk_name}/{ok}", {}).update(params[ok])
             await cmd_sess.inject(payload)
+            # Optimistic: reflect an outlet MODE change on the entity immediately
+            # instead of waiting for the device echo (~5s on the slow-answering
+            # S-Station). Publishes the user's chosen mode label to the strip's own
+            # mode topic; the confirm poll corrects it if the device disagrees.
+            # (v3.19.320)
+            if (outlet_num is not None and outlet_subfield == "mode"
+                    and isinstance(value, str) and value):
+                self.mqtt_client.publish(
+                    f"ggs/ha/{mac_addr}/outlet_{outlet_num}_mode/state",
+                    value, retain=True, qos=0)
 
     async def write_se_schedule(self, mac: str, periods: list) -> bool:
         """Write the full SE-light schedule (multiple weekday-aware periods)
@@ -940,6 +1012,13 @@ class MITMProxy:
         payload = build_plan(sess.mac_raw, sess.uid, stages, enabled, sess.plan_cfg)
         if not payload:
             return False
+        # Fold the written plan into the session cache immediately, so a light
+        # entity edit routed into the plan right after (e.g. the mode-activation on
+        # Save & activate) reads THIS plan, not the pre-write copy — otherwise the
+        # follow-up rebuilds from stale data and reverts the save. (v3.19.318)
+        _new_plan = (payload.get("params") or {}).get("plan")
+        if isinstance(_new_plan, dict):
+            sess.plan_cfg = _new_plan
         await sess.inject(payload)
         _LOGGER.info("set_plan: wrote %d-stage plan (enabled=%s) to %s",
                      len(stages or []), enabled, mac)
@@ -1446,6 +1525,15 @@ def _process_publish(
     except Exception:
         return
 
+    # Heartbeat: any decoded frame means the device is alive. Refresh the
+    # last-seen time and, if the sweep had flagged it silent, republish online.
+    # (v3.19.320)
+    session.last_frame_at = time.monotonic()
+    if session._stale_offline:
+        session._stale_offline = False
+        _LOGGER.info("[%s] frame arrived — back online", session.mac)
+        session.publish_availability("online")
+
     # ── DIAGNOSTIC: frame attribution check ──────────────────────────────
     # The UP topic carries the originating device MAC (parts[5]) and the
     # JSON carries a pid. Both should match the session's CONNECT identity.
@@ -1610,6 +1698,10 @@ def _process_publish(
                 "remain": pl.get("planRemainDays"),
                 "progress": pl.get("planProgress"),
             }
+            # Remember the running stage so a light-entity edit routed into the plan
+            # targets the CURRENT stage (v3.19.316).
+            if pl.get("stageId") is not None:
+                session.plan_stage_id = pl.get("stageId")
             applyp = getattr(mqtt_client, "apply_plan_progress", None)
             if applyp is not None:
                 applyp(session.mac_raw, prog)
@@ -2047,26 +2139,35 @@ def _process_publish(
             # mode — env_outlet_mode_override swaps those topics. (v3.19.268)
             from .normalizer import normalize_outlet_config
             _env_ovr = getattr(mqtt_client, "env_outlet_mode_override", None)
+            set_mode = getattr(mqtt_client, "set_outlet_mode_from_device", None)
+            _mt_ovr = getattr(mqtt_client, "env_outlet_modetype_override", None)
+            _adopt = getattr(mqtt_client, "maybe_adopt_env_outlet", None)
+            # Auto-adopt/RELEASE env outlets FIRST, from the device's real
+            # modeType/direction, so the override below reflects each outlet's NEW
+            # state. Doing this AFTER the publish left a just-released outlet
+            # showing its stale virtual mode (e.g. Temperature) even though the
+            # device had switched to Cycle — and nothing republished it, so the
+            # card was stuck until the next write. (v3.19.269 intended this order;
+            # v3.19.312 actually enforces it.)
+            if _adopt is not None:
+                for ok, ov in blk.items():
+                    if (ok.startswith("O") and ok[1:].isdigit()
+                            and isinstance(ov, dict)
+                            and ov.get("modeType") is not None):
+                        _adopt(target_mac, int(ok[1:]), ov.get("modeType"),
+                               ov.get("tempAdd"), ov.get("humiAdd"))
             for topic, val in normalize_outlet_config(target_mac, blk).items():
                 if _env_ovr is not None:
                     val = _env_ovr(target_mac, topic, val)
                 mqtt_client.publish(topic, val, retain=True, qos=0)
             # drive dynamic visibility from the device's real modeType (or the
             # virtual modeType for an env-controlled outlet)
-            set_mode = getattr(mqtt_client, "set_outlet_mode_from_device", None)
-            _mt_ovr = getattr(mqtt_client, "env_outlet_modetype_override", None)
-            _adopt = getattr(mqtt_client, "maybe_adopt_env_outlet", None)
             for ok, ov in blk.items():
                 if not (ok.startswith("O") and ok[1:].isdigit() and isinstance(ov, dict)):
                     continue
                 n = int(ok[1:])
-                raw_mt = ov.get("modeType")
-                # Auto-adopt an env-mode outlet on a sensorless strip BEFORE the
-                # override, from the device's real modeType/direction. (v3.19.269)
-                if _adopt is not None and raw_mt is not None:
-                    _adopt(target_mac, n, raw_mt, ov.get("tempAdd"), ov.get("humiAdd"))
                 if set_mode is not None:
-                    mt = raw_mt
+                    mt = ov.get("modeType")
                     if _mt_ovr is not None:
                         mt = _mt_ovr(target_mac, n, mt)
                     set_mode(target_mac, n, mt,
@@ -2107,6 +2208,43 @@ def _process_publish(
                 session.mac_raw, {"data": dev_blocks}
             ).items():
                 mqtt_client.publish(topic, value, retain=True, qos=0)
+        # The full config also carries the strip's own outlet block with the
+        # authoritative modeType. Decode it (env adopt/release FIRST, then publish
+        # the mode with the virtual-mode override) so a PERIODIC full read
+        # self-heals the outlet mode selects and re-syncs env adoption — the
+        # targeted getConfigField ["outlet"] poll only fires after a write, so an
+        # outlet released from env control otherwise stayed on its stale virtual
+        # mode until the next write / restart. (v3.19.312)
+        outlet_blk = (cfg or {}).get("outlet") if isinstance(cfg, dict) else None
+        if (isinstance(outlet_blk, dict)
+                and session.device_type in ("ps5", "ps10", "st")):
+            from .normalizer import normalize_outlet_config
+            _tmac = session.mac_raw
+            _env_ovr = getattr(mqtt_client, "env_outlet_mode_override", None)
+            _adopt = getattr(mqtt_client, "maybe_adopt_env_outlet", None)
+            _mt_ovr = getattr(mqtt_client, "env_outlet_modetype_override", None)
+            _set_mode = getattr(mqtt_client, "set_outlet_mode_from_device", None)
+            if _adopt is not None:
+                for ok, ov in outlet_blk.items():
+                    if (ok.startswith("O") and ok[1:].isdigit()
+                            and isinstance(ov, dict)
+                            and ov.get("modeType") is not None):
+                        _adopt(_tmac, int(ok[1:]), ov.get("modeType"),
+                               ov.get("tempAdd"), ov.get("humiAdd"))
+            for topic, val in normalize_outlet_config(_tmac, outlet_blk).items():
+                if _env_ovr is not None:
+                    val = _env_ovr(_tmac, topic, val)
+                mqtt_client.publish(topic, val, retain=True, qos=0)
+            if _set_mode is not None:
+                for ok, ov in outlet_blk.items():
+                    if (ok.startswith("O") and ok[1:].isdigit()
+                            and isinstance(ov, dict)):
+                        n = int(ok[1:])
+                        mt = ov.get("modeType")
+                        if _mt_ovr is not None:
+                            mt = _mt_ovr(_tmac, n, mt)
+                        _set_mode(_tmac, n, mt,
+                                  {"mac": _tmac, "type": session.device_type})
         return
 
     # ── Normalise and publish state topics ────────────────────────────────
@@ -2128,6 +2266,7 @@ def _process_publish(
         normalized = normalize_status(
             session.mac, data, mac=session.mac_raw, fan_cache=session.fan_state,
             light_cache=session.light_state, climate_cache=session.device_state,
+            plan_active=session.plan_active,
         )
         _lbl = getattr(mqtt_client, "light_mode_label_override", None)
         _sup = getattr(mqtt_client, "device_air_suppressed", None)

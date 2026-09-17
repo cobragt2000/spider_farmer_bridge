@@ -293,6 +293,9 @@ def translate_command(
     env_cfg: Optional[dict] = None,
     cal_cfg: Optional[dict] = None,
     senconfig: Optional[list] = None,
+    plan_active: bool = False,
+    plan_cfg: Optional[dict] = None,
+    plan_stage_id=None,
 ) -> Optional[dict]:
     """Translate one HA command into a device message, or None if it maps to
     nothing sendable."""
@@ -340,6 +343,26 @@ def translate_command(
                            outlet_subfield, outlet_cfg, state)
 
     if field in ("light", "light2"):
+        # While a plan runs the light follows the active plan stage, not the
+        # standalone device light block (which the controller ignores). Route the
+        # edit into the current stage so it actually changes the plan. Power on/off
+        # (subfield None -> mLevel/mOnOff) still goes to the live device block; only
+        # the config subfields (mode/target/dim/schedule) belong to the plan.
+        # The card toggles the light's mode entity as part of plan lifecycle:
+        # "PPFD - Plan" when starting a plan and "Manual" when stopping it
+        # (setPlanLights). Those are NOT light-config edits — the plan already
+        # defines the light — so they must NOT be routed into the plan: doing so
+        # rebuilds the plan from the cached copy and (start) clobbers a just-saved
+        # edit or (stop) re-writes enabled:1 and un-stops the plan. Let them fall
+        # through to the standalone device.light path. (v3.19.318 / v3.19.319)
+        _plan_mode_activation = (subfield == "mode"
+                                 and str(value) in ("Manual", "PPFD - Plan", "Planting Plan"))
+        if (plan_active and subfield is not None and not _plan_mode_activation
+                and isinstance(plan_cfg, dict) and plan_cfg.get("stage")):
+            routed = _cmd_light_into_plan(
+                mac, uid, field, value, subfield, plan_cfg, plan_stage_id)
+            if routed is not None:
+                return routed
         return _cmd_light(mac, uid, field, value, subfield, state,
                           light_state or {}, last)
 
@@ -567,6 +590,33 @@ def _apply_plan_light(base_light, edit):
         bl["ppfdMinBrightness"] = int(edit["ppfd_min"])
     if edit.get("ppfd_max") is not None:
         bl["ppfdMaxBrightness"] = int(edit["ppfd_max"])
+    # A PPFD-mode light needs a usable target AND dimming range, or it runs "on"
+    # but dark. Floor both. (v3.19.315 target floor; v3.19.316 dimming floor.)
+    _floor_ppfd_light(bl)
+    return bl
+
+
+# PPFD target/dimming floors — 0 isn't a valid PPFD target (a light is turned off
+# with its on/off toggle, not a 0 target), and a 0 dimming max keeps it dark.
+PPFD_TARGET_MIN = 20        # µmol
+PPFD_DIM_MIN = 11           # %  (matches the card dropdowns' floor)
+PPFD_DIM_MAX_DEFAULT = 100  # %
+
+
+def _floor_ppfd_light(bl):
+    """Floor a PPFD-mode light block in place so it can't be saved 'on but dark':
+    target >= 20 µmol, dimming min >= 11%, dimming max >= min (defaults to 100%
+    when unset). No-op unless the block is in PPFD mode (modeType 12). (v3.19.316)"""
+    if not isinstance(bl, dict) or bl.get("modeType") != 12:
+        return bl
+    pp = bl.get("ppfdPeriod")
+    if isinstance(pp, list) and pp and isinstance(pp[0], dict):
+        pp[0]["brightness"] = max(PPFD_TARGET_MIN, int(pp[0].get("brightness", 0) or 0))
+    mn = min(100, max(PPFD_DIM_MIN, int(bl.get("ppfdMinBrightness", 0) or 0)))
+    mx = int(bl.get("ppfdMaxBrightness", 0) or 0)
+    mx = PPFD_DIM_MAX_DEFAULT if mx < mn else min(100, mx)
+    bl["ppfdMinBrightness"] = mn
+    bl["ppfdMaxBrightness"] = mx
     return bl
 
 
@@ -859,6 +909,58 @@ def _cmd_light_config(mac, uid, field, value, subfield, state, light_state):
     except (ValueError, TypeError):
         return None
     return _config_field(mac, uid, "device", field, _strip_live(block))
+
+
+def _cmd_light_into_plan(mac, uid, field, value, subfield, plan_cfg, stage_id):
+    """While a grow plan is running the controller drives the light from the ACTIVE
+    plan stage, not the device's standalone light block — so a write to a light
+    entity must edit the running stage's light1/light2 and re-write the whole plan,
+    or it silently does nothing. Edits ONLY the current stage (matched by the live
+    stageId; falls back to the first stage). Returns a setConfigField ["plan"]
+    write, or None to fall back to the standalone path. (v3.19.316)"""
+    import copy
+    stages = plan_cfg.get("stage") if isinstance(plan_cfg, dict) else None
+    if not isinstance(stages, list) or not stages:
+        return None
+    plan = copy.deepcopy(plan_cfg)
+    stages = plan["stage"]
+    stage = next((s for s in stages
+                  if isinstance(s, dict) and s.get("stageId") == stage_id), None)
+    if stage is None:
+        stage = stages[0]
+    key = "light1" if field == "light" else "light2"
+    block = stage.get(key)
+    if not isinstance(block, dict):
+        block = {"modeType": 0, "darkTemp": 0, "offTemp": 0,
+                 "timePeriod": [{"enabled": 0, "weekmask": 127, "startTime": 0,
+                                 "endTime": 0, "brightness": 0, "fadeTime": 0}],
+                 "ppfdPeriod": [{"enabled": 0, "weekmask": 127, "startTime": 0,
+                                 "endTime": 0, "brightness": 0, "fadeTime": 0}],
+                 "ppfdMinBrightness": 0, "ppfdMaxBrightness": 0}
+        stage[key] = block
+
+    def _apply(k, v):
+        # In-plan the light is genuinely PPFD (12); the "PPFD - Plan" label the
+        # entity shows while a plan runs maps to PPFD here, not standalone Time Slot.
+        if str(k) == "mode" and str(v) in ("PPFD - Plan", "Planting Plan"):
+            v = "PPFD"
+        _apply_light_subfield(block, str(k), v)
+
+    try:
+        if subfield == "apply_bundle":
+            payload = json.loads(value)
+            if not isinstance(payload, dict):
+                return None
+            for k, v in payload.items():
+                _apply(k, v)
+        else:
+            _apply(subfield, value)
+    except (ValueError, TypeError):
+        return None
+    _floor_ppfd_light(block)
+    return {"method": "setConfigField", "pid": mac,
+            "params": {"keyPath": ["plan"], "plan": plan},
+            "msgId": _msg_id(), "uid": uid}
 
 
 def _apply_light_subfield(block, subfield, value):

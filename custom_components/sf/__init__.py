@@ -19,7 +19,8 @@ from .const import (
     DOMAIN, CONF_LISTEN_PORT, CONF_UPSTREAM_HOST, CONF_UPSTREAM_PORT,
     DEFAULT_LISTEN_PORT, DEFAULT_UPSTREAM_HOST, DEFAULT_UPSTREAM_PORT,
     CONF_ALLOW_CONTROL, CONF_BLOCK_CLOUD, CONF_DIAG_PER_BOOT,
-    CONF_KEEP_OFFLINE, CONF_STRIP_SENSORS, CONF_SMART_CONTROL, CONF_OUTLET_ENV, DATA_BUS,
+    CONF_KEEP_OFFLINE, CONF_OFFLINE_TIMEOUT, DEFAULT_OFFLINE_TIMEOUT,
+    CONF_STRIP_SENSORS, CONF_SMART_CONTROL, CONF_OUTLET_ENV, DATA_BUS,
     DATA_PROXY, DATA_PROXY_TASK, PLATFORMS,
     CONF_DIAG_LOG, CONF_DIAG_PATH, DEFAULT_DIAG_PATH,
     CONF_DIAG_DAYS, DEFAULT_DIAG_DAYS, CONF_PRESERVE_ON_REMOVE,
@@ -147,6 +148,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     proxy = MITMProxy(config=proxy_config, mqtt_client=bus, config_path=None)
     proxy.allow_control = bool(cfg.get(CONF_ALLOW_CONTROL, False))
     proxy.block_cloud = bool(cfg.get(CONF_BLOCK_CLOUD, False))
+    proxy.offline_timeout = float(cfg.get(CONF_OFFLINE_TIMEOUT, DEFAULT_OFFLINE_TIMEOUT) or 0)
     bus.proxy = proxy
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
@@ -227,15 +229,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def _run_proxy() -> None:
         poll_task = asyncio.create_task(proxy.config_poll_loop())
+        sweep_task = asyncio.create_task(proxy.offline_sweep_loop())
         try:
             async with server:
                 await stop_event.wait()
         finally:
-            poll_task.cancel()
-            try:
-                await poll_task
-            except asyncio.CancelledError:
-                pass
+            for _t in (poll_task, sweep_task):
+                _t.cancel()
+                try:
+                    await _t
+                except asyncio.CancelledError:
+                    pass
         _LOGGER.info("Spider Farmer Bridge: stopped")
 
     proxy_task = asyncio.ensure_future(_run_proxy())
@@ -1091,6 +1095,12 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
             "Spider Farmer Bridge: device control %s",
             "enabled" if new_allow else "disabled",
         )
+    # Live-apply the offline timeout (no reload). (v3.19.320)
+    new_to = float(cfg.get(CONF_OFFLINE_TIMEOUT, DEFAULT_OFFLINE_TIMEOUT) or 0)
+    if proxy.offline_timeout != new_to:
+        proxy.offline_timeout = new_to
+        _LOGGER.info("Spider Farmer Bridge: offline timeout = %.0fs%s",
+                     new_to, " (disabled)" if new_to <= 0 else "")
     new_block = bool(cfg.get(CONF_BLOCK_CLOUD, False))
     if proxy.block_cloud != new_block:
         proxy.block_cloud = new_block

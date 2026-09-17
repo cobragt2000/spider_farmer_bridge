@@ -205,6 +205,40 @@ async def test_external_sensor_mirror(hass: HomeAssistant):
     assert abs(float(humi.state) - 70.0) < 0.1
 
 
+async def test_external_strip_gets_leaf_vpd(hass: HomeAssistant):
+    """v3.19.314: a strip on an external temp+humidity sensor (e.g. the S-Station
+    on a 3rd-party sensor) must get the Leaf-VPD family too. Leaf VPD is derived
+    in HA from air temp + humidity + offset, so once its entities exist on the
+    strip it computes from the mirrored air readings. Previously the external
+    entity builder dropped the family, so Leaf VPD never showed on such strips."""
+    hass.states.async_set(
+        "sensor.rt_leaf", "25.0",
+        {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(
+        "sensor.rh_leaf", "50.0",
+        {"unit_of_measurement": "%", "device_class": "humidity"})
+    ST, ST_LC = "0A1B2C3D4E77", "0a1b2c3d4e77"
+    entry = await _setup(hass, options={
+        "device_slots": {ST_LC: "st1"},
+        "strip_sensors": {ST_LC: {
+            "source": "external",
+            "temp": "sensor.rt_leaf",
+            "humi": "sensor.rh_leaf"}},
+    })
+    await hass.async_block_till_done()
+
+    uids = _uids(hass, entry)
+    # The whole Leaf-VPD family is created on the external strip.
+    for sfx in ("leaf_vpd", "leaf_offset", "leaf_offset_night",
+                "leaf_vpd_min", "leaf_vpd_max"):
+        assert f"ggs_{ST_LC}_{sfx}" in uids, f"missing {sfx}"
+
+    # And the self-computed Leaf VPD sensor has a real value (not unknown).
+    leaf = hass.states.get("sensor.sf_st1_leaf_vpd")
+    assert leaf is not None and leaf.state not in ("unknown", "unavailable")
+    assert float(leaf.state) > 0
+
+
 async def test_external_mirror_fahrenheit_conversion(hass: HomeAssistant):
     """v3.19.266: an external sensor reporting °F is converted to wire °C with
     (F-32)/1.8, so the round-trip through the SF temperature sensor shows the

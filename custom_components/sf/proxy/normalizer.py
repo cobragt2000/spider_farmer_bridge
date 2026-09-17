@@ -362,12 +362,13 @@ def normalize_status(
             )
         return out
 
+    plan_active = bool(kwargs.get("plan_active", False))
     _decode_air(out, e, d.get("sensor", {}))
     _decode_cleaning(out, e, d)
     _decode_sys(out, e, d.get("sys", {}))
     for module, num in (("light", 1), ("light2", 2)):
         _decode_light(out, e, num, d.get(module, {}),
-                      (light_cache or {}).get(module, {}))
+                      (light_cache or {}).get(module, {}), plan_active=plan_active)
     _decode_blower(out, e, d.get("blower", {}), (fan_cache or {}).get("blower", {}))
     _decode_fan(out, e, d.get("fan", {}), (fan_cache or {}).get("fan", {}))
     _decode_outlets(out, e, d.get("outlet", {}))
@@ -497,7 +498,7 @@ def _decode_air(out, e, sensor):
 _LIGHT_MODE_MAP = {0: "Manual", 1: "Time Slot", 12: "PPFD"}
 
 
-def _decode_light(out, e, num, block, cache=None):
+def _decode_light(out, e, num, block, cache=None, plan_active=False):
     cache = cache or {}
     if not block and not cache:
         return
@@ -520,6 +521,15 @@ def _decode_light(out, e, num, block, cache=None):
         out[f"ggs/ha/{e}/light_{num}_mode/state"] = _LIGHT_MODE_MAP.get(
             int(mt), f"Mode {mt}"
         )
+    # While a grow plan runs the light's schedule/PPFD/thresholds come from the
+    # ACTIVE PLAN STAGE (published by the bus's _publish_plan_light), not the
+    # device's standalone light block. A live getDevSta frame carries only
+    # {level}, so these config fields would fall back to the cached device block —
+    # which holds a stale standalone schedule — and clobber the plan's values on
+    # every frame. Skip them here so the plan stays authoritative. Live on/off,
+    # brightness and the (relabelled) mode above still publish. (v3.19.317)
+    if plan_active:
+        return
     # Go dark / Turn off temperature thresholds. The device stores 0 (== below
     # the valid 15-50 °C / 59-122 °F range) for the disabled state; surface that
     # as "0" so the card's dropdown shows "Off". Threshold follows the unit.

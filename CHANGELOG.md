@@ -3,6 +3,136 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.320
+
+### Added
+- **Configurable device offline timeout.** A new integration option (Settings →
+  "Device offline timeout") flips a controller to **unavailable** when it hasn't
+  reported for the set number of seconds — so a hard power or Wi-Fi loss (which
+  never sends a clean disconnect) shows up quickly instead of waiting a minute or
+  two for the connection keepalive to drop. Controllers self-report every ~6–10s;
+  default is 30s, and 0 disables the check (availability then follows the
+  connection only, as before). A returning frame brings the device back online.
+
+### Changed
+- **Outlet mode changes reflect instantly on the card.** The selected mode is now
+  shown on the entity immediately instead of waiting for the controller's config
+  echo (which the S-Station is slow to answer, ~5s), so a mode change no longer
+  looks like it didn't take. The device echo still confirms/corrects it.
+
+## 3.19.319
+
+### Fixed
+- **Stopping a plan now actually stops it.** Clicking Stop set the plan disabled
+  and then, as part of returning the light to Manual, immediately re-wrote the plan
+  from a cached copy that still had it enabled — so the plan popped back on. The
+  light's Manual/Plan-mode changes on plan start and stop no longer rewrite the
+  plan, and the cached plan's enabled flag is kept in sync, so Start and Stop both
+  take effect.
+
+## 3.19.318
+
+### Fixed
+- **Editing a running plan's light schedule from the plan editor now sticks.**
+  "Save & activate" writes the plan and then flips the light into plan mode; that
+  mode change was being rewritten into the plan from a stale copy and reverting the
+  edit you just saved (e.g. a new light On time snapped back). The plan-mode
+  activation no longer rewrites the plan, and the cached plan is refreshed the
+  moment a plan is written, so light schedule/target edits from the plan editor
+  save correctly. Genuine light edits (target, times, dimming) still apply.
+
+## 3.19.317
+
+### Fixed
+- **A running plan's light schedule now shows correctly on the tile and entities.**
+  The light's schedule/PPFD times were being overwritten every few seconds by the
+  device's own (stale) standalone light block, so a plan set to e.g. 05:00–23:00
+  showed as 05:30–00:00 on the tile while the plan view was correct. While a plan
+  runs, the device block no longer drives the light's schedule/PPFD/threshold
+  entities — the active plan stage is authoritative — so the plan, tile, and
+  integration entities all agree.
+
+## 3.19.316
+
+### Added
+- **You can now change a running plan's light settings from the integration
+  entities.** While a grow plan is active, editing a light's PPFD target, dimming
+  range, PPFD/schedule times, or mode now updates the **current plan stage** (the
+  controller drives the light from the plan, so these edits previously did
+  nothing). Other stages are left untouched; a light power on/off still applies
+  live as before.
+
+### Fixed
+- **PPFD target + DLI are back on the light tile during a plan.** In "PPFD - Plan"
+  mode the tile's µmol/DLI now read from the active plan stage, so they show even
+  when the standalone entity is blank — and the plan, the tile, and the integration
+  entities now report the same values.
+- **A plan light's PPFD dimming range is floored** to a usable 11–100% (like the
+  20 µmol target floor), so a stage can't be saved with dimming max 0, which kept
+  the light dark even with a valid target.
+
+## 3.19.315
+
+### Fixed
+- **A planting-plan light's PPFD target now reads consistently on the plan
+  overview.** When a stage's PPFD target was left unset, the plan overview showed
+  "PPFD 0" while the stage editor showed the 20 µmol floor (the lowest valid
+  target — a light is turned off with its on/off toggle, not a 0 target). The
+  overview now shows the same 20 µmol floor, and saving a PPFD-mode stage can no
+  longer store a target below the floor, so a plan light can't run "on" but dark.
+
+## 3.19.314
+
+### Fixed
+- **Leaf VPD now shows on a strip that uses a 3rd-party (external) sensor.** A
+  strip borrowing an external temperature + humidity sensor (e.g. the S-Station on
+  a 3rd-party probe) created its Air VPD but not its Leaf VPD. Leaf VPD is derived
+  in Home Assistant from air temperature, humidity, and the day/night Leaf Offset,
+  so the strip now gets the full Leaf-VPD family (Leaf VPD sensor, Leaf Offset
+  Day/Night, and Leaf VPD Min/Max) and computes it from the mirrored readings,
+  matching devices on their own Spider Farmer sensor.
+
+## 3.19.313
+
+### Fixed
+- **Outlet modes on a strip that uses its own SF sensor now change and stick.**
+  When a power strip (e.g. an AC5 with the 3-in-1 sensor plugged in) uses its own
+  Spider Farmer sensor, its Temperature/Humidity outlet modes run natively on the
+  device. If that strip had previously been on a 3rd-party (external) sensor, the
+  integration kept driving and re-parking those outlets in Manual, so every mode
+  change reverted after a few seconds. The integration now hands those outlets
+  back the moment a strip is no longer on an external sensor, and never drives a
+  strip's Temperature/Humidity outlets unless it's on an external sensor. Light
+  Env (day/night switching, which needs no sensor) still works on any strip. You
+  can switch a strip between its own SF sensor and a 3rd-party sensor freely.
+
+## 3.19.312
+
+### Fixed
+- **Changing an outlet's mode away from an Environment mode now sticks on the
+  card.** On an external-sensor strip, an outlet driven by the integration
+  (Temperature/Humidity/Light Env) is shown with a "virtual" mode. When you
+  switched it to a device mode (Cycle, CO2, Time Slot, …), the device changed
+  correctly but the card kept showing the old Environment mode — the release was
+  applied *after* the mode was published. The integration now releases the outlet
+  *before* publishing its mode, and a periodic full config read re-syncs outlet
+  modes, so the card reflects the real mode immediately and self-heals.
+
+## 3.19.311
+
+### Added
+- **Planting-plan Start/Stop shows a "Please Wait" state.** Enabling or disabling
+  a plan takes the controller a few seconds to apply, so the button now reads
+  **"Starting — Please Wait…"** / **"Stopping — Please Wait…"** (disabled) until
+  the plan actually flips.
+
+### Fixed
+- **Tile history graphs no longer show a negative axis floor** for quantities
+  that can't go below zero (PPFD, humidity, CO2, VPD, soil) — the y-axis is
+  clamped at 0, so a "-65 µmol" tick no longer appears. Temperature (which can be
+  below zero) still auto-scales normally. This was only an axis label; the
+  readings themselves were always correct.
+
 ## 3.19.310
 
 ### Changed

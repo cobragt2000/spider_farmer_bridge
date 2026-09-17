@@ -12,6 +12,14 @@ DEFAULT_UPSTREAM_PORT = 8883   # real Spider Farmer cloud port (unchanged)
 CONF_ALLOW_CONTROL = "allow_control"
 CONF_BLOCK_CLOUD = "block_cloud"
 CONF_KEEP_OFFLINE = "keep_offline_entities"
+# Device offline (data-staleness) timeout in seconds (v3.19.320): a controller
+# self-reports every ~6-10s, so if none of its frames arrive for this many
+# seconds it's flipped to unavailable (fast "there's a problem" signalling that
+# doesn't wait for the TCP/MQTT keepalive to drop on a hard power loss). 0 (or
+# unset) disables the heartbeat check — availability then follows the connection
+# only, as before. Default 30.
+CONF_OFFLINE_TIMEOUT = "offline_timeout"
+DEFAULT_OFFLINE_TIMEOUT = 30
 # Per-strip external sensor config (v3.19.253): {mac_lc: {source, temp, humi}}.
 # source "sf" (default, use the strip's own sensor) or "external" (mirror a
 # 3rd-party HA temp/humidity entity onto the strip for outlet automations).

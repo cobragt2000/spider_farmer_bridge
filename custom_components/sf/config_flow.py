@@ -19,6 +19,8 @@ from .const import (
     CONF_BLOCK_CLOUD,
     CONF_DIAG_PER_BOOT,
     CONF_KEEP_OFFLINE,
+    CONF_OFFLINE_TIMEOUT,
+    DEFAULT_OFFLINE_TIMEOUT,
     CONF_DIAG_LOG,
     CONF_DIAG_PATH,
     DEFAULT_DIAG_PATH,
@@ -164,6 +166,15 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
                 CONF_DIAG_DAYS,
                 default=current.get(CONF_DIAG_DAYS, DEFAULT_DIAG_DAYS),
             ): vol.In(list(range(1, 31))),
+            # Device offline timeout (seconds): flip a controller to unavailable
+            # when it hasn't reported for this long. 0 = disabled (connection-only,
+            # as before). Devices self-report every ~6-10s. (v3.19.320)
+            vol.Required(
+                CONF_OFFLINE_TIMEOUT,
+                default=current.get(CONF_OFFLINE_TIMEOUT, DEFAULT_OFFLINE_TIMEOUT),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=600, step=5, unit_of_measurement="s", mode="box")),
         })
 
         return self.async_show_form(step_id="settings", data_schema=schema)

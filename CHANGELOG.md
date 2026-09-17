@@ -3,6 +3,14 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.321
+
+### Fixed
+- **Security (CodeQL): removed clear-text logging of an internal topic that
+  carried a device MAC.** A debug-level fallback log for unrecognized publish
+  topics printed the full topic (including the device identifier). It now logs a
+  static message with no identifying data.
+
 ## 3.19.320
 
 ### Added

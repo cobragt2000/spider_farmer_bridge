@@ -426,7 +426,10 @@ class SfBus:
             async_dispatcher_send(self.hass, SIGNAL_STATE_FMT.format(topic), payload)
             return
 
-        _LOGGER.debug("Bus: ignoring publish to %s", topic)
+        # Don't log the topic — it carries the device MAC, which CodeQL flags as
+        # clear-text logging of sensitive data. The message is intentionally static
+        # (no topic-derived value) so nothing identifying is written. (v3.19.321)
+        _LOGGER.debug("Bus: ignoring publish to an unrecognized topic")
 
     # No-op publish/subscribe surface (kept for interface parity)
     def subscribe(self, *a, **kw): pass

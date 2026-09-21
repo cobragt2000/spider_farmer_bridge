@@ -3,6 +3,28 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.323
+
+### Fixed
+- **Tile history graphs now stay current for every metric, not just PPFD.** A graph
+  ended at a metric's last *recorded change*, so a steady value (temperature,
+  humidity, VPD, soil) looked frozen or, for a rock-steady one like soil moisture,
+  refused to draw ("not enough history"). Graphs now extend to the present with the
+  current value, refresh every ~10s while open, and re-fetch new points — so all of
+  them behave like PPFD and reach "now".
+
+## 3.19.322
+
+### Fixed
+- **Tile history graphs: the whole timeline is now hoverable, and held values read
+  correctly.** Two issues: the graph drew a straight diagonal between recorded
+  points (so a value that held steady — e.g. PPFD 0 overnight — looked like a ramp),
+  and the scrubber snapped to the nearest recorded point (so the stretch before the
+  first change couldn't be selected). The line now holds each value level until the
+  next recorded change (a step), and the scrubber reports the value in effect at the
+  exact cursor position — so you can hover anywhere, including the beginning, and
+  read the true value.
+
 ## 3.19.321
 
 ### Fixed

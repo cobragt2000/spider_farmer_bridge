@@ -1606,7 +1606,7 @@ class SfBus:
         expected_model = _device_model(device_cfg)
 
         dev_reg = dr.async_get(self.hass)
-        device = dev_reg.async_get_device(identifiers={(DOMAIN, f"ggs_{mac}")})
+        device = self._dev_by_ident(dev_reg, (DOMAIN, f"ggs_{mac}"))
         if device is None or (
             device.name == expected_name and device.model == expected_model
         ):
@@ -2683,6 +2683,16 @@ class SfBus:
         except Exception:  # pragma: no cover - defensive
             return None
 
+    def _dev_by_ident(self, reg, ident):
+        """Look up a device by our (DOMAIN, id) identifier. Uses the config-entry-
+        scoped async_get_device_by_identifier on newer HA (async_get_device is
+        deprecated there — identifiers aren't globally unique across entries); falls
+        back to async_get_device on older HA. (v3.19.324)"""
+        fn = getattr(reg, "async_get_device_by_identifier", None)
+        if fn is not None and self.entry_id:
+            return fn(ident, self.entry_id)
+        return reg.async_get_device(identifiers={ident})
+
     def _update_strip_nesting(self, device_cfg: dict) -> None:
         """Nest a power strip under the display panel that hosts it
         (via_device), or leave it top-level when it runs standalone. Idempotent
@@ -2696,12 +2706,12 @@ class SfBus:
         from .const import DOMAIN
         mac = _mac(device_cfg.get("mac", ""))
         reg = dr.async_get(self.hass)
-        strip = reg.async_get_device(identifiers={(DOMAIN, f"ggs_{mac}")})
+        strip = self._dev_by_ident(reg, (DOMAIN, f"ggs_{mac}"))
         if strip is None:
             return
         host_mac = self.host_cb_mac_for_strip(mac)
         parent = (
-            reg.async_get_device(identifiers={(DOMAIN, f"ggs_{host_mac}")})
+            self._dev_by_ident(reg, (DOMAIN, f"ggs_{host_mac}"))
             if host_mac else None
         )
         want = parent.id if parent else None

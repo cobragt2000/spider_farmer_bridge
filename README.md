@@ -521,16 +521,8 @@ identity or history.
 
 ## Credits
 
-Grateful acknowledgement to the community projects that first reverse-engineered
-the Spider Farmer GGS protocol this integration speaks:
-
-- **Eddie Piazza** — Schedule 4 Real: https://github.com/EddiePiazza/schedule-4-real
-- **iceboerg** — spiderfarmer-bridge: https://github.com/iceboerg00/spiderfarmer-bridge
-
 This integration is an independent implementation written from its own packet
-captures. The **Spider Farmer Hotspot** add-on's Wi-Fi AP + local DNS-redirect
-approach is adapted from **iceboerg**'s spiderfarmer-bridge, used with
-permission.
+captures of the Spider Farmer GGS protocol.
 
 Development assistance — integration refactoring, test suite, the bundled
 dashboard cards, and packaging — by **Claude (Anthropic)**.

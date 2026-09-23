@@ -3,6 +3,28 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.325
+
+### Fixed
+- **No more "blocking call" warnings in the HA log on device connect.** The device
+  clock/timezone sync read the tzdata file from disk on the event loop, which newer
+  Home Assistant flags as a blocking operation. The read now runs in an executor
+  thread and its result is cached per timezone, so it never blocks the loop and a
+  device reconnect doesn't re-read the file. Clock sync behaviour is unchanged.
+
+## 3.19.324
+
+### Changed
+- **Removed two deprecated Home Assistant device-registry calls** (both slated for
+  removal in HA 2027.8.0), so the integration stays clean of deprecation warnings in
+  the HA log. `device_registry.async_get_device(identifiers=…)` is now routed through
+  a version-agnostic helper that uses the new `async_get_device_by_identifier(...)` on
+  newer HA and falls back on older HA. Device nesting no longer relies on the
+  deprecated `DeviceInfo.via_device`: power strips (already) and Environment
+  sub-devices are now linked under their controller via the modern `via_device_id`.
+  Device grouping is unchanged — strips still nest under their host panel and the
+  Environment card still nests under its controller.
+
 ## 3.19.323
 
 ### Fixed

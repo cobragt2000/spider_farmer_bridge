@@ -1120,7 +1120,14 @@ class MITMProxy:
         # gmtoff is sent as 0 to match the SF app exactly — the controller reads
         # the offset/DST rules from the POSIX TZ string, not gmtoff.
         params = {"timezone": tzname, "UTC": int(time.time()), "gmtoff": 0}
-        posix = self._posix_tz_string(tzname)
+        # Cache the POSIX rule per tzname — it's static for a given zone, so a
+        # device reconnect never re-reads the tzdata file. (v3.19.325)
+        cache = self.__dict__.setdefault("_tz_posix_cache", {})
+        if tzname in cache:
+            posix = cache[tzname]
+        else:
+            posix = self._posix_tz_string(tzname)
+            cache[tzname] = posix
         if posix:
             params["TZ"] = posix
         return {
@@ -1860,7 +1867,18 @@ def _process_publish(
                 try:
                     prox = getattr(mqtt_client, "proxy", None)
                     if prox is not None and getattr(prox, "allow_control", False):
-                        tzcmd = prox.build_tz_sync_command(session)
+                        # build_tz_sync_command reads the tzdata file from disk
+                        # (blocking) — run it off the event loop so HA doesn't
+                        # flag a blocking call. (v3.19.325)
+                        hass = getattr(mqtt_client, "hass", None)
+                        if hass is not None:
+                            tzcmd = await hass.async_add_executor_job(
+                                prox.build_tz_sync_command, session
+                            )
+                        else:
+                            tzcmd = await asyncio.get_running_loop().run_in_executor(
+                                None, prox.build_tz_sync_command, session
+                            )
                         if tzcmd is not None:
                             await session.inject(tzcmd)
                             await asyncio.sleep(0.5)

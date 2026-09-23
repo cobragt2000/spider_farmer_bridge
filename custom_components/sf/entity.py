@@ -78,30 +78,53 @@ class SfEntity(RestoreEntity):
         bus repairs the registry — a re-added entity can never write a
         stale device name/model back into the device registry."""
         if self.d.device_key:
-            # A sub-device (e.g. Environment): its own card, but linked to the
-            # controller via via_device so HA nests it under the panel.
+            # A sub-device (e.g. Environment): its own card, nested under the
+            # controller. The link is set post-creation via via_device_id in
+            # _relink_via_device (async_added_to_hass) — DeviceInfo.via_device is
+            # deprecated (removed in HA 2027.8.0) and cannot carry via_device_id.
             return DeviceInfo(
                 identifiers={(DOMAIN, f"ggs_{self.d.mac}_{self.d.device_key}")},
                 name=self.d.device_name,
                 manufacturer="Spider Farmer",
                 model=self.d.device_model,
-                via_device=(DOMAIN, f"ggs_{self.d.mac}"),
             )
         name, model = self.bus.device_display.get(
             self.d.mac, (self.d.device_name, self.d.device_model)
         )
-        info = DeviceInfo(
+        # A power strip is nested under its host display panel by the bus'
+        # _update_strip_nesting (via_device_id, re-evaluated each report);
+        # standalone strips stay top-level. No via_device here (deprecated).
+        return DeviceInfo(
             identifiers={(DOMAIN, f"ggs_{self.d.mac}")},
             name=name,
             manufacturer="Spider Farmer",
             model=model,
         )
-        # Nest a power strip under the display panel that hosts it (the panel
-        # reports the strip's ps5/ps10 block); standalone strips stay top-level.
-        host = self.bus.host_cb_mac_for_strip(self.d.mac)
-        if host:
-            info["via_device"] = (DOMAIN, f"ggs_{host}")
-        return info
+
+    @callback
+    def _relink_via_device(self) -> None:
+        """Nest this entity's sub-device under its controller via via_device_id.
+
+        Replaces the deprecated DeviceInfo.via_device path (v3.19.324). Only
+        sub-devices (device_key set, e.g. Environment) need it — strips are
+        nested by the bus' _update_strip_nesting. Idempotent: only writes when
+        the link is missing/wrong, and the link persists in the device registry
+        across restarts. The parent controller device is created first (from the
+        same controller's reports), so it exists by the time a sub-device is
+        registered; if it somehow isn't, we skip and leave the device top-level."""
+        if not self.d.device_key:
+            return
+        from homeassistant.helpers import device_registry as dr
+
+        reg = dr.async_get(self.hass)
+        sub = self.bus._dev_by_ident(
+            reg, (DOMAIN, f"ggs_{self.d.mac}_{self.d.device_key}")
+        )
+        parent = self.bus._dev_by_ident(reg, (DOMAIN, f"ggs_{self.d.mac}"))
+        if sub is None or parent is None:
+            return
+        if sub.via_device_id != parent.id:
+            reg.async_update_device(sub.id, via_device_id=parent.id)
 
     def _platform_domain(self) -> str:
         return self.d.platform
@@ -116,6 +139,11 @@ class SfEntity(RestoreEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+
+        # Nest a sub-device (e.g. Environment) under its controller. HA has
+        # just registered this entity's own device; link it the modern way
+        # (via_device_id) since DeviceInfo.via_device is deprecated. (v3.19.324)
+        self._relink_via_device()
 
         self.async_on_remove(
             async_dispatcher_connect(

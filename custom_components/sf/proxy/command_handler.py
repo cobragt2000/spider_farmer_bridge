@@ -620,6 +620,37 @@ def _floor_ppfd_light(bl):
     return bl
 
 
+def _sync_light_periods(block):
+    """Enable the period that matches the block's current mode so the controller
+    actually runs the light: Time Slot (modeType 1) uses timePeriod, PPFD
+    (modeType 12) uses ppfdPeriod, Manual (0) disables both. Without this a
+    standalone PPFD pick set modeType 12 but left ppfdPeriod.enabled 0, so the
+    light never came on (the grow-plan path already does this via _apply_plan_light).
+    PPFD blocks are also floored so they can't run 'on but dark'. In place. (v3.19.326)"""
+    if not isinstance(block, dict):
+        return block
+    mt = block.get("modeType", 0)
+    tp = block.setdefault("timePeriod", [{}])
+    if not tp:
+        tp.append({})
+    pp = block.setdefault("ppfdPeriod", [{}])
+    if not pp:
+        pp.append({})
+    # A period with no weekmask runs on ZERO days — so an enabled ppfdPeriod
+    # without one leaves the light off (the device's own periods always carry
+    # weekmask 127). timePeriod already gets one from the cached block; the
+    # standalone ppfdPeriod, built field-by-field, was missing it. (v3.19.327)
+    if isinstance(tp[0], dict):
+        tp[0].setdefault("weekmask", 127)
+        tp[0]["enabled"] = 1 if mt == 1 else 0
+    if isinstance(pp[0], dict):
+        pp[0].setdefault("weekmask", 127)
+        pp[0]["enabled"] = 1 if mt == 12 else 0
+    if mt == 12:
+        _floor_ppfd_light(block)
+    return block
+
+
 def build_plan(mac, uid, stages, enabled, plan_cfg):
     """Assemble a full grow-plan write (setConfigField ["plan"]) from the card's
     stage list, read-modify-write against the cached plan so each stage keeps its
@@ -908,6 +939,10 @@ def _cmd_light_config(mac, uid, field, value, subfield, state, light_state):
             _apply_light_subfield(block, subfield, value)
     except (ValueError, TypeError):
         return None
+    # Enable the period matching the resulting mode (PPFD needs ppfdPeriod.enabled=1
+    # or the light never runs) and floor a PPFD block — same invariant the grow-plan
+    # path enforces. (v3.19.326)
+    _sync_light_periods(block)
     return _config_field(mac, uid, "device", field, _strip_live(block))
 
 

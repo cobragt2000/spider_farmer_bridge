@@ -3,6 +3,48 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.328  (card 0.21.64)
+
+### Added
+- **Movable tiles (Custom layout → Rearrange).** With Custom layout on, Settings now
+  has a **Rearrange tiles…** button: drag Overview tiles to reorder them and close
+  gaps, then Apply. Order is saved per panel (server-side) and resumes on your other
+  devices. Handles tiles that come and go (soil probes, VPD, PPFD, extra outlets) —
+  a newly-appearing tile lands gracefully rather than disrupting your layout.
+- **Free-move panel (unified layout).** A Settings toggle that merges every tile —
+  sensors, energy, devices, outlets — into one grid with no section headings, so any
+  tile can go anywhere (an outlet next to a sensor, etc.). Keeps its own order
+  separate from the per-section one.
+- **Quick-toggle rows in the free-move panel.** Optional full-width **device** and
+  **outlet** quick-toggle bars that are themselves movable; each shown only when the
+  card actually has those devices/outlets.
+- **1-hour option** on the tile history-graph range (1h / 6h / 12h / 24h / 7d).
+
+### Changed
+- A tile's expansion (graph / details) now opens **directly under that tile** instead
+  of at the bottom of the grid, and surrounding tiles reflow so there are no gaps.
+
+## 3.19.327
+
+### Fixed
+- **PPFD light mode now actually turns the light on (completes 3.19.326).** The
+  enabled PPFD period was written without a `weekmask`, which the controller reads as
+  "runs on zero days" — so the light stayed off even though the mode, schedule,
+  target and power were all correct (confirmed against the device's own PPFD periods,
+  which always carry `weekmask 127`). Both the Time Slot and PPFD periods now always
+  carry a weekmask (defaulting to every day, preserving any existing day mask).
+
+## 3.19.326
+
+### Fixed
+- **PPFD light mode now actually turns the light on.** Selecting **PPFD** on a light
+  outside a grow plan set the mode but left the PPFD schedule disabled, so the
+  controller never ran the light (Power stayed off, 0 µmol). The standalone light
+  path now enables the period that matches the chosen mode — Time Slot → time
+  schedule, PPFD → PPFD schedule, Manual → neither — and floors a PPFD block's target
+  and dimming range so it can't run "on but dark". This matches what the grow-plan
+  light path already did, which is why PPFD worked inside a plan but not standalone.
+
 ## 3.19.325
 
 ### Fixed

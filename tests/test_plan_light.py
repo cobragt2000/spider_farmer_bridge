@@ -173,3 +173,63 @@ def test_translate_command_light_power_still_standalone_during_plan():
         device_state={}, light_state={}, plan_active=True, plan_cfg=_plan_cfg(),
         plan_stage_id=111)
     assert out["params"]["keyPath"] == ["device", "light"]
+
+
+# ── v3.19.326: standalone PPFD light must enable its ppfdPeriod ────────────────
+# Bug: picking PPFD on a light OUTSIDE a plan wrote modeType 12 but left
+# ppfdPeriod.enabled 0, so the controller never ran the light (Power stayed off,
+# 0 µmol). The active mode must enable its matching period, like the plan path.
+
+def _light_block(out):
+    return out["params"]["light"]
+
+
+def test_standalone_ppfd_mode_enables_ppfd_period():
+    out = translate_command(
+        "light", "PPFD", "MAC", "u", subfield="mode",
+        device_state={}, light_state={}, plan_active=False)
+    bl = _light_block(out)
+    assert bl["modeType"] == 12
+    assert bl["ppfdPeriod"][0]["enabled"] == 1       # the bug: was 0
+    assert bl["timePeriod"][0]["enabled"] == 0
+    # v3.19.327: an enabled period MUST carry a weekmask or it runs zero days
+    # (the light then never comes on). The device uses 127 (every day).
+    assert bl["ppfdPeriod"][0]["weekmask"] == 127
+    # floored so it can't run "on but dark"
+    assert bl["ppfdPeriod"][0]["brightness"] >= 20
+    assert bl["ppfdMinBrightness"] >= 11
+    assert bl["ppfdMaxBrightness"] >= bl["ppfdMinBrightness"]
+
+
+def test_standalone_time_slot_mode_enables_time_period():
+    out = translate_command(
+        "light", "Time Slot", "MAC", "u", subfield="mode",
+        device_state={}, light_state={}, plan_active=False)
+    bl = _light_block(out)
+    assert bl["modeType"] == 1
+    assert bl["timePeriod"][0]["enabled"] == 1
+    assert bl["ppfdPeriod"][0]["enabled"] == 0
+
+
+def test_standalone_manual_mode_disables_both_periods():
+    out = translate_command(
+        "light", "Manual", "MAC", "u", subfield="mode",
+        device_state={}, light_state={}, plan_active=False)
+    bl = _light_block(out)
+    assert bl["modeType"] == 0
+    assert bl["timePeriod"][0]["enabled"] == 0
+    assert bl["ppfdPeriod"][0]["enabled"] == 0
+
+
+def test_standalone_ppfd_bundle_enables_period_and_keeps_target():
+    import json as _json
+    payload = _json.dumps({"mode": "PPFD", "ppfd_target": 300,
+                           "ppfd_start": "05:00", "ppfd_end": "23:00"})
+    out = translate_command(
+        "light", payload, "MAC", "u", subfield="apply_bundle",
+        device_state={}, light_state={}, plan_active=False)
+    bl = _light_block(out)
+    assert bl["modeType"] == 12
+    assert bl["ppfdPeriod"][0]["enabled"] == 1
+    assert bl["ppfdPeriod"][0]["brightness"] == 300     # real target preserved
+    assert bl["timePeriod"][0]["enabled"] == 0

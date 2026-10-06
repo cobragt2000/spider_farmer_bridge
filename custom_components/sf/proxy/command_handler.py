@@ -315,6 +315,15 @@ def translate_command(
                 "params": {"keyPath": ["outlet", "led"], "led": 0 if _onoff(value) else 1},
                 "msgId": _msg_id(), "uid": uid}
 
+    if field == "outlet_mode":
+        # Power-strip mode (Standalone/Smart) — the SF app's "Standalone mode/
+        # Smart mode" picker. Sent as a flat setOutlet with num 0 (strip-level)
+        # and psmode 1 = Smart, 0 = Standalone (verified from the app's own
+        # DOWNCMD on ps5/ps10). Reported back in getDevSta at outlet.psmode.
+        # (v3.19.333)
+        smart = 1 if str(value).strip().lower() == "smart" else 0
+        return _flat("setOutlet", {"num": 0, "psmode": smart}, mac, uid)
+
     if field == "display_off":
         # Auto Screen Off (the app's "Display off") — ["system","scroff"] in
         # seconds. The HA select is "Off" or 1-10 (minutes). (v3.19.259)
@@ -1084,11 +1093,17 @@ def _cmd_fan(mac, uid, field, value, subfield, state, fan_state, last):
             level = max(1, min(hi, int(value)))
         except ValueError:
             return None
+        # A percentage command always carries level >= 1 (percentage 0 is turned
+        # into an OFF command up in fan.py), so it must also POWER THE DEVICE ON.
+        # Matches HA fan semantics (set_percentage > 0 turns a fan on) and lets
+        # the card's "set speed + turn on" Apply stick: previously we kept the
+        # cached mOnOff (0 when the blower was off), so setting a speed set the
+        # level but left the blower off, and it needed a second toggle. (v3.19.330)
         if base is not None:
             base["mLevel"] = level
-            base.setdefault("mOnOff", int(_field_of(cur, "on", "mOnOff", default=1)))
+            base["mOnOff"] = 1
             return _config_field(mac, uid, "device", field, base)
-        obj = {"mOnOff": _field_of(cur, "on", "mOnOff", default=1),
+        obj = {"mOnOff": 1,
                "mLevel": level, "natural": 0, "timePeriod": _TIME_PERIOD}
         if field == "fan":
             obj["shakeLevel"] = cur.get("shakeLevel", 0)
@@ -1359,11 +1374,19 @@ def _cmd_climate_config(mac, uid, field, value, subfield, state):
 def _cmd_climate_onoff(mac, uid, field, value, state, last):
     cur = state.get(field, {})
     on = _onoff(value)
-    level = int(_field_of(cur, "level", "mLevel") or 0)
-    # Heater/humidifier treat level 0 as off, so ON with no level falls back
-    # to the last running level (or the minimum). Dehumidifier 0 = Low, real.
-    if on and level == 0 and field in ("heater", "humidifier"):
-        level = int(last.get(field, 1) or 1)
+    if field == "dehumidifier":
+        # The dehumidifier's gear (0=Low, 1=High) lives in the config `mLevel`.
+        # Its LIVE `level` echoes 0 while off, so reading that on a bare on/off
+        # (quick-toggle, non-bundled power toggle) would reset the gear to Low
+        # every time — the "High reverts to Low on power-on" bug. Keep the
+        # configured gear. (v3.19.330)
+        level = int(cur.get("mLevel") or 0)
+    else:
+        level = int(_field_of(cur, "level", "mLevel") or 0)
+        # Heater/humidifier treat level 0 as off, so ON with no level falls back
+        # to the last running level (or the minimum).
+        if on and level == 0:
+            level = int(last.get(field, 1) or 1)
     # RMW the cached block so a power toggle in a config mode (Time Slot / Cycle /
     # Temperature) keeps modeType/schedule/cycle instead of reverting to Manual.
     if cur:

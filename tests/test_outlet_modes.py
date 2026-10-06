@@ -305,6 +305,17 @@ def test_normalize_outlet_config_to_state():
     assert out[f"ggs/ha/{e}/outlet_1_ts_type/state"] == "Daily"
 
 
+def test_normalize_outlet_psmode_to_mode_state():
+    """App->HA: the strip's psmode (outlet block) decodes to the Outlet Mode
+    select state — 1=Smart, 0=Standalone. (3.19.333)"""
+    from custom_components.sf.proxy.normalizer import normalize_outlet_config
+    e = "0a1b2c3d4e05"
+    smart = normalize_outlet_config("0A1B2C3D4E05", {"psmode": 1})
+    assert smart[f"ggs/ha/{e}/outlet_mode/state"] == "Smart"
+    standalone = normalize_outlet_config("0A1B2C3D4E05", {"psmode": 0})
+    assert standalone[f"ggs/ha/{e}/outlet_mode/state"] == "Standalone"
+
+
 async def test_app_change_updates_ha_via_cb_block(hass: HomeAssistant):
     """End-to-end app->HA: a CB reports its ps10 block with O1 in Temperature/
     Cooling; the strip's HA entities update and the temp dropdown appears."""

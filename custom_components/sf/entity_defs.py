@@ -391,6 +391,13 @@ def build_device_entities(
     if caps["hasOutlets"] and dtype in ("ps5", "ps10"):
         defs.append(d("switch", "indicator_light", "Indicator Light",
                       icon="mdi:led-on", kind="led"))
+        # Outlet Mode (power-strip mode): Smart = managed by the SF cloud/app
+        # (and this integration); Standalone = runs on its own, still reports
+        # outlet states but accepts no cloud control. Reported in getDevSta at
+        # outlet.psmode (1=Smart, 0=Standalone); written via setOutlet. (v3.19.333)
+        defs.append(d("select", "outlet_mode", "Operating Mode",
+                      options=["Standalone", "Smart"], icon="mdi:cloud-cog",
+                      entity_category="diagnostic"))
 
     # ── Light 1 — all device types ────────────────────────────────────────
     if want("light"):

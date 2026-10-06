@@ -114,6 +114,19 @@ def test_indicator_light_command():
     assert off["params"]["led"] == 1
 
 
+def test_outlet_mode_command():
+    """Outlet Mode (Standalone/Smart) is a flat setOutlet with num 0 (strip-level)
+    and psmode 1=Smart / 0=Standalone — verified from the SF app's own DOWNCMD on
+    ps5/ps10. (3.19.333)"""
+    smart = translate_command("outlet_mode", "Smart", PS10_MAC, "u1")
+    assert smart["method"] == "setOutlet"
+    assert smart["params"] == {"num": 0, "psmode": 1}
+    assert smart["pid"] == PS10_MAC and smart["uid"] == "u1"
+    standalone = translate_command("outlet_mode", "Standalone", PS10_MAC, "u1")
+    assert standalone["method"] == "setOutlet"
+    assert standalone["params"] == {"num": 0, "psmode": 0}
+
+
 def test_cb_hosted_outlet_is_device_rooted():
     """A CB-hosted strip addresses its outlets under the panel's device tree."""
     cmd = translate_command(

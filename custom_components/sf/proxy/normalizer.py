@@ -678,6 +678,13 @@ def _decode_outlets(out, e, outlet):
             n = int(key[1:])
             state = "ON" if _on(_num(val, "mOnOff", "on")) else "OFF"
             out[f"ggs/ha/{e}/outlet_{n}/state"] = state
+    # Power-strip mode (outlet.psmode): 1 = Smart (cloud/app-managed), 0 =
+    # Standalone. It lives at the live getDevSta outlet-block top level (NOT in
+    # getConfigFile), so publish the Outlet Mode select's option here. (v3.19.335)
+    if "psmode" in outlet:
+        out[f"ggs/ha/{e}/outlet_mode/state"] = (
+            "Smart" if _on(outlet.get("psmode")) else "Standalone"
+        )
     # Power monitoring (v3.19.258): the S-Station reports RMS voltage/current,
     # active power and cumulative energy at the outlet-block top level. Voltage
     # (vRms) and power (wattP) match the SF app 1:1; current (aRms) is scaled —
@@ -983,6 +990,12 @@ def normalize_outlet_config(mac: str, block: Dict[str, Any]) -> Dict[str, str]:
     if "led" in block:
         out[f"ggs/ha/{e}/indicator_light/state"] = (
             "OFF" if _on(block.get("led")) else "ON"
+        )
+    # Power-strip mode (outlet.psmode): 1 = Smart (cloud/app-managed), 0 =
+    # Standalone (runs on its own). Publish the select's option label. (v3.19.333)
+    if "psmode" in block:
+        out[f"ggs/ha/{e}/outlet_mode/state"] = (
+            "Smart" if _on(block.get("psmode")) else "Standalone"
         )
     for ok, o in block.items():
         if not (ok.startswith("O") and ok[1:].isdigit()) or not isinstance(o, dict):

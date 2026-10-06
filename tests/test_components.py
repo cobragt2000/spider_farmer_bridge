@@ -115,6 +115,22 @@ async def test_outlet_seen_creates_indicator_light(hass: HomeAssistant):
     uids = _uids(hass, entry)
     assert f"ggs_{PS10_LC}_indicator_light" in uids
     assert f"ggs_{PS10_LC}_outlet_1" in uids
+    # v3.19.334: the Outlet Mode (Standalone/Smart) select is device-level like the
+    # LED — a pure-outlet strip must get it via outlet_seen, not blocks_seen.
+    assert f"ggs_{PS10_LC}_outlet_mode" in uids
+
+
+async def test_s_station_has_no_outlet_mode(hass: HomeAssistant):
+    """The strip Outlet Mode (psmode) is ps5/ps10 only; an st single-plug strip
+    must NOT get it (it yields no def), like the Indicator Light. (v3.19.334)"""
+    ST, ST_LC = "0A1B2C3D4E1A", "0a1b2c3d4e1a"
+    entry = await _setup(hass, options={"device_slots": {ST_LC: "st2"}})
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+    cfg = {"mac": ST, "type": "st"}
+    bus.register_device(cfg)
+    bus.outlet_seen(ST, 1, cfg)
+    await hass.async_block_till_done()
+    assert f"ggs_{ST_LC}_outlet_mode" not in _uids(hass, entry)
 
 
 async def test_s_station_has_no_indicator_light(hass: HomeAssistant):

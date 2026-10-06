@@ -110,7 +110,8 @@ class SfLevelSelect(SfEntity, SelectEntity):
             # optimistically so the selector doesn't snap back to Manual.
             self._attr_current_option = option
             self.async_write_ha_state()
-        elif self.d.field.endswith("_substrate") or self.d.field == "display_off":
+        elif (self.d.field.endswith("_substrate") or self.d.field == "display_off"
+              or self.d.field == "outlet_mode"):
             # Substrate soilType and Display Off have no immediate echo — the
             # change only comes back on the next config-file poll, so hold the
             # choice optimistically to avoid snapping back.

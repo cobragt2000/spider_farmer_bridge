@@ -2394,6 +2394,23 @@ class SfBus:
                 self._add_defs(rb_defs)
                 DIAG.bus_event(f"outlet_seen {rb_uid}")
 
+        # Outlet Mode (Standalone/Smart) select — a device-level select tied to
+        # hasOutlets on ps5/ps10, like the Indicator LED and Reboot above. A pure-
+        # outlet strip reports no SF sensor block, so blocks_seen never runs and
+        # the select would never be created; make it here keyed on its own unique
+        # id. (build_device_entities only emits it for ps5/ps10, so an st strip
+        # yields no def and nothing is created.) (v3.19.334)
+        om_uid = f"ggs_{mac}_outlet_mode"
+        if om_uid not in self._registered:
+            om_defs = [
+                d for d in build_device_entities(device_cfg, slot=slot)
+                if d.unique_id == om_uid
+            ]
+            if om_defs:
+                self._pruned.discard(om_uid)
+                self._add_defs(om_defs)
+                DIAG.bus_event(f"outlet_seen {om_uid}")
+
         # v3.11.1a: per-outlet Mode selector + current mode's config — created
         # INDEPENDENTLY of the switch. The keep-offline restore re-registers the
         # switch (it is in build_device_entities) but NOT these dynamically-built

@@ -3,7 +3,114 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
-## 3.19.328  (card 0.21.64)
+## 3.19.337
+
+### Fixed
+- **Operating Mode pill is back on the card.** Renaming the entity to "Operating
+  Mode" in 3.19.336 changed its entity id to `select.sf_<strip>_operating_mode`
+  (the integration derives entity ids from the display name), but the card still
+  looked for the old id, so the pill disappeared. The card now reads the correct
+  entity.
+
+### Changed
+- The strip's status-LED pill is relabeled **"Status LED"** (was "Indicator Light").
+
+## 3.19.336
+
+### Changed
+- **"Outlet Mode" renamed to "Operating Mode" and moved to Diagnostic.** The
+  strip's Standalone/Smart control now shows under the device's Diagnostic section
+  and is named Operating Mode. The entity id is unchanged (`select.sf_<strip>_outlet_mode`),
+  so the card pill and any automations keep working.
+
+## 3.19.335
+
+### Fixed
+- **Outlet Mode now shows its current value (was "unknown").** The strip's
+  Standalone/Smart state (`psmode`) is reported only in the device's live status
+  frame, at the outlet-block top level — not in its config — so it's decoded in the
+  live-status path alongside voltage/power, where it was being missed. The
+  `select.sf_<strip>_outlet_mode` entity (and the card pill) now reflect the real
+  mode and switch it.
+
+## 3.19.334
+
+### Fixed
+- **The Outlet Mode select now actually appears on AC5 / AC10.** The
+  `select.sf_<strip>_outlet_mode` added in 3.19.333 was defined but never created
+  on the strips: a pure-outlet strip reports no sensor blocks, so its device-level
+  entities are built through a separate path (the same one that makes the Indicator
+  Light and Reboot) that didn't yet know about the new select. It's now created
+  there, so the entity — and the Standalone/Smart pill on the card — show up once
+  installed.
+
+## 3.19.333
+
+### Added
+- **Outlet Mode (Standalone / Smart) for AC5 / AC10 strips.** The SF app's
+  "Standalone mode / Smart mode" strip setting is now a Home Assistant entity
+  (`select.sf_<strip>_outlet_mode`) and a pill on the strip's name bar in the card.
+  Smart = the strip is managed by the SF cloud/app (and this integration);
+  Standalone = the strip runs on its own — it still reports outlet on/off states,
+  but takes no cloud control. Read from the device's `outlet.psmode` and written
+  with the `setOutlet` command (verified from the SF app's own traffic).
+
+### Changed
+- The strip's **Indicator Light** moved from a bar toggle to a quick-toggle-style
+  pill on the name bar, next to the new Outlet Mode pill.
+
+## 3.19.332
+
+### Fixed
+- **Outlet toggles no longer bounce.** Turning an outlet on or off — via the outlet
+  tile's Apply/Save or the Quick Outlets row — briefly snapped back to the opposite
+  state before the strip reported in. The outlet tile, the pop's Power control, and
+  the Quick Outlets buttons now hold the state you chose until the device confirms it
+  (optimistic, same treatment the device toggles got in 3.19.330). Covers both on and
+  off, on every outlet.
+
+## 3.19.331
+
+### Changed
+- **Cleaner tile history graphs.** Removed the shaded fill under the trend line, so
+  the graph now shows just the line against the target/alarm bands. Applies to every
+  tile's tap-to-open history graph (they share one renderer).
+
+## 3.19.330
+
+### Fixed
+- **Blower turns on when you set a speed and switch it on in one Apply.** Setting a
+  percentage sent the new speed but left the blower powered off, so it needed a second
+  toggle to actually start. A percentage command now also powers the blower on,
+  matching Home Assistant's fan behaviour (`set_percentage` > 0 turns a fan on).
+  Confirmed against the device log (the card was sending `mOnOff:0` alongside the new
+  level).
+- **Dehumidifier keeps its Low/High gear on power-on.** Turning the dehumidifier on
+  from the Quick Devices row or a plain power toggle reset the gear to Low, because the
+  on/off command read the live level (which reads 0 while the unit is off) instead of
+  the configured gear. It now preserves the Low/High you set. (Setting the gear and
+  power together in the device pop already worked — this fixes the one-tap toggles.)
+- **Device toggles no longer bounce.** Device tiles, the device pop's power toggle, and
+  the Quick Devices row now paint the on/off state you chose immediately and hold it
+  until the device reports back, instead of briefly snapping to the old state first.
+
+### Changed
+- **Dehumidifier cooldown timer is centered** on the device tile, matching where the
+  outlet tiles show theirs (device tiles pin their icon and value to the bottom, so the
+  timer now sits as a centered overlay rather than cramming at the bottom edge).
+
+## 3.19.329
+
+### Fixed
+- **Card no longer lags on a busy Home Assistant** — device tiles respond quickly,
+  dropdowns stay open, and Apply doesn't bounce. The card was re-rendering its whole
+  view on *every* Home Assistant state change anywhere in HA (measured ~8 pointless
+  full re-renders per second on a busy system), which saturated the phone and made
+  the device pop's dropdowns and Apply button hard to use. It now re-renders only
+  when an entity it actually displays changes — a ~95% cut in wasted renders — with
+  no change to how quickly your own devices update.
+
+## 3.19.328
 
 ### Added
 - **Movable tiles (Custom layout → Rearrange).** With Custom layout on, Settings now

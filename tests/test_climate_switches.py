@@ -51,11 +51,54 @@ def test_blower_power_toggle_preserves_env_config():
                            subfield="percentage", fan_state=env)["params"]["blower"]
     assert b2["mLevel"] == 50 and b2["modeType"] == 4
     assert b2["maxSpeed"] == 90 and b2["minSpeed"] == 40
+    # v3.19.330: a percentage command (level >= 1) must also power the blower ON.
+    # The cache here is mOnOff=0 (blower off); before the fix set_percentage kept
+    # that 0, so "set speed + turn on" from the card set the level but left the
+    # blower off and needed a second toggle.
+    assert b2["mOnOff"] == 1
+
+    # Same with no cache: percentage builds an ON block (not the cached/off state).
+    b3 = translate_command("blower", "50", CB_MAC, "u1",
+                           subfield="percentage", fan_state={})["params"]["blower"]
+    assert b3["mLevel"] == 50 and b3["mOnOff"] == 1
 
     # No cache → still a valid minimal manual block.
     cmd3 = translate_command("blower", "OFF", CB_MAC, "u1", fan_state={})
     assert cmd3["params"]["blower"]["mOnOff"] == 0
     assert "maxSpeed" not in cmd3["params"]["blower"]
+
+
+def test_dehumidifier_onoff_preserves_gear():
+    """v3.19.330: a bare dehumidifier on/off (quick-toggle or a non-bundled power
+    toggle) must KEEP the configured Low/High gear. The gear is config mLevel
+    (0=Low, 1=High); the dehumidifier's live `level` echoes 0 while off, so reading
+    that on a power-on reset the gear to Low every time — the "High reverts to Low
+    on power-on" bug. The cache here carries config mLevel=1 (High) plus a stale
+    live level=0 (off echo); the on/off must emit mLevel=1."""
+    from custom_components.sf.proxy.command_handler import translate_command
+    state = {"dehumidifier": {"modeType": 0, "mOnOff": 0, "mLevel": 1, "level": 0,
+                              "timePeriod": [{"enabled": 1, "weekmask": 127}]}}
+    on = translate_command("dehumidifier", "ON", CB_MAC, "u1",
+                           device_state=state)["params"]["dehumidifier"]
+    assert on["mOnOff"] == 1
+    assert on["mLevel"] == 1          # High preserved, NOT reset to Low
+    off = translate_command("dehumidifier", "OFF", CB_MAC, "u1",
+                            device_state=state)["params"]["dehumidifier"]
+    assert off["mOnOff"] == 0 and off["mLevel"] == 1
+
+    # Low (gear 0) stays Low on power-on too (not bumped like heater/humidifier).
+    state_low = {"dehumidifier": {"modeType": 0, "mOnOff": 0, "mLevel": 0, "level": 0,
+                                  "timePeriod": [{"enabled": 1, "weekmask": 127}]}}
+    on_low = translate_command("dehumidifier", "ON", CB_MAC, "u1",
+                               device_state=state_low)["params"]["dehumidifier"]
+    assert on_low["mOnOff"] == 1 and on_low["mLevel"] == 0
+
+    # Heater still bumps a 0 level to the last running level on power-on (unchanged).
+    st_heat = {"heater": {"modeType": 0, "mOnOff": 0, "mLevel": 0, "level": 0}}
+    h = translate_command("heater", "ON", CB_MAC, "u1", device_state=st_heat,
+                          last_nonzero_level={"heater": 6})["params"]["heater"]
+    assert h["mOnOff"] == 1 and h["mLevel"] == 6
+
 
 CB_DATA = {
     "sensor": {"temp": 24.5, "humi": 61.0},

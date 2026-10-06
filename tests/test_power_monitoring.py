@@ -17,6 +17,21 @@ def test_power_monitoring_decode():
     assert out[f"ggs/ha/{e}/pm_current/state"] == "0.04"     # 4 centi-amps -> 0.04 A
     assert out[f"ggs/ha/{e}/pm_energy/state"] == "0.010"     # 10 Wh -> 0.010 kWh
     assert out[f"ggs/ha/{e}/outlet_1/state"] == "OFF"        # still decodes outlets
+    # v3.19.335: psmode (top-level, live getDevSta only) -> Outlet Mode select.
+    assert out[f"ggs/ha/{e}/outlet_mode/state"] == "Smart"   # psmode 1 = Smart
+
+
+def test_outlet_mode_from_live_psmode():
+    """The Outlet Mode state comes from the LIVE getDevSta outlet.psmode (0/1) via
+    _decode_outlets — not the config path, which never carries psmode. (3.19.335)"""
+    out: dict = {}
+    e = "0a1b2c3d4e17"
+    _decode_outlets(out, e, {"psmode": 0, "O1": {"on": 1}})
+    assert out[f"ggs/ha/{e}/outlet_mode/state"] == "Standalone"
+    # Absent when the strip doesn't report it (no phantom state).
+    out2: dict = {}
+    _decode_outlets(out2, e, {"O1": {"on": 1}})
+    assert f"ggs/ha/{e}/outlet_mode/state" not in out2
 
 
 def test_power_monitoring_absent_when_not_reported():

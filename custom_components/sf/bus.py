@@ -1987,37 +1987,49 @@ class SfBus:
         # newest real op entry per accessory devType. devTypes confirmed from the
         # op log: 25 = Heater (Temperature), 27 = Humidification.
         #
-        # The dehumidifier (26) is deliberately NOT op-log driven (v3.19.238): its
-        # op log can miss the turn-off entirely (switching it off via a mode change
-        # logs no opType 2), leaving a stale opType-1 "on" that the bus would keep
-        # republishing over the real state — so the tile stuck "on" after the unit
-        # was switched off. The dehumidifier's on/off is owned by the config
-        # `mOnOff` (the switch state) in the normalizer, which is always current.
-        # The blower/fan run at a continuous level (getDevSta tracks them), so
-        # they're not op-log driven either. (v3.19.146, v3.19.238)
+        # The dehumidifier (26) IS op-log driven — with its OWN semantics, confirmed
+        # from a live op-log capture (v3.19.344). In Humidity mode the controller logs
+        # the dehumidifier turning ON as opType 1, but the turn-OFF as a bare mode
+        # entry (opType null, modeType present) — NOT opType 2, which is the "Offline"
+        # marker. It has no live running level (its getDevSta `level` is the Low/High
+        # GEAR), so the op log is the ONLY on/off signal. So it's read differently
+        # from the heater/humidifier: the NEWEST on/off-relevant entry is the current
+        # state — opType 1 => ON, anything else (null = off, opType-2 = offline) =>
+        # OFF. This replaces the config-`mOnOff` publish (removed from the normalizer)
+        # that fought the real state in auto mode, where mOnOff sits at 0 while the
+        # unit cycles. (It was wrongly excluded in v3.19.238 on the assumption the op
+        # log missed the turn-off.)
+        #
+        # Heater (25) / Humidifier (27): OFF-ONLY. Their LIVE getDevSta `level` is
+        # authoritative for running right now (level>0 on, 0 off) and reports the idle
+        # 0, so the op log must NEVER turn one ON (a stale opType-1 would fight the
+        # live off and flicker ~6 s). The op log only supplies an OFF the live frame
+        # missed. Blower/fan run at a continuous level, so they aren't op-log driven.
+        # (v3.19.146, v3.19.243)
         _OPLOG_ACTIVE = {25: "heater", 27: "humidifier"}
         _op_seen: set = set()
+        _dehum_done = False
         for e in merged:   # newest first
-            field = _OPLOG_ACTIVE.get(e.get("devType"))
+            dev = e.get("devType")
+            if dev == 26:
+                # Newest on/off-relevant dehumidifier entry wins; skip pure
+                # water-tank alarms (alarmType set, not a run transition).
+                if _dehum_done or e.get("alarmType") is not None:
+                    continue
+                _dehum_done = True
+                on = e.get("opType") == 1
+                self.publish(f"ggs/ha/{mac}/dehumidifier_active/state",
+                             "ON" if on else "OFF")
+                continue
+            field = _OPLOG_ACTIVE.get(dev)
             if not field or field in _op_seen:
                 continue
-            # Only opType 0/1 are on/off events. Other op-log entries for the same
-            # accessory (mode/level/gear changes) carry opType=null — they must NOT
-            # be read as a turn-off, or a mode change right after a turn-on would
-            # wrongly flip the accessory to OFF (v3.19.x: dehumidifier stuck "off").
+            # Only opType 1 (on) / 2 (off) are transitions; opType null is a
+            # mode/level change — skip it (don't read it as a turn-off).
             op = e.get("opType")
             if op is None:
                 continue
             _op_seen.add(field)
-            # OFF-ONLY supplement (v3.19.243). The LIVE getDevSta `level` is
-            # authoritative for whether a heater/humidifier is running RIGHT NOW
-            # (level>0 = on, 0 = off) and it DOES report the idle 0. So the op log
-            # must NEVER turn one ON: a stale opType-1 "on" (the last actuation,
-            # e.g. while enabled-but-idle in Temperature/auto mode) would fight the
-            # live "off" on every getDevSta frame and flicker the tile on/off every
-            # ~6 s (confirmed live). The op log may still supply an OFF the live
-            # frame missed. `on` comes from the live level; `off` can come from the
-            # live level, config `mOnOff:0`, or an op-log opType 2 here.
             if int(op) == 1:
                 continue
             self.publish(f"ggs/ha/{mac}/{field}_active/state", "OFF")

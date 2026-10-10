@@ -44,8 +44,15 @@ _FAN_MODE_TO_TYPE = {
     "Environment: Humidity only": 4,
     "Environment: Temperature & humidity": 13,
 }
-# Environment sub-mode label -> modeType (same numbers, no prefix).
+# Environment sub-mode label -> modeType (same numbers, no prefix). Both the
+# title-case labels and the pre-v3.19.343 lower-case aliases are accepted, so a
+# select/automation still on the old casing keeps working.
 _FAN_ENV_SUBMODE_TO_TYPE = {
+    "Prioritize Temperature": 7,
+    "Prioritize Humidity": 8,
+    "Temperature Only": 3,
+    "Humidity Only": 4,
+    "Temperature & Humidity": 13,
     "Prioritize temperature": 7,
     "Prioritize humidity": 8,
     "Temperature only": 3,

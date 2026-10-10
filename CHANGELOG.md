@@ -3,6 +3,104 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.344
+
+### Fixed
+- **Dehumidifier tile now tracks its real on/off.** It could get stuck "on" in
+  Environment/Humidity mode. Root cause: the controller never reports the
+  dehumidifier's run state in that mode except in its **operation log**, and that
+  log uses its own encoding — **On = opType 1, Off = a bare mode entry (not
+  opType 2), opType 2 = "Offline"**. The integration had deliberately excluded the
+  dehumidifier from op-log driving and relied on the config `mOnOff` switch, which
+  sits at 0 while the unit auto-cycles — so nothing ever turned the tile off. The
+  dehumidifier is now driven directly from its op log (newest entry wins), and the
+  config/live `mOnOff` no longer competes with it. The gear sensor (Low/High) is
+  unchanged. (Heater/humidifier behaviour is unchanged.)
+
+## 3.19.343
+
+### Changed
+- **Environment run-mode labels are title-cased.** The Blower/Fan "Run Mode" options now
+  read **Prioritize Temperature, Prioritize Humidity, Temperature Only, Humidity Only,
+  Temperature & Humidity** — consistently in the card dropdown, the Home Assistant device
+  page, and the automations editor. On the device tile the Environment run mode shows
+  **Temperature / Humidity / Temp+Humid** (the "only"/combined modes). The old lower-case
+  values are still accepted by the command path, so existing automations keep working —
+  but update any automation that matches the old text (e.g. `"Temperature only"`) to the
+  new casing.
+
+## 3.19.342
+
+### Fixed
+- **Reverted the 3.19.341 dehumidifier "active" change.** That change tried to self-heal
+  the dehumidifier tile from a cached on/off value, but in Environment/Humidity mode the
+  controller never reports the dehumidifier's real on/off (only its gear), so the cached
+  value is stale and the change could force the tile ON. Reverted to the prior behavior,
+  where the tile reflects the controller's on/off only when it's actually reported
+  (Manual mode, or an explicit switch toggle).
+
+### Changed
+- **Cleaned up all build-time warnings (card).** Extended the entity type to include
+  `last_changed`/`last_updated`, and removed dead code and unused locals. No behavior
+  change — the card bundle now builds with zero TypeScript warnings.
+
+## 3.19.341
+
+### Added
+- **Device level history graphs.** The Light, Fan, Blower, Heater and Humidifier tiles
+  now have a chart icon that opens a single-line history graph of that device's output
+  level (light brightness %, fan speed, blower %, heater level, humidifier level), with
+  the same range picker and draggable cursor as the other graphs. Tapping the tile body
+  still opens the controls. (The dehumidifier has no graph — its level is Low/High, not a
+  number.) Gear-type graphs (fan/heater/humidifier levels) use whole-number axes.
+- **"Environment" label on climate tiles.** Heater, Humidifier and Dehumidifier tiles now
+  show "Environment" above the direction (Temperature/Humidity) when running in that auto
+  mode, matching the fan/blower display.
+
+### Fixed
+- **Dehumidifier tile no longer stuck "on".** The dehumidifier's live frames carry only its
+  Low/High gear — no running signal — so the tile couldn't self-correct and a leftover "on"
+  from when it last ran could stay lit while the unit was off. The tile now reconciles to
+  the controller's actual on/off (config `mOnOff`) on every update, so it turns off promptly.
+
+## 3.19.340
+
+### Added
+- **Soil probe history graphs.** The Soil Temp, Moisture and Soil EC tiles now have a
+  chart icon that opens a multi-line history graph — one coloured line per probe plus
+  a thicker line for the average — with a legend of each probe's value and the same
+  range picker and draggable cursor as the other graphs. Tapping the tile body still
+  opens the numeric per-probe breakdown, so you keep both views.
+- **More ranges on the Device Log and Outlets Log.** Both logs now offer 1h / 6h / 12h /
+  24h / 7d (previously only 24h / 7d); the timeline axis and gridlines scale to the
+  window you pick.
+
+### Changed
+- **Soil breakdown header matches the graph.** The per-probe breakdown header now reads
+  in title case ("Soil Temp · By Probe") to match the new graph header, instead of the
+  all-caps "SOIL TEMPERATURE · BY PROBE".
+
+## 3.19.339
+
+### Fixed
+- **History-graph cursor can be dragged on mobile again.** On a phone, sliding the
+  graph's cursor did nothing — the touch was treated as a page scroll, which
+  cancelled the drag. The graph now sets `touch-action: none` and captures the
+  pointer, so a finger drag scrubs the cursor to read values at a point in time.
+  (PC was unaffected.)
+
+## 3.19.338
+
+### Fixed
+- **Outlet tile expansions open under the tile again.** On the Outlets tab, tapping
+  an outlet opened its settings at the bottom of the grid; it now opens as a
+  full-width row directly under the tapped tile and reflows the rest — matching the
+  device and sensor tiles.
+- **VPD tab's leaf VPD value is correct.** The VPD tab computed leaf VPD with a fixed
+  −2 °C leaf offset, so it disagreed with the Leaf VPD tile (which uses your
+  configured day/night leaf offset). It now reads the integration's leaf VPD sensor,
+  so both the number and the plotted leaf point match the tile.
+
 ## 3.19.337
 
 ### Fixed

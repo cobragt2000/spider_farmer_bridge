@@ -86,6 +86,11 @@ async def test_setup_and_cb_entities(hass: HomeAssistant):
 
     _simulate_cb(hass, bus)
     await hass.async_block_till_done()
+    # Dehumidifier on/off is op-log driven (v3.19.344): seed an op-log "off"
+    # (a bare mode entry = off) so its switch/active reflect a known state.
+    bus.apply_oplog(CB_MAC, [
+        {"id": 1, "epoch": 100, "devType": 26, "opType": None, "modeType": 4}])
+    await hass.async_block_till_done()
 
     # ── Exact entity IDs, exact states ────────────────────────────────────
     assert hass.states.get("sensor.sf_dp1_temperature").state == "24.5"
@@ -128,7 +133,8 @@ async def test_setup_and_cb_entities(hass: HomeAssistant):
     assert hass.states.get("sensor.sf_dp1_humidifier_level").state == "2"
     assert hass.states.get("sensor.sf_dp1_humidifier_mode").state == "Environment"
     assert hass.states.get("binary_sensor.sf_dp1_dehumidifier_active").state == "off"
-    assert hass.states.get("sensor.sf_dp1_dehumidifier_level").state == "Off"
+    # level is the GEAR now (mLevel 1 → High), decoupled from on/off (v3.19.344)
+    assert hass.states.get("sensor.sf_dp1_dehumidifier_level").state == "High"
     assert hass.states.get("binary_sensor.sf_dp1_heater_active").state == "off"
     assert hass.states.get("sensor.sf_dp1_heater_level").state == "0"
 

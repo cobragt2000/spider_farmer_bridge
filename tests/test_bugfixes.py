@@ -127,7 +127,7 @@ def test_normalize_config_response():
     assert r[f"ggs/ha/{CB_MAC_LC}/fan_mode_set/state"] == "Cycle"
     assert f"ggs/ha/{CB_MAC_LC}/fan_run_mode/state" not in r  # Cycle has no run-mode
     assert r[f"ggs/ha/{CB_MAC_LC}/blower_mode_set/state"] == "Environment"
-    assert r[f"ggs/ha/{CB_MAC_LC}/blower_run_mode/state"] == "Temperature & humidity"
+    assert r[f"ggs/ha/{CB_MAC_LC}/blower_run_mode/state"] == "Temperature & Humidity"
     assert r[f"ggs/ha/{CB_MAC_LC}/humidifier_mode_set/state"] == "Time Slot"
     # Live state topics must NOT appear (stale mOnOff must not fight getDevSta)
     assert f"ggs/ha/{CB_MAC_LC}/fan/state" not in r

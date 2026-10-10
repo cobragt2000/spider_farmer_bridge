@@ -282,8 +282,8 @@ _FAN_SIMPLE_MODE_MAP = {
     8: "Environment", 13: "Environment",
 }
 _FAN_RUN_MODE_MAP = {
-    7: "Prioritize temperature", 8: "Prioritize humidity",
-    3: "Temperature only", 4: "Humidity only", 13: "Temperature & humidity",
+    7: "Prioritize Temperature", 8: "Prioritize Humidity",
+    3: "Temperature Only", 4: "Humidity Only", 13: "Temperature & Humidity",
 }
 # Climate accessory operating mode.
 _CLIMATE_MODE_MAP = {None: "Manual", 1: "Time/Cycle", 4: "Environment"}
@@ -766,20 +766,14 @@ def _decode_humidifier(out, e, mod):
 def _decode_dehumidifier(out, e, mod):
     if not mod:
         return
-    # The dehumidifier's live `level` (0/1) is the Low/High GEAR, NOT a running
-    # output — a unit running at Low gear reports level:0. So `level` cannot tell
-    # running from idle, and deriving on/off from it forced the tile "off" while
-    # the unit was switched ON (Environment/Humidity auto mode). Only publish the
-    # on/off (and gear display) from an explicit on/mOnOff signal; when the live
-    # frame carries only the gear, leave on/off to the op log + config `mOnOff`,
-    # which are authoritative. (v3.19.237)
+    # The dehumidifier's on/off is OWNED BY THE OP LOG (bus.apply_oplog, v3.19.344),
+    # not published here. Its live `level` (0/1) is the Low/High GEAR, not a running
+    # output, so it can't tell running from idle; and the config `mOnOff` sits at 0
+    # in auto mode while the unit cycles, so publishing on/off from it fought the
+    # real state. Here we only refresh the gear display from an explicit frame.
     if "mOnOff" in mod or "on" in mod:
-        on = _on(mod.get("mOnOff")) if "mOnOff" in mod else _on(mod.get("on"))
         gear = int(_num(mod, "mLevel", "level") or 0)
-        out[f"ggs/ha/{e}/dehumidifier_active/state"] = "ON" if on else "OFF"
-        out[f"ggs/ha/{e}/dehumidifier_level/state"] = (
-            {0: "Low", 1: "High"}.get(gear, "Off") if on else "Off"
-        )
+        out[f"ggs/ha/{e}/dehumidifier_level/state"] = {0: "Low", 1: "High"}.get(gear, "Low")
     # Only set the mode when the frame actually carries a modeType; a bare live
     # status block (just the gear) would otherwise reset it to "Manual" and fight
     # the authoritative mode from the config response.
@@ -875,22 +869,14 @@ def normalize_config_response(mac: str, data: Dict[str, Any]) -> Dict[str, str]:
             # state stays with the live `level` (a config mOnOff:1 just means
             # "enabled", not "running"). (v3.19.145)
             #
-            # The dehumidifier is the exception: its live `level` is the Low/High
-            # GEAR, not a running output, so the live frame can't report running
-            # state. For it, `mOnOff` is the authoritative on/off — publish BOTH
-            # ways so the tile follows the switch (fixes it stuck "off" while on,
-            # v3.19.237). The op log (opType 1/2) corroborates the transitions.
+            # The dehumidifier does NOT publish active from config `mOnOff` anymore
+            # (v3.19.344): in auto mode mOnOff sits at 0 while the unit cycles, so it
+            # fought the real run state. On/off is owned by the op log; here we only
+            # keep its GEAR display current from the config `mLevel` (0=Low, 1=High) —
+            # the tile shows "Off" from the op-log active state, not from the level.
             if "mOnOff" in block:
                 mon = int(block.get("mOnOff") or 0)
                 if module == "dehumidifier":
-                    out[f"ggs/ha/{e}/dehumidifier_active/state"] = \
-                        "ON" if mon else "OFF"
-                    # The dehumidifier's level is its GEAR — Low or High only, no
-                    # separate "off" (on/off is the mOnOff/active state). Publish it
-                    # authoritatively from the config `mLevel` (0=Low, 1=High); the
-                    # live status frame never refreshes it, so it would otherwise go
-                    # stale. The tile shows "Off" from the active state, not from the
-                    # level. (v3.19.242)
                     gear = int(block.get("mLevel") or 0)
                     out[f"ggs/ha/{e}/dehumidifier_level/state"] = \
                         {0: "Low", 1: "High"}.get(gear, "Low")

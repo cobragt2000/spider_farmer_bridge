@@ -52,6 +52,16 @@ PROXY_PORT=$(get '.proxy_port')
 # to come online. The user-facing toggle was removed in 0.8.0.
 INTERNET_ACCESS="true"
 
+# DNS coexistence (v0.8.8): the AP clients use us as their DNS (that's how the
+# sf.mqtt.spider-farmer.com -> proxy spoof reaches them). A host-wide DNS server —
+# AdGuard Home, Pi-hole — listening on 0.0.0.0:53 already owns the AP IP's :53, so
+# dnsmasq's bind to :53 fails ("Address in use") and the hotspot can't start. To
+# coexist, we run dnsmasq's DNS on an alternate port and add an nft prerouting
+# redirect of the AP's :53 to it (the AP clients still point at :53; they never
+# notice). This pre-empts the host DNS for the hotspot subnet only and leaves the
+# host's own :53 untouched. Falls back to binding :53 directly if nft is absent.
+if command -v nft >/dev/null 2>&1; then DNS_PORT=5353; else DNS_PORT=53; fi
+
 # All firewall work goes through native nftables (HAOS's own backend), in a
 # single dedicated table "sfhs" so teardown is one command. Helper creates the
 # table on demand (idempotent) and records that we own it.
@@ -82,6 +92,12 @@ apply_nft_rules() {
   fi
   nft add chain ip sfhs pre '{ type nat hook prerouting priority -150 ; }' 2>/dev/null
   nft add rule ip sfhs pre iifname "${IFACE}" tcp dport 8883 counter redirect to :"${PROXY_PORT}" 2>/dev/null
+  # DNS coexistence: send the AP's :53 to dnsmasq's alternate port so we work
+  # alongside a host DNS server (AdGuard/Pi-hole) that owns :53. (v0.8.8)
+  if [ "${DNS_PORT}" != "53" ]; then
+    nft add rule ip sfhs pre iifname "${IFACE}" udp dport 53 counter redirect to :"${DNS_PORT}" 2>/dev/null
+    nft add rule ip sfhs pre iifname "${IFACE}" tcp dport 53 counter redirect to :"${DNS_PORT}" 2>/dev/null
+  fi
   apply_docker_user_accept
 }
 
@@ -294,6 +310,7 @@ cat > "${DNSMASQ_CONF}" <<DNSM
 interface=${IFACE}
 bind-interfaces
 except-interface=lo
+port=${DNS_PORT}
 no-resolv
 server=1.1.1.1
 server=8.8.8.8
@@ -357,7 +374,16 @@ start_dnsmasq() {
   DNSMASQ_PID=$!
   sleep 1
   if ! kill -0 "${DNSMASQ_PID}" 2>/dev/null; then
-    log "ERROR: dnsmasq failed to start. Is port 53 already bound on the host?"
+    log "ERROR: dnsmasq failed to start (DNS on :${DNS_PORT}, DHCP on :67)."
+    if [ "${DNS_PORT}" = "53" ]; then
+      log "       Port 53 is already bound — a host DNS server (AdGuard Home, Pi-hole)"
+      log "       likely holds it. This add-on normally runs DNS on :5353 + an nft"
+      log "       redirect to coexist, but nft wasn't available here. Either enable nft"
+      log "       on the host, or set AdGuard/Pi-hole to listen on a specific interface"
+      log "       (not 'all interfaces') so it leaves ${HOTSPOT_IP}:53 free."
+    else
+      log "       Something else holds :${DNS_PORT} or :67 — check the log above."
+    fi
     DNSMASQ_PID=""
     return 1
   fi
@@ -527,6 +553,23 @@ if nft_table \
   log "cloud redirect: ${IFACE} tcp/8883 -> :${PROXY_PORT} (nft, pre-empts Mosquitto)"
 else
   log "WARNING: could not add the 8883 -> ${PROXY_PORT} redirect: $(head -1 /tmp/nft.err 2>/dev/null)"
+fi
+
+# DNS coexistence: dnsmasq serves DNS on :${DNS_PORT} (see top of file); redirect the
+# AP's :53 to it so the sf.mqtt spoof + client DNS work even when a host DNS server
+# (AdGuard Home / Pi-hole) already owns 0.0.0.0:53. Scoped to the hotspot interface,
+# so the host's own :53 is never touched. Same early-priority prerouting chain as the
+# :8883 redirect. (v0.8.8)
+if [ "${DNS_PORT}" = "53" ]; then
+  log "DNS: binding dnsmasq on :53 directly (nft unavailable for a :53 redirect)."
+elif nft_table \
+   && nft add chain ip sfhs pre '{ type nat hook prerouting priority -150 ; }' 2>/dev/null \
+   && nft add rule ip sfhs pre iifname "${IFACE}" udp dport 53 counter redirect to :"${DNS_PORT}" 2>/tmp/nft.err \
+   && nft add rule ip sfhs pre iifname "${IFACE}" tcp dport 53 counter redirect to :"${DNS_PORT}" 2>/tmp/nft.err; then
+  log "DNS coexistence: ${IFACE} :53 -> dnsmasq :${DNS_PORT} (works alongside a host DNS on :53)."
+else
+  log "WARNING: could not add the :53 -> :${DNS_PORT} DNS redirect: $(head -1 /tmp/nft.err 2>/dev/null)"
+  log "         AP clients may not get DNS if a host DNS (AdGuard/Pi-hole) holds :53."
 fi
 
 # Health check: is the integration's proxy actually listening on proxy_port? A

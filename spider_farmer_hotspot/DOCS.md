@@ -170,9 +170,14 @@ Use it to debug a device that won't come online:
   `iw reg set <country>` first, but the reliable path on HAOS is
   `ap_backend: nmcli` (the default via `auto`), which lets the host handle
   regulatory rules. Also confirm `country_code` matches your region.
-- **`dnsmasq failed to start` / port 53 in use** - another DNS service holds
-  port 53. dnsmasq here binds only to the hotspot interface; if a host-wide DNS
-  is bound to `0.0.0.0:53` there may be a conflict - see the log.
+- **Runs alongside AdGuard Home / Pi-hole (port 53).** A host-wide DNS server that
+  listens on `0.0.0.0:53` used to block the hotspot, because dnsmasq couldn't bind
+  the hotspot's `:53`. As of 0.8.8 the add-on runs its DNS on `:5353` and adds an
+  nftables redirect of the hotspot interface's `:53` to it, so the two coexist with
+  no changes on either side — the AP clients still use `:53`, the host's own `:53`
+  is untouched. If you still see `dnsmasq failed to start`, nftables wasn't available
+  for the redirect; either enable it on the host, or set AdGuard/Pi-hole to listen on
+  a specific interface (not "all interfaces") so it leaves the hotspot IP's `:53` free.
 - **Device connects but no entities** - confirm the Spider Farmer Bridge
   integration is running and its proxy is reachable at the hotspot IP on the
   configured `proxy_port`.

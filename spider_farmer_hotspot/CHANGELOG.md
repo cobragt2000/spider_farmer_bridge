@@ -4,6 +4,18 @@ All notable changes to the **Spider Farmer Hotspot** add-on. The Supervisor
 offers an update whenever the `version` in `config.yaml` increases; the notes
 below are shown on the add-on's Changelog tab.
 
+## 0.8.8
+
+- **Coexists with AdGuard Home / Pi-hole (port 53).** A host-wide DNS server that
+  listens on `0.0.0.0:53` used to stop the hotspot from starting — dnsmasq couldn't
+  bind the hotspot's `:53` ("Address in use"), so DHCP and the `sf.mqtt` DNS spoof
+  never came up. The add-on now runs its DNS on `:5353` and adds an nftables
+  prerouting redirect of the hotspot interface's `:53` to it. The AP clients still
+  point at `:53` and get the same answers; the host's own `:53` is left completely
+  untouched. No configuration needed — it's automatic. Falls back to binding `:53`
+  directly when nftables isn't available, and the failure log now names the likely
+  culprit and the fix.
+
 ## 0.8.7
 
 - **Add-on icon/logo.** The add-on now shows the Spider Farmer Bridge icon in the

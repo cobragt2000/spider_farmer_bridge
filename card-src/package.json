@@ -1,6 +1,6 @@
 {
   "name": "spider-farmer-card",
-  "version": "0.21.120",
+  "version": "0.21.121",
   "description": "Home Assistant Lovelace card for the Spider Farmer Bridge integration",
   "type": "module",
   "license": "MIT",

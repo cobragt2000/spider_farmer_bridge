@@ -3,6 +3,16 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.403
+
+### Security
+- **Fixed a ReDoS (polynomial regular expression) in the card** (CodeQL
+  js/polynomial-redos, high). The time-lapse id slug trimmed leading/trailing
+  underscores with `/^_+|_+$/g`, which is O(n²) on long `_` runs — a crafted title
+  could pin the browser tab (measured ~7.8 s on 100k underscores). Replaced it with a
+  plain linear scan (no backtracking), identical output, ~0.07 ms on the same input.
+  Matches the backend's `str.strip("_")`. (card 0.21.121)
+
 ## 3.19.402
 
 ### Security

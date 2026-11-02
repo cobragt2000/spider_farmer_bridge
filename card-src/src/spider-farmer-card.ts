@@ -11523,8 +11523,14 @@ function tlBaseName(title: string, camera: string, interval: number): string {
 }
 // Strict lowercase slug of the base name — the tl_id (must match the backend's slug).
 function tlIdFor(title: string, camera: string, interval: number): string {
-  const s = tlBaseName(title, camera, interval).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  return s || "timelapse";
+  const slug = tlBaseName(title, camera, interval).toLowerCase().replace(/[^a-z0-9]+/g, "_");
+  // Trim leading/trailing "_" with a plain scan (no backtracking regex) — the old
+  // /^_+|_+$/g is O(n^2) on long "_" runs (ReDoS). Equivalent to the backend's
+  // str.strip("_"). (95 === "_")
+  let i = 0, j = slug.length;
+  while (i < j && slug.charCodeAt(i) === 95) i++;
+  while (j > i && slug.charCodeAt(j - 1) === 95) j--;
+  return slug.slice(i, j) || "timelapse";
 }
 
 // Guarded registration — a second load (or tabbed-card's scoped registry)

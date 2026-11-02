@@ -15,8 +15,9 @@ Bundled cards (all defined by the single spider-farmer-card.js bundle, so only
 that one file is served):
   • custom:spider-farmer-card  (tent overview + config)
   • custom:spider-light-card   (SE-series light control)
-  • custom:ppfd-3d-card        (3D PPFD visualizer; loads three.js r128 from
-    cdnjs at runtime, so its 3D view needs internet)
+  • custom:ppfd-3d-card        (3D PPFD visualizer; three.js r128 is shipped in
+    cards/three.min.js and served locally from this same route — no CDN, works
+    offline)
 
 Older releases served a separate ppfd-3d-card.js; folding it into the one
 bundle removes the dual-file loading race that caused intermittent

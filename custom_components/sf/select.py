@@ -64,19 +64,28 @@ class SfLevelSelect(SfEntity, SelectEntity):
 
     @property
     def state_topics(self) -> list[str]:
-        # Subscribe to this select's OWN state topic first. For the fan/blower/
-        # climate "_mode_set" selects the normalizer publishes a value collapsed
-        # to the 4 select options (Manual / Time Slot / Cycle / Environment |
-        # Temperature | Humidity); the read-only "_mode" sensor it used to strip
-        # to carries a verbose label ("Environment: Prioritize Humi") that never
-        # matches an option, so the select stayed stuck on its last value. Also
-        # keep the stripped read-only topic as a fallback: its non-matching
-        # payloads are ignored by _handle_payload, while the SE light's se_mode
-        # topic (which DOES match "Manual"/"Automatic") still flows through, and
-        # a mode changed from the SF app flows back in. (v3.19.133)
+        # Subscribe to this select's OWN state topic first. The fan/blower/climate
+        # "_mode_set" selects are fed by their dedicated "_mode_set" topic, which the
+        # normalizer publishes collapsed to the select's options (Manual / Time Slot /
+        # Cycle / Environment | Temperature | Humidity) on every live frame (from the
+        # config cache) and on every config response.
+        #
+        # They must NOT also subscribe to the stripped read-only "_mode" sensor topic:
+        # that sensor uses a COARSE, different mapping that can emit a BARE option label
+        # — e.g. a heater in Temperature mode has the "_mode" sensor publish "Manual"
+        # (modeType 3 → default) while "_mode_set" publishes "Temperature". Since both
+        # are valid options, the select bounced between them every status frame and spammed
+        # the logbook ("Heater Mode Set → Temperature / → Manual"). (v3.19.391)
+        #
+        # Exceptions that DO keep the stripped fallback: the SE light select (se_mode_set),
+        # whose "se_mode" sensor is its ONLY source, and non-mode "_set" selects (e.g.
+        # dehumidifier_level_set → dehumidifier_level).
         topics = [f"ggs/ha/{self.d.mac}/{self.d.field}/state"]
         stripped = self._state_field
-        if stripped != self.d.field:
+        keep_stripped = stripped != self.d.field and (
+            not self.d.field.endswith("_mode_set") or self.d.field == "se_mode_set"
+        )
+        if keep_stripped:
             topics.append(f"ggs/ha/{self.d.mac}/{stripped}/state")
         return topics
 

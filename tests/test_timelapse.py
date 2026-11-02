@@ -815,3 +815,49 @@ async def test_migration_noop_when_no_legacy(hass):
     await _migrate_timelapse_options(hass, entry)
     # Initialises an empty instances dict (so it isn't re-checked) and adds nothing.
     assert entry.options[CONF_TIMELAPSE_INSTANCES] == {}
+
+
+def test_burn_items_stacked_labels_do_not_overlap():
+    """v3.19.393: a tight vertical stack (8% apart) whose burned boxes are taller than the
+    spacing must be pushed flush so burned labels never overlap, and stay on the frame."""
+    from io import BytesIO
+    from PIL import Image, ImageDraw
+    import custom_components.sf.timelapse as tl
+
+    buf = BytesIO(); Image.new("RGB", (1280, 720), (30, 60, 30)).save(buf, "JPEG")
+    src = buf.getvalue()
+
+    rects = []
+    orig = ImageDraw.ImageDraw.rectangle
+
+    def spy(self, xy, *a, **k):
+        flat = xy if not isinstance(xy[0], (list, tuple)) else (xy[0][0], xy[0][1], xy[1][0], xy[1][1])
+        rects.append(tuple(flat))
+        return orig(self, xy, *a, **k)
+
+    ImageDraw.ImageDraw.rectangle = spy
+    try:
+        items = [
+            {"text": "Temp 78.6F", "x": 0, "y": 76},
+            {"text": "RH 68%", "x": 0, "y": 84},
+            {"text": "VPD 1.07kPa", "x": 0, "y": 92},
+            {"text": "CO2 579ppm", "x": 100, "y": 84},
+            {"text": "PPFD 610umol", "x": 100, "y": 92},
+        ]
+        out = tl._burn_items(src, items, "#ffffff", font_px=11.0)
+    finally:
+        ImageDraw.ImageDraw.rectangle = orig
+
+    assert out != src and len(rects) == 5
+
+    def overlaps(a, b):
+        ox = min(a[2], b[2]) - max(a[0], b[0])
+        oy = min(a[3], b[3]) - max(a[1], b[1])
+        return ox > 0 and oy > 0
+
+    for i in range(len(rects)):
+        for j in range(i + 1, len(rects)):
+            assert not overlaps(rects[i], rects[j]), (rects[i], rects[j])
+    # every box stays on the frame
+    for rc in rects:
+        assert rc[1] >= 0 and rc[3] <= 720 and rc[0] >= 0 and rc[2] <= 1280

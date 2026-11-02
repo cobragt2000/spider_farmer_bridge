@@ -729,9 +729,13 @@ def build_plan(mac, uid, stages, enabled, plan_cfg):
 
 
 def _cmd_se_mode(mac, uid, value):
-    mode = {"manual": 0, "automatic": 1, "0": 0, "1": 1}.get(
-        str(value).strip().lower()
-    )
+    v = str(value).strip().lower()
+    if v == "linked":
+        # "Linked" (slaved to a cb/ac) is driven by the RJ12 cable to a controller,
+        # not by a mode write — ignore it so selecting the reported state is a no-op.
+        logger.info("SE 'Linked' follows the RJ12 connection to a controller; not settable here")
+        return None
+    mode = {"manual": 0, "automatic": 1, "0": 0, "1": 1}.get(v)
     if mode is None:
         logger.warning("Unknown SE mode: %s", value)
         return None

@@ -73,7 +73,8 @@ async def test_snapshot_and_restore_fills_empties(hass: HomeAssistant):
     reg.async_update_entity(eid, name=None, icon=None)
     assert reg.async_get(eid).name is None
 
-    applied = preserve.restore_customizations(hass, entry.entry_id)
+    # Restore loads the snapshot off the loop (executor) and fills the empties
+    applied = await preserve.restore_customizations(hass, entry.entry_id)
     assert applied >= 1
     restored = reg.async_get(eid)
     assert restored.name == "Tent Temp"
@@ -98,7 +99,7 @@ async def test_restore_never_overwrites_current(hass: HomeAssistant):
 
     # User has since set a NEW name — restore must not clobber it
     reg.async_update_entity(eid, name="New Name")
-    preserve.restore_customizations(hass, entry.entry_id)
+    await preserve.restore_customizations(hass, entry.entry_id)
     assert reg.async_get(eid).name == "New Name"
 
     if s.initial_poll_task:

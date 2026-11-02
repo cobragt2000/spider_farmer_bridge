@@ -730,8 +730,12 @@ def build_device_entities(
     if dtype == "se" and want("selight"):
         defs += [
             d("light", "se_light", "Light", kind="se"),
+            # "Linked" (slaved to a cb/ac) is a read-only state the device reports
+            # via isForceSlaveMode; it's included so the select accepts the "Linked"
+            # state, but it follows the RJ12 cable to a controller — picking it here
+            # is a no-op (see _cmd_se_mode). (v3.19.395)
             d("select", "se_mode_set", "Mode", icon="mdi:cog",
-              options=["Manual", "Automatic"], command_field="se_mode"),
+              options=["Manual", "Automatic", "Linked"], command_field="se_mode"),
             d("text", "se_schedule_start_set", "Schedule Start",
               icon="mdi:clock-start", command_field="se_light",
               command_subfield="schedule_start"),

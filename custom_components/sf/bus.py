@@ -1972,9 +1972,10 @@ class SfBus:
                 fresh.append(e)
             store[eid] = e
         self._oplog_seeded.add(mac)
-        if f"ggs_{mac}_oplog" not in self._registered and mac in self.device_display:
-            cfg = {"mac": mac_raw, "type": self._type_for_mac(mac_raw)}
-            self._add_defs([build_oplog_entity(cfg, slot=self._slot_for_cfg(cfg))])
+        # The "Operations" (oplog) diagnostic sensor is no longer created — its state
+        # was just the last op time and nothing consumed it (the card uses recorder
+        # history; the climate on/off derivation below uses `merged` directly, not the
+        # entity). (v3.19.392) A one-time migration drops the existing entity.
         merged = sorted(
             store.values(),
             key=lambda x: (x.get("epoch") or 0, x.get("id") or 0), reverse=True,

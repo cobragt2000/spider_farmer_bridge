@@ -135,39 +135,49 @@ def test_normalize_config_response():
 
 
 def test_mode_set_select_syncs_from_own_topic():
-    """v3.19.133 root cause: the fan/blower/climate *_mode_set selects stripped
-    the trailing '_set' and subscribed to the read-only sensor topic
-    (blower_mode/state = 'Environment: Prioritize Humi'), whose verbose label
-    never matches a select option — so the select stayed stuck on 'Manual' and
-    the card's mode appeared to revert. The select must ALSO listen to its own
-    collapsed topic (blower_mode_set/state = 'Environment')."""
+    """The fan/blower/climate *_mode_set selects are fed by their OWN collapsed
+    '_mode_set' topic. They must NOT also subscribe to the read-only '_mode' sensor
+    topic: that sensor uses a coarse mapping that can emit a BARE option label
+    (heater in Temperature mode -> '_mode' = 'Manual' while '_mode_set' = 'Temperature'),
+    which made the select flap Temperature<->Manual in the logbook every status frame.
+    (v3.19.391; originally v3.19.133.)"""
     from custom_components.sf.select import SfLevelSelect
     from custom_components.sf.entity_defs import SfDef
 
-    d = SfDef(
-        platform="select", field="blower_mode_set", name="Blower Mode Set",
-        mac=CB_MAC_LC, mac_raw=CB_MAC, device_name="SF", device_model="AC5",
-        options=["Manual", "Time Slot", "Cycle", "Environment"],
-        command_field="blower", command_subfield="mode",
-    )
-    sel = object.__new__(SfLevelSelect)      # bypass __init__ (needs a live bus)
-    sel.d = d
-    sel._attr_options = list(d.options)
-    sel._attr_current_option = "Manual"
-    sel._outlet_mode_n = None
+    def mk(field, options, cf, csf):
+        d = SfDef(
+            platform="select", field=field, name=field,
+            mac=CB_MAC_LC, mac_raw=CB_MAC, device_name="SF", device_model="AC5",
+            options=options, command_field=cf, command_subfield=csf,
+        )
+        sel = object.__new__(SfLevelSelect)   # bypass __init__ (needs a live bus)
+        sel.d = d
+        sel._attr_options = list(d.options)
+        sel._attr_current_option = options[0]
+        sel._outlet_mode_n = None
+        return sel
 
+    # A climate/fan mode select: own topic subscribed, stripped "_mode" NOT subscribed.
+    sel = mk("blower_mode_set", ["Manual", "Time Slot", "Cycle", "Environment"], "blower", "mode")
     topics = sel.state_topics
-    assert f"ggs/ha/{CB_MAC_LC}/blower_mode_set/state" in topics   # own topic
-    assert f"ggs/ha/{CB_MAC_LC}/blower_mode/state" in topics       # fallback
+    assert f"ggs/ha/{CB_MAC_LC}/blower_mode_set/state" in topics       # own topic
+    assert f"ggs/ha/{CB_MAC_LC}/blower_mode/state" not in topics       # no flappy fallback
 
-    # The verbose read-only value doesn't match an option -> ignored, keep last.
-    sel._handle_payload(
-        f"ggs/ha/{CB_MAC_LC}/blower_mode/state", "Environment: Prioritize Humi")
-    assert sel._attr_current_option == "Manual"
-    # The select's own collapsed topic matches an option -> the select tracks it.
-    sel._handle_payload(
-        f"ggs/ha/{CB_MAC_LC}/blower_mode_set/state", "Environment")
+    # The heater mode select likewise ignores the "_mode" sensor topic.
+    heat = mk("heater_mode_set", ["Manual", "Time Slot", "Cycle", "Temperature"], "heater", "mode")
+    assert f"ggs/ha/{CB_MAC_LC}/heater_mode/state" not in heat.state_topics
+
+    # The select tracks its own collapsed topic.
+    sel._handle_payload(f"ggs/ha/{CB_MAC_LC}/blower_mode_set/state", "Environment")
     assert sel._attr_current_option == "Environment"
+
+    # Exceptions that KEEP the stripped fallback:
+    # - SE light select (se_mode is its only source)
+    se = mk("se_mode_set", ["Manual", "Automatic"], "se1", "mode")
+    assert f"ggs/ha/{CB_MAC_LC}/se_mode/state" in se.state_topics
+    # - non-mode "_set" selects (e.g. dehumidifier_level_set)
+    lvl = mk("dehumidifier_level_set", ["Low", "High"], "dehumidifier", "level")
+    assert f"ggs/ha/{CB_MAC_LC}/dehumidifier_level/state" in lvl.state_topics
 
 
 def test_tz_sync_from_ha_timezone():

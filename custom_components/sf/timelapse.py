@@ -829,17 +829,22 @@ def _burn_items(content: bytes, items: list, color: str = "#ffffff", font_px: fl
         r, g, b = _hex_rgb(color)
         pad = max(6, int(fs * 0.4))
         line_h = fs + max(2, int(fs * 0.3))
+        # First pass: measure every box (remember per-line widths for right-alignment).
+        placed = []
         for it in items:
             lines = [_font_safe(ln, uni_ok) for ln in str(it.get("text", "")).split("\n")]
             if not any(lines):
                 continue
+            lws = []
             text_w = 0
             for ln in lines:
                 try:
                     bb = draw.textbbox((0, 0), ln, font=font)
-                    text_w = max(text_w, bb[2] - bb[0])
+                    lw = bb[2] - bb[0]
                 except Exception:
-                    text_w = max(text_w, len(ln) * fs // 2)
+                    lw = len(ln) * fs // 2
+                lws.append(lw)
+                text_w = max(text_w, lw)
             box_w = text_w + pad * 2
             box_h = line_h * len(lines) + pad * 2
             xpct = float(it.get("x", 2.0))
@@ -853,19 +858,40 @@ def _burn_items(content: bytes, items: list, color: str = "#ffffff", font_px: fl
                 x0 = int(xpct / 100.0 * w)
             y0 = int(float(it.get("y", 70.0)) / 100.0 * h)
             x0 = max(0, min(x0, w - box_w))
-            y0 = max(0, min(y0, h - box_h))
-            draw.rectangle([x0, y0, x0 + box_w, y0 + box_h], fill=(0, 0, 0, 140))
+            placed.append({"lines": lines, "lws": lws, "x0": x0, "y0": y0,
+                           "w": box_w, "h": box_h, "right": right_side})
+        # De-overlap (v3.19.393): the burn draws each label at its stored y%, but burned boxes
+        # are taller (relative to the frame) than the card's boxes, so a stack that looks flush
+        # on the card can overlap once burned — the translucent fills then double into dark
+        # bands. Group boxes into columns (overlapping x-ranges), stack them flush in y-order,
+        # and if a column runs past the image bottom shift the whole column up so it stays on
+        # the frame. This guarantees burned labels never overlap, at any text size.
+        columns: list = []
+        for bx in sorted(placed, key=lambda p: p["y0"]):
+            col = next((c for c in columns
+                        if any(bx["x0"] < m["x0"] + m["w"] and bx["x0"] + bx["w"] > m["x0"]
+                               for m in c)), None)
+            if col is None:
+                columns.append([bx])
+            else:
+                col.append(bx)
+        for col in columns:
+            col.sort(key=lambda p: p["y0"])
+            for i in range(1, len(col)):
+                floor = col[i - 1]["y0"] + col[i - 1]["h"]
+                if col[i]["y0"] < floor:
+                    col[i]["y0"] = floor
+            overflow = (col[-1]["y0"] + col[-1]["h"]) - h
+            if overflow > 0:
+                for bx in col:
+                    bx["y0"] = max(0, bx["y0"] - overflow)
+        # Second pass: draw (note: r, g, b above is the text colour — don't shadow b here).
+        for bx in placed:
+            x0, y0, box_w = bx["x0"], bx["y0"], bx["w"]
+            draw.rectangle([x0, y0, x0 + box_w, y0 + bx["h"]], fill=(0, 0, 0, 140))
             y = y0 + pad
-            for ln in lines:
-                if right_side:
-                    try:
-                        bb = draw.textbbox((0, 0), ln, font=font)
-                        lw = bb[2] - bb[0]
-                    except Exception:
-                        lw = len(ln) * fs // 2
-                    lx = x0 + box_w - pad - lw
-                else:
-                    lx = x0 + pad
+            for ln, lw in zip(bx["lines"], bx["lws"]):
+                lx = (x0 + box_w - pad - lw) if bx["right"] else (x0 + pad)
                 draw.text((lx, y), ln, font=font, fill=(r, g, b, 255))
                 y += line_h
         out = BytesIO()

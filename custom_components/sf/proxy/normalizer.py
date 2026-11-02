@@ -357,8 +357,20 @@ def normalize_status(
                 m = int(d.get("mode"))
             except (ValueError, TypeError):
                 m = -1
-            out[f"ggs/ha/{e}/se_mode/state"] = _SE_MODE_LABELS.get(
-                m, f"Mode {d.get('mode')}"
+            # isForceSlaveMode=1 => the light is "Linked": slaved to a paired
+            # controller (a display panel "cb" / power strip "ac" drives its
+            # output). Confirmed from live frames (slave=1 always rides with
+            # mode 2). Surface it as "Linked" so the card shows the read-only
+            # linked state; it follows the RJ12 cable to a controller, not a mode
+            # write. The device-authoritative flag is isForceSlaveMode, not mode.
+            # (v3.19.395)
+            try:
+                slave = int(d.get("isForceSlaveMode") or 0)
+            except (ValueError, TypeError):
+                slave = 0
+            out[f"ggs/ha/{e}/se_mode/state"] = (
+                "Linked" if slave == 1
+                else _SE_MODE_LABELS.get(m, f"Mode {d.get('mode')}")
             )
         return out
 

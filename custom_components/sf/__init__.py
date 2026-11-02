@@ -97,6 +97,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # number-domain ghost left on display panels adopted before the change.
     _migrate_display_off_to_select(hass, entry)
 
+    # One-time (3.19.392): the "Operations" (oplog) diagnostic sensor is no longer
+    # created (its state was just the last op time and nothing consumed it). Remove
+    # the existing entity so it doesn't linger as an "unavailable" ghost.
+    _migrate_remove_oplog(hass, entry)
+
     # One-time (3.19.103): soil calibration/substrate entity ids were never
     # re-homed when a Display Panel's dp slot changed, so a dp1<->dp2 swap left
     # them stranded on the other panel (their device name showed the wrong
@@ -294,6 +299,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # so the entities (which HA always lists on the device page, even when
     # hidden) are gone entirely.
     _remove_apply_entities(hass)
+
+    # Restore customizations (entity/device renames, icons, areas) that a previous
+    # remove-with-preserve saved. Load the snapshot OFF the event loop once, then
+    # apply it now AND again as devices reconnect and their entities appear
+    # (SIGNAL_AVAILABILITY) — on a fresh reinstall the entities are created after
+    # setup, so a one-shot pass would miss them. apply_snapshot does no I/O, only
+    # fills EMPTY fields, and never clobbers a current value, so re-running is cheap
+    # and safe. The loaded snapshot is held in the closure so we don't re-read the
+    # file on every availability change.
+    _preserve_snap = await hass.async_add_executor_job(preserve._load_snapshot, hass)
+    if _preserve_snap:
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .const import SIGNAL_AVAILABILITY
+        preserve.apply_snapshot(hass, entry.entry_id, _preserve_snap)
+        entry.async_on_unload(async_dispatcher_connect(
+            hass, SIGNAL_AVAILABILITY,
+            lambda *_: preserve.apply_snapshot(hass, entry.entry_id, _preserve_snap)))
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
@@ -631,6 +653,29 @@ def _migrate_display_off_to_select(hass: HomeAssistant, entry: ConfigEntry) -> N
         _LOGGER.info(
             "Removed %d stale number-domain Display Off entity(ies) now "
             "replaced by the select version", removed)
+
+
+def _migrate_remove_oplog(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """3.19.392: the per-controller "Operations" (oplog) diagnostic sensor
+    (unique_id ``ggs_<mac>_oplog``) is no longer created — its state was only the
+    last operation time and nothing consumed it. Remove any existing entity so it
+    doesn't sit on the device page as an unavailable "no longer provided" ghost.
+    Idempotent."""
+    import re
+    from homeassistant.helpers import entity_registry as er
+
+    ent_reg = er.async_get(hass)
+    uid_re = re.compile(r"^ggs_[0-9a-f]+_oplog$")
+    removed = 0
+    for e in list(er.async_entries_for_config_entry(ent_reg, entry.entry_id)):
+        if e.domain == "sensor" and uid_re.match(e.unique_id or ""):
+            try:
+                ent_reg.async_remove(e.entity_id)
+                removed += 1
+            except KeyError:
+                pass
+    if removed:
+        _LOGGER.info("Removed %d retired Operations (oplog) sensor(s)", removed)
 
 
 def _seed_component_decisions(hass: HomeAssistant, entry: ConfigEntry) -> None:

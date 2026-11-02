@@ -69,3 +69,28 @@ async def test_migrate_removes_stale_number_display_off(hass: HomeAssistant):
 
     await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+async def test_migrate_removes_retired_oplog_sensor(hass: HomeAssistant):
+    """v3.19.392: the 'Operations' (oplog) diagnostic sensor was retired (nothing
+    consumed it). Setup's migration removes any existing ggs_<mac>_oplog sensor so
+    it doesn't linger on the device page as an unavailable ghost."""
+    mac_lc = "0a1b2c3d4e1a"
+    entry = MockConfigEntry(
+        domain=DOMAIN, unique_id=DOMAIN, title="SF",
+        data={"listen_port": 18989, "upstream_host": "sf.mqtt.spider-farmer.com",
+              "upstream_port": 8883})
+    entry.add_to_hass(hass)
+    reg = er.async_get(hass)
+    stale = reg.async_get_or_create(
+        "sensor", DOMAIN, f"ggs_{mac_lc}_oplog",
+        suggested_object_id="sf_dp9_oplog", config_entry=entry)
+    assert reg.async_get(stale.entity_id) is not None
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert reg.async_get_entity_id("sensor", DOMAIN, f"ggs_{mac_lc}_oplog") is None
+
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()

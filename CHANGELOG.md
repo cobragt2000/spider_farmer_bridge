@@ -3,6 +3,126 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.399
+
+### Added
+- **Preserved customizations are now restored on reinstall.** When the integration is
+  removed with preservation on, your entity/device renames, icons and areas are saved;
+  on the next install they're now applied back automatically — this was built and
+  tested before but never wired in. The snapshot is read off the event loop (executor),
+  then applied once at setup and again as devices reconnect and their entities appear,
+  filling only EMPTY fields so it never clobbers a value you've since changed.
+
+## 3.19.398
+
+### Fixed
+- **three.js is now bundled and served locally (no CDN).** The PPFD 3D card used to
+  pull three.js r128 from cdnjs at runtime, which broke offline/local-only setups and
+  ran third-party code from the internet in the user's session. three.js is now shipped
+  in `cards/three.min.js`, served from the integration's own route, and loaded relative
+  to the card bundle — the 3D view works fully offline. (card 0.21.120)
+- **Removal no longer blocks the event loop.** `preserve.py`'s `handle_removal` read the
+  customization snapshot with a blocking `open()`/`json.load()` directly on the event
+  loop; it now runs in the executor (`async_add_executor_job`), so removing the
+  integration can't stall Home Assistant.
+
+## 3.19.397
+
+### Fixed
+- **SE light card showed "Linked" twice.** Once the backend added "Linked" to the mode
+  select's options (3.19.395), the card rendered it from the options *and* appended its
+  own, so the segmented control read Manual / Automatic / Linked / Linked. The card now
+  shows the Linked option once — active and read-only while linked — and only falls back
+  to appending its own Linked button on older backends that don't list it. (card 0.21.119)
+
+## 3.19.396
+
+### Added
+- **SE light card: visual config editor.** The Spider Light card now has a picker UI
+  like the other cards — Title, SE-light dropdown and accent colour — so you can set
+  it up without editing YAML. (card 0.21.118)
+
+### Changed
+- **SE light card: Apply/Discard bar hidden while Linked.** In Linked mode the card
+  is read-only (the controller drives the light), so the commit bar had nothing to
+  do — it's now hidden while Linked and shown again in Manual/Automatic.
+
+## 3.19.395
+
+### Added
+- **SE light "Linked" mode.** When a standalone SE light is driven by a controller
+  (a display panel "cb" or power strip "ac") over the RJ12 cable, the device reports
+  `isForceSlaveMode=1`. The light card now shows a third mode — **Linked** — alongside
+  Manual and Automatic, with the dial, power toggle, brightness slider and mode
+  switch read-only (the controller owns the output) and a short note explaining it.
+  Linked is auto-detected from the RJ12 connection; it isn't settable (selecting it
+  is a no-op). The backend surfaces the state from the authoritative slave-mode flag,
+  and the card reads the mode sensor so it works even before this update reaches a
+  given install. (card 0.21.117)
+
+## 3.19.394
+
+### Changed
+- **Bundled Spider Farmer Hotspot add-on updated to 0.8.8** — it now coexists with a
+  host DNS server (AdGuard Home, Pi-hole) that owns port 53. Previously such a service
+  listening on `0.0.0.0:53` blocked the hotspot: dnsmasq couldn't bind the AP's `:53`
+  ("Address in use"), so DHCP and the `sf.mqtt` DNS spoof never started. The add-on now
+  runs its DNS on `:5353` and nft-redirects the hotspot interface's `:53` to it, so both
+  coexist automatically — the host's own `:53` is untouched. No integration code change;
+  update the add-on from the Supervisor (Add-on → Changelog) to get it.
+
+## 3.19.393
+
+### Fixed
+- **Time-lapse burned overlay: stacked labels no longer overlap.** The burn draws each reading
+  at its stored position, but the burned-in label boxes are taller (relative to the frame) than
+  the on-card boxes, so a tight vertical stack that looked flush while positioning could overlap
+  once burned — the translucent boxes then doubled into dark bands. The burn now groups labels
+  into columns, stacks them flush so they never overlap, and shifts a column up if it would run
+  past the bottom of the frame so nothing is clipped. Applies to newly captured frames.
+
+## 3.19.392
+
+### Changed
+- **Removed the "Operations" diagnostic sensor.** Its state was only the last operation time
+  and nothing consumed it (the card's Device Log uses recorder history; the climate on/off
+  derivation uses the op-log data directly, not this entity). The sensor is no longer created,
+  and a one-time migration removes any existing one so it doesn't linger as an "unavailable"
+  ghost. (The "Alarms" sensor stays — its `events` attribute still feeds the card's Log tab;
+  hide it in Home Assistant if you don't want it on the device page.)
+
+## 3.19.391
+
+### Fixed
+- **"Heater/Humidifier/Dehumidifier Mode Set" spammed the logbook, flapping between its real
+  mode and "Manual."** The mode-select subscribed to its read-only `_mode` sensor topic as a
+  fallback, but that sensor uses a coarser mapping that emits a bare "Manual" for a heater in
+  Temperature mode (and likewise for Humidity), while the authoritative `_mode_set` topic said
+  "Temperature" — so the select bounced between the two every status frame (even with the
+  accessory idle). The mode selects now read only from their dedicated `_mode_set` topic (which
+  the normalizer publishes every live and config frame), so there's no flap. The SE-light mode
+  select and the non-mode level selects keep their sensor fallback, unchanged.
+
+## 3.19.390
+
+### Fixed
+- **Fan/Blower Speed dropdown showed the wrong gear.** The selector set its choice with only
+  `?selected` on the options (an attribute, not the control's live value), so on a re-render it
+  could snap to a stale/wrong gear. Now bound with Lit's `live()` to the selected gear (same fix
+  the Light brightness dropdown got in 3.19.351/352).
+- **Speed/Brightness bounced back to the old value during "Saving…".** After pressing Apply the
+  dropdown/slider reverted to the previous value until the device reported in. It now holds the
+  just-applied value optimistically through the save (8s backstop), like the power toggle already
+  does, then settles on the confirmed value. Card → 0.21.116.
+
+## 3.19.389
+
+### Fixed
+- **Device Log / Outlets Log time range now sticks across refreshes.** The 1h/6h/12h/24h/7d
+  selector reset to 24h on every page reload. It's now saved server-side (like the tile-graph
+  range), so it keeps your last choice across refreshes, devices, and sessions. (The selector is
+  shared by both the Device Log and Outlets Log tabs.) Card → 0.21.115.
+
 ## 3.19.388
 
 ### Changed

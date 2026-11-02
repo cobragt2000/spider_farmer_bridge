@@ -30,7 +30,10 @@ SE_DATA_OFF = {
     "isForceSlaveMode": 1, "AutoModeCheck": -1,
     "lastOnBrightness": 0, "lastManualBrightness": 0, "lightModel": 3,
 }
-SE_DATA_ON = {**SE_DATA_OFF, "brightness": 55, "pwm": 55, "mode": 1}
+# A NON-linked light: Automatic at 55% (isForceSlaveMode cleared, so the mode
+# decodes to the real mode, not "Linked").
+SE_DATA_ON = {**SE_DATA_OFF, "brightness": 55, "pwm": 55, "mode": 1,
+              "isForceSlaveMode": 0}
 
 
 def _pkt(data: dict) -> MQTTPacket:
@@ -83,7 +86,9 @@ async def test_se_light_detected_and_entities(hass: HomeAssistant):
     br = hass.states.get("sensor.sf_se1_brightness")
     assert br is not None and br.state == "0"
     assert hass.states.get("binary_sensor.sf_se1_active").state == "off"
-    assert hass.states.get("sensor.sf_se1_mode").state == "Automatic (Standby)"
+    # isForceSlaveMode=1 in the captured frame => the light is slaved to a paired
+    # controller, surfaced as "Linked" (read-only on the card). (v3.19.395)
+    assert hass.states.get("sensor.sf_se1_mode").state == "Linked"
 
     # Device registered with the SE label
     from homeassistant.helpers import device_registry as dr

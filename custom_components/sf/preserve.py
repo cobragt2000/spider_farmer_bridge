@@ -115,10 +115,12 @@ def _load_snapshot(hass: HomeAssistant) -> dict | None:
 
 
 @callback
-def restore_customizations(hass: HomeAssistant, entry_id: str) -> int:
-    """Fill EMPTY customization fields on this entry's entities/devices from
-    the snapshot. Never overwrites current values. Returns count applied."""
-    snap = _load_snapshot(hass)
+def apply_snapshot(hass: HomeAssistant, entry_id: str, snap: dict | None) -> int:
+    """Fill EMPTY customization fields (name / icon / area) on this entry's
+    entities and devices from an already-loaded snapshot. Never overwrites a
+    current value. Does NO file I/O, so it's safe to call on the event loop and
+    cheap to re-run (e.g. from a dispatcher callback as devices reconnect and
+    their entities appear). Returns the number of items filled."""
     if not snap:
         return 0
 
@@ -171,6 +173,13 @@ def restore_customizations(hass: HomeAssistant, entry_id: str) -> int:
     return applied
 
 
+async def restore_customizations(hass: HomeAssistant, entry_id: str) -> int:
+    """Load the preservation snapshot OFF the event loop, then apply it (fills
+    EMPTY fields only). Returns the number of items filled."""
+    snap = await hass.async_add_executor_job(_load_snapshot, hass)
+    return apply_snapshot(hass, entry_id, snap)
+
+
 def delete_snapshot(hass: HomeAssistant) -> None:
     path = _snapshot_path(hass)
     try:
@@ -218,7 +227,8 @@ async def purge_recorder(hass: HomeAssistant, entity_ids: list[str]) -> None:
 
 async def handle_removal(hass: HomeAssistant, entry, preserve: bool) -> None:
     """Called from async_remove_entry."""
-    snap = _load_snapshot(hass)
+    # _load_snapshot does a blocking open()/json.load(); keep it off the event loop.
+    snap = await hass.async_add_executor_job(_load_snapshot, hass)
     entity_ids = list(snap.get("all_entity_ids", [])) if snap else []
 
     if preserve:

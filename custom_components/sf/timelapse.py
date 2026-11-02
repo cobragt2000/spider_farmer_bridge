@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 from datetime import datetime, timedelta
 
@@ -61,6 +62,9 @@ SIGNAL_TIMELAPSE_UPDATE = "sf_timelapse_update_{}"
 SIGNAL_TIMELAPSE_INSTANCES = "sf_timelapse_instances_{}"
 FRAME_EXT = ".jpg"
 _SESSION_FMT = "%Y%m%d-%H%M%S"
+# Our session folders are named by the capture timestamp (_SESSION_FMT). Used to
+# tell OUR folders apart from anything else that may live in the storage root.
+_SESSION_RE = re.compile(r"^\d{8}-\d{6}$")
 
 
 def _safe_segment(name: str) -> bool:
@@ -973,20 +977,53 @@ def read_env(root: str, session: str) -> dict:
     return out
 
 
+def _is_sf_artifact(name: str) -> bool:
+    """A file the integration wrote inside a session folder: a .jpg frame (or its
+    .part temp while writing), the _env.jsonl sidecar, or an exported .mp4."""
+    return (
+        name.endswith(FRAME_EXT)
+        or name.endswith(FRAME_EXT + ".part")
+        or name == "_env.jsonl"
+        or name.endswith(".mp4")
+    )
+
+
 def _clear_frames(root: str) -> int:
-    """Remove every session dir + stray file under the instance root (frames, env
-    sidecars, exported mp4s). Keeps the root folder itself. Returns jpg count removed."""
+    """Remove ONLY what the integration created under `root`: its own timestamp-named
+    session folders and, inside them, the .jpg frames, _env.jsonl sidecars and
+    exported .mp4 files. Anything else a user keeps in this folder — other files,
+    other subfolders, or non-SF files inside a session folder — is left untouched
+    (a session folder is removed only once it's empty of everything else). Returns
+    the number of .jpg frames removed. (v3.19.401: scoped — never a blanket rmtree.)"""
     if not os.path.isdir(root):
         return 0
     removed = 0
-    for name in os.listdir(root):
-        p = os.path.join(root, name)
+    try:
+        entries = os.listdir(root)
+    except OSError:
+        return 0
+    for name in entries:
+        sdir = os.path.join(root, name)
+        # Only touch our own session folders (named by the capture timestamp).
+        if not (_SESSION_RE.match(name) and os.path.isdir(sdir)):
+            continue
         try:
-            if os.path.isdir(p):
-                removed += sum(1 for fn in os.listdir(p) if fn.endswith(FRAME_EXT))
-                shutil.rmtree(p, ignore_errors=True)
-            else:
-                os.remove(p)
+            files = os.listdir(sdir)
+        except OSError:
+            continue
+        for fn in files:
+            if not _is_sf_artifact(fn):
+                continue
+            try:
+                os.remove(os.path.join(sdir, fn))
+                if fn.endswith(FRAME_EXT):
+                    removed += 1
+            except OSError:
+                pass
+        # Drop the session folder only if nothing non-SF remains in it.
+        try:
+            if not os.listdir(sdir):
+                os.rmdir(sdir)
         except OSError:
             pass
     return removed

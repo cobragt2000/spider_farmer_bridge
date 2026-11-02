@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.service import async_register_admin_service
 
 from .bus import SfBus
 from .diag import DIAG
@@ -1189,6 +1190,15 @@ def _async_register_services(hass: HomeAssistant) -> None:
             if not path or _is_blocked_timelapse_dir(path):
                 _LOGGER.warning("Time-lapse: refused insecure storage dir %r", d["storage_dir"])
                 return
+            # Only allow paths Home Assistant itself permits access to
+            # (allowlist_external_dirs, which includes media_dirs — the default
+            # /media lives here). Blocks pointing the integration at /config,
+            # arbitrary host paths, etc.
+            if not await hass.async_add_executor_job(hass.config.is_allowed_path, path):
+                _LOGGER.warning(
+                    "Time-lapse: storage dir %s is not in Home Assistant's allowed "
+                    "paths (allowlist_external_dirs / media_dirs) — refusing", path)
+                return
             if not await hass.async_add_executor_job(_timelapse_dir_writable, path):
                 _LOGGER.warning("Time-lapse: storage dir not writable: %s", path)
                 return
@@ -1291,8 +1301,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
                                vol.Optional("fps"): vol.Coerce(int),
                                vol.Optional("name"): cv.string}))
     if not hass.services.has_service(DOMAIN, "timelapse_configure"):
-        hass.services.async_register(
-            DOMAIN, "timelapse_configure", _timelapse_configure,
+        # Admin-only: these point the integration at a storage folder and can
+        # delete the frames/exports under it, so only admins may call them.
+        async_register_admin_service(
+            hass, DOMAIN, "timelapse_configure", _timelapse_configure,
             schema=vol.Schema({
                 vol.Optional("tl_id"): cv.string,
                 vol.Optional("name"): cv.string,
@@ -1316,12 +1328,12 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 vol.Optional("daily_at"): cv.string,
             }))
     if not hass.services.has_service(DOMAIN, "timelapse_clear"):
-        hass.services.async_register(
-            DOMAIN, "timelapse_clear", _timelapse_clear,
+        async_register_admin_service(
+            hass, DOMAIN, "timelapse_clear", _timelapse_clear,
             schema=vol.Schema({vol.Optional("tl_id"): cv.string}))
     if not hass.services.has_service(DOMAIN, "timelapse_remove"):
-        hass.services.async_register(
-            DOMAIN, "timelapse_remove", _timelapse_remove,
+        async_register_admin_service(
+            hass, DOMAIN, "timelapse_remove", _timelapse_remove,
             schema=vol.Schema({vol.Required("tl_id"): cv.string,
                                vol.Optional("delete_images"): cv.boolean}))
 

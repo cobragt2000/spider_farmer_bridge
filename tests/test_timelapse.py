@@ -652,7 +652,7 @@ async def test_remove_with_delete_images_wipes_folder(hass, tmp_path):
     the same camera starts clean, no manual folder deletion. Mirrors the service
     handler's delete_images branch: async_clear() then remove from options + sync."""
     root = tmp_path / "grow"
-    sess = root / "s1"; sess.mkdir(parents=True)
+    sess = root / "20260101-120000"; sess.mkdir(parents=True)
     (sess / "20260101-000000.jpg").write_bytes(b"x")
     (sess / "20260101-000005.jpg").write_bytes(b"x")
     entry = MockConfigEntry(domain=DOMAIN, data={}, options={
@@ -698,14 +698,14 @@ async def test_migration_folds_legacy_into_instance(hass, tmp_path):
 async def test_clear_deletes_all_images(hass, tmp_path, monkeypatch):
     # Two sessions with frames + a stray export; clear wipes them but keeps the root.
     root = tmp_path
-    for sess in ("s1", "s2"):
+    for sess in ("20260101-000000", "20260102-000000"):
         d = root / sess; d.mkdir()
         (d / "20260101-000000.jpg").write_bytes(b"x")
         (d / "20260101-000005.jpg").write_bytes(b"x")
-    (root / "s1" / "timelapse_s1.mp4").write_bytes(b"\x00mp4")
+    (root / "20260101-000000" / "timelapse_export.mp4").write_bytes(b"\x00mp4")
     entry = _inst_entry(tmp_path, enabled=False)
     ctrl = tl.TimelapseController(hass, entry, "grow")
-    ctrl._session = "s2"; ctrl._frame_count = 2
+    ctrl._session = "20260102-000000"; ctrl._frame_count = 2
     removed = await ctrl.async_clear()
     assert removed == 4                               # 2 frames in each of 2 sessions
     assert os.path.isdir(str(root))                   # root kept
@@ -861,3 +861,76 @@ def test_burn_items_stacked_labels_do_not_overlap():
     # every box stays on the frame
     for rc in rects:
         assert rc[1] >= 0 and rc[3] <= 720 and rc[0] >= 0 and rc[2] <= 1280
+
+
+def test_clear_frames_only_touches_sf_artifacts():
+    """Security (v3.19.401): _clear_frames removes ONLY the integration's own
+    timestamp-named session folders and the .jpg / _env.jsonl / .mp4 inside them.
+    A user's own files and folders in the storage root — and non-SF files inside a
+    session folder — are left completely alone (no blanket rmtree)."""
+    import os
+    import tempfile
+    from custom_components.sf.timelapse import _clear_frames
+
+    with tempfile.TemporaryDirectory() as root:
+        # Our own session folder with SF artifacts + a stray user file inside it.
+        sess = os.path.join(root, "20260101-000000")
+        os.makedirs(sess)
+        open(os.path.join(sess, "20260101-000000.jpg"), "wb").close()
+        open(os.path.join(sess, "20260101-000005.jpg"), "wb").close()
+        open(os.path.join(sess, "_env.jsonl"), "wb").close()
+        open(os.path.join(sess, "timelapse_export.mp4"), "wb").close()
+        open(os.path.join(sess, "notes.txt"), "w").close()        # user file in a session
+
+        # Foreign content a user keeps in the same storage root.
+        open(os.path.join(root, "important.txt"), "w").close()
+        other = os.path.join(root, "my_photos")
+        os.makedirs(other)
+        open(os.path.join(other, "vacation.jpg"), "wb").close()
+
+        removed = _clear_frames(root)
+
+        assert removed == 2                                        # only our 2 frames
+        # SF artifacts gone
+        assert not os.path.exists(os.path.join(sess, "20260101-000000.jpg"))
+        assert not os.path.exists(os.path.join(sess, "_env.jsonl"))
+        assert not os.path.exists(os.path.join(sess, "timelapse_export.mp4"))
+        # user's file inside the session (and therefore the session folder) survives
+        assert os.path.exists(os.path.join(sess, "notes.txt"))
+        assert os.path.isdir(sess)
+        # foreign root content untouched
+        assert os.path.exists(os.path.join(root, "important.txt"))
+        assert os.path.isdir(other)
+        assert os.path.exists(os.path.join(other, "vacation.jpg"))
+
+
+def test_clear_frames_removes_empty_session_folder():
+    """A session folder that holds only SF artifacts is removed once emptied."""
+    import os
+    import tempfile
+    from custom_components.sf.timelapse import _clear_frames
+
+    with tempfile.TemporaryDirectory() as root:
+        sess = os.path.join(root, "20260303-101112")
+        os.makedirs(sess)
+        open(os.path.join(sess, "20260303-101112.jpg"), "wb").close()
+        assert _clear_frames(root) == 1
+        assert not os.path.exists(sess)                            # emptied → removed
+        assert os.path.isdir(root)                                 # root kept
+
+
+async def test_timelapse_services_are_admin_only(hass):
+    """Security (v3.19.401): timelapse_configure / timelapse_clear / timelapse_remove
+    must be admin-only — a non-admin user must not be able to point the integration
+    at a folder or wipe it. A call carrying a non-admin user context is rejected."""
+    from homeassistant.core import Context
+    from homeassistant.exceptions import Unauthorized
+    from custom_components.sf import _async_register_services
+
+    _async_register_services(hass)
+    for svc in ("timelapse_configure", "timelapse_clear", "timelapse_remove"):
+        assert hass.services.has_service(DOMAIN, svc), svc
+        with pytest.raises(Unauthorized):
+            await hass.services.async_call(
+                DOMAIN, svc, {"tl_id": "grow"}, blocking=True,
+                context=Context(user_id="not-an-admin"))

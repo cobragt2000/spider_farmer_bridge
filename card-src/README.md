@@ -40,3 +40,7 @@ produces a **byte-identical** `spider-farmer-card.js`.
   locally from the integration's own route (no CDN).
 - `__CARD_VERSION__` in the source is replaced at build time with the `package.json`
   version.
+- All dependencies here are **build-time only** — nothing from `node_modules` is
+  bundled into `spider-farmer-card.js` except the app's own code plus Lit. The
+  `overrides` entry pins `serialize-javascript` to a patched version to clear a
+  build-tool advisory; it does not affect the output (the bundle is unchanged).

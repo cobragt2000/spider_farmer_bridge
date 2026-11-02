@@ -3,6 +3,37 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.402
+
+### Security
+- **Updated the card's build-time dependencies to clear Dependabot advisories.**
+  `card-src` now pins patched versions (`@rollup/plugin-terser` 1.x,
+  `@rollup/plugin-node-resolve` 16.x, and a `serialize-javascript` override),
+  resolving the high- and moderate-severity build-tool alerts. These are
+  dev/build-only dependencies — nothing from them ships to users — and the built
+  `spider-farmer-card.js` is byte-for-byte unchanged. (Two remaining low-severity
+  `deepmerge` advisories are a disputed prototype-pollution report with no patched
+  4.x release, in a build tool with no untrusted input.)
+
+## 3.19.401
+
+### Security
+- **Time-lapse services are now admin-only.** `sf.timelapse_configure`,
+  `sf.timelapse_clear` and `sf.timelapse_remove` are registered with
+  `async_register_admin_service`, so only admins can point the integration at a
+  storage folder or delete captured frames/exports.
+- **Storage folder is validated against Home Assistant's allowed paths.** In
+  addition to the existing `www` rejection, `storage_dir` must pass
+  `hass.config.is_allowed_path` (`allowlist_external_dirs` / `media_dirs`), so it
+  can't be set to `/config`, arbitrary host paths, etc. The default
+  `/media/sf_timelapse` is allowed out of the box.
+- **Clearing frames only removes the integration's own files.** `_clear_frames` no
+  longer does a blanket `rmtree` of every subfolder/file under the storage root. It
+  now touches only our timestamp-named session folders and, inside them, the `.jpg`
+  frames, `_env.jsonl` sidecars and exported `.mp4` files; a session folder is
+  removed only once it's empty. Any other file or folder a user keeps in that
+  location is left untouched.
+
 ## 3.19.400
 
 ### Added

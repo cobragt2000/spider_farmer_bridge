@@ -577,6 +577,21 @@ You do **not** need to symlink or copy the cards into `config/www/` — if that'
 the only thing that makes the card load, something above is the real cause and
 worth reporting with your log.
 
+### Building the dashboard card from source
+
+The bundled `custom_components/sf/cards/spider-farmer-card.js` is a minified build
+of the TypeScript source in [`card-src/`](card-src/). To rebuild it:
+
+```sh
+cd card-src
+npm install        # pinned versions from package-lock.json
+npm run build      # -> dist/spider-farmer-card.js
+cp dist/spider-farmer-card.js ../custom_components/sf/cards/spider-farmer-card.js
+```
+
+A clean install + build from the committed lock file reproduces the shipped file
+byte-for-byte. See [`card-src/README.md`](card-src/README.md) for details.
+
 ## Entity ID scheme
 
 ```

@@ -3,6 +3,17 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.400
+
+### Added
+- **Dashboard card source + build setup in the repo.** The bundled
+  `cards/spider-farmer-card.js` is a minified build; its TypeScript source and build
+  config now live in `card-src/` (`src/spider-farmer-card.ts`, `rollup.config.js`,
+  `package.json`, pinned `package-lock.json`, `tsconfig.json`) so the shipped file is
+  reviewable and reproducible. A clean `npm install && npm run build` from the
+  committed lock reproduces `spider-farmer-card.js` byte-for-byte. The built file
+  still ships in `cards/`; nothing changes for users.
+
 ## 3.19.399
 
 ### Added

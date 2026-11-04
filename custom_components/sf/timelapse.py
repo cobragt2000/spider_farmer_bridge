@@ -260,6 +260,15 @@ class TimelapseController:
         """Begin (or resume) a capture session. With resume=True and no explicit
         session, continues the most recent existing session so a reboot keeps one
         continuous time-lapse instead of fragmenting."""
+        # A caller-supplied session MUST be our timestamp format — it feeds
+        # os.path.join(self.root, session) in the capture loop, so an absolute path
+        # or traversal ("/config/www/x", "../../x") would write frames OUTSIDE the
+        # storage root. Reject anything else and fall back to a fresh timestamp.
+        if session is not None and not _SESSION_RE.match(session):
+            _LOGGER.warning(
+                "Time-lapse: ignoring invalid session %r (expected YYYYMMDD-HHMMSS)",
+                session)
+            session = None
         if not self.camera:
             self._last_error = "no_camera"
             self._notify()
@@ -1044,6 +1053,10 @@ def _sweep_retention(root: str, retention_days: int) -> None:
         return
     cutoff = datetime.now().timestamp() - retention_days * 86400
     for session in os.listdir(root):
+        # Only OUR own timestamp-named session folders — never touch other files or
+        # folders a user keeps in the storage root (e.g. their own /media/* JPEGs).
+        if not _SESSION_RE.match(session):
+            continue
         sdir = os.path.join(root, session)
         if not os.path.isdir(sdir):
             continue

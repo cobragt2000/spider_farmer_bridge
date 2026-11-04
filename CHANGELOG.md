@@ -3,6 +3,20 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.404
+
+### Security
+- **Time-lapse capture can't be pointed outside the storage root.** `timelapse_start`
+  no longer accepts a caller-supplied `session`; capture always uses a fresh,
+  timestamp-named folder. `async_start` also validates any `session` against the
+  `YYYYMMDD-HHMMSS` format and ignores anything else, so an absolute path or traversal
+  can't make the capture loop write frames to `/config/www` (served unauthenticated at
+  `/local/`) or any other folder.
+- **Retention cleanup only touches our own session folders.** `_sweep_retention` now
+  skips anything that isn't one of our timestamp-named session folders, so a storage
+  dir of `/media` no longer deletes a user's own older `.jpg` files in other `/media/*`
+  folders on each capture. (Same scoping as `_clear_frames`.)
+
 ## 3.19.403
 
 ### Security

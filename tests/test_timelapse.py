@@ -122,7 +122,7 @@ def test_list_sessions_and_frames(tmp_path):
 
 def test_retention_deletes_old_frames(tmp_path):
     root = str(tmp_path)
-    sdir = os.path.join(root, "sess")
+    sdir = os.path.join(root, "20260101-000000")
     os.makedirs(sdir)
     old = os.path.join(sdir, "old.jpg")
     new = os.path.join(sdir, "new.jpg")
@@ -934,3 +934,53 @@ async def test_timelapse_services_are_admin_only(hass):
             await hass.services.async_call(
                 DOMAIN, svc, {"tl_id": "grow"}, blocking=True,
                 context=Context(user_id="not-an-admin"))
+
+
+def test_retention_only_touches_sf_session_folders(tmp_path):
+    """Security (v3.19.404): _sweep_retention deletes old frames ONLY inside our own
+    timestamp-named session folders. A user's own old JPEGs in other folders of the
+    storage root (e.g. a /media/* photo folder) are never touched."""
+    import os
+    import time
+    root = str(tmp_path)
+    past = time.time() - 30 * 86400          # well past any retention window
+
+    # our session folder with an old frame
+    sess = os.path.join(root, "20260101-000000"); os.makedirs(sess)
+    sf_old = os.path.join(sess, "20260101-000000.jpg")
+    open(sf_old, "wb").close(); os.utime(sf_old, (past, past))
+
+    # the user's own folder + a loose file in the root, both with old JPEGs
+    photos = os.path.join(root, "my_photos"); os.makedirs(photos)
+    user_jpg = os.path.join(photos, "vacation.jpg")
+    open(user_jpg, "wb").close(); os.utime(user_jpg, (past, past))
+    root_jpg = os.path.join(root, "loose.jpg")
+    open(root_jpg, "wb").close(); os.utime(root_jpg, (past, past))
+
+    tl._sweep_retention(root, retention_days=7)
+
+    assert not os.path.exists(sf_old)         # our old frame swept
+    assert os.path.exists(user_jpg)           # user's JPEG untouched
+    assert os.path.isdir(photos)
+    assert os.path.exists(root_jpg)           # loose root file untouched
+
+
+async def test_async_start_rejects_unsafe_session(hass, tmp_path, monkeypatch):
+    """Security (v3.19.404): a session not matching the timestamp format is ignored,
+    so frames can never be written outside the storage root via os.path.join."""
+    class _Img:
+        content = b"\xff\xd8\xff\xe0jpeg"
+
+    async def _img(h, e, timeout=10):
+        return _Img()
+    monkeypatch.setattr("homeassistant.components.camera.async_get_image", _img)
+
+    entry = _inst_entry(tmp_path)
+    ctrl = tl.TimelapseController(hass, entry, "grow")
+    await ctrl.async_start(session="/config/www/evil")   # absolute path attempt
+    await hass.async_block_till_done()
+    # the unsafe value was dropped — a safe timestamp session is used instead
+    import re
+    assert re.match(r"^\d{8}-\d{6}$", ctrl.status()["session"] or "")
+    assert ctrl.status()["session"] != "/config/www/evil"
+    await ctrl.async_stop()

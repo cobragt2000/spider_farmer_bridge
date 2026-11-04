@@ -1125,11 +1125,11 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
     # ── Time-lapse capture controls (v3.19.362: per-instance, keyed by tl_id) ──
     async def _timelapse_start(call):
+        # No caller-supplied `session`: capture always uses a fresh, safe
+        # timestamp folder (prevents writing frames outside the storage root).
         ctrl = _tl_controller(hass, call.data.get("tl_id"))
         if ctrl is not None:
-            await ctrl.async_start(
-                session=call.data.get("session") or None,
-                interval=call.data.get("interval"))
+            await ctrl.async_start(interval=call.data.get("interval"))
 
     async def _timelapse_stop(call):
         ctrl = _tl_controller(hass, call.data.get("tl_id"))
@@ -1282,7 +1282,6 @@ def _async_register_services(hass: HomeAssistant) -> None:
         hass.services.async_register(
             DOMAIN, "timelapse_start", _timelapse_start,
             schema=vol.Schema({vol.Optional("tl_id"): cv.string,
-                               vol.Optional("session"): cv.string,
                                vol.Optional("interval"): vol.Coerce(int)}))
     if not hass.services.has_service(DOMAIN, "timelapse_stop"):
         hass.services.async_register(

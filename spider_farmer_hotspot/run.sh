@@ -13,7 +13,7 @@
 #   auto    - nmcli if a running NetworkManager is reachable, else hostapd.
 set -uo pipefail
 
-ADDON_VERSION="0.8.5"
+ADDON_VERSION="0.8.9"
 OPTIONS=/data/options.json
 NM_CON="SF-Bridge-Hotspot"
 DNSMASQ_PID=""
@@ -148,6 +148,28 @@ reassert_nft_if_missing() {
     apply_nft_rules \
       && log "WATCHDOG: rules reasserted (masquerade + DOCKER-USER forward + 8883->:${PROXY_PORT} redirect)." \
       || log "WATCHDOG: re-assert failed."
+  fi
+}
+
+# Make sure NetworkManager still has our AP connection active (nmcli backend
+# only). On Raspberry Pi built-in radios (brcmfmac) NM sometimes deactivates the
+# AP after a background scan / connectivity check / driver reset - the SSID
+# silently stops broadcasting even though dnsmasq is still alive, so the PID
+# watchdog below never notices ("worked overnight, then the SSID vanished").
+# Re-activate it so the hotspot self-heals without an add-on restart. (v0.8.9)
+ensure_ap_up() {
+  [ "${BACKEND}" = "nmcli" ] || return 0
+  command -v nmcli >/dev/null 2>&1 || return 0
+  if nmcli -t -f NAME con show --active 2>/dev/null | grep -qx "${NM_CON}"; then
+    return 0
+  fi
+  log "WATCHDOG: AP '${SSID}' is no longer active (NetworkManager dropped it) - bringing it back up."
+  nmcli dev set "${IFACE}" managed yes 2>/dev/null || true
+  if nmcli con up "${NM_CON}" 2>/dev/null; then
+    iw dev "${IFACE}" set power_save off 2>/dev/null || true
+    log "WATCHDOG: AP reactivated."
+  else
+    log "WATCHDOG: AP reactivation failed - will retry in ~20s."
   fi
 }
 
@@ -432,6 +454,9 @@ start_nmcli() {
     log "ERROR bringing up NM AP connection: ${out}"
     return 1
   fi
+  # Belt-and-braces: NM's powersave property doesn't always stick on brcmfmac,
+  # so also tell the driver directly. Best-effort - never fatal.
+  iw dev "${IFACE}" set power_save off 2>/dev/null || true
   sleep 2
   start_dnsmasq || return 1
   log "NetworkManager AP '${SSID}' is up."
@@ -608,6 +633,6 @@ while true; do
   # GGS controllers get stuck retrying NTP and never reach the cloud). Re-assert
   # them so it self-heals without an add-on/HA reload. (v0.8.2)
   WATCH=$((WATCH + 1))
-  if [ "${WATCH}" -ge 4 ]; then WATCH=0; reassert_nft_if_missing; fi
+  if [ "${WATCH}" -ge 4 ]; then WATCH=0; reassert_nft_if_missing; ensure_ap_up; fi
   sleep 5
 done

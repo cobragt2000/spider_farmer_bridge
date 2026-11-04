@@ -4,6 +4,22 @@ All notable changes to the **Spider Farmer Hotspot** add-on. The Supervisor
 offers an update whenever the `version` in `config.yaml` increases; the notes
 below are shown on the add-on's Changelog tab.
 
+## 0.8.9
+
+- **Self-heals when the AP drops (Raspberry Pi / brcmfmac fix).** On some Pi
+  built-in radios NetworkManager would silently deactivate the access point after
+  a background scan, connectivity check, or driver reset — the SSID stopped
+  broadcasting even though the add-on and its DNS were still running, so it looked
+  like "worked overnight, then the Wi-Fi vanished" and only an add-on restart
+  brought it back. The watchdog now checks every ~20 s that NetworkManager still
+  has the AP connection active and re-activates it if it was dropped, so the
+  hotspot recovers on its own. No configuration needed.
+- **Wi-Fi powersave now disabled at the driver level too.** In addition to the
+  NetworkManager powersave setting, the add-on tells the radio directly
+  (`iw dev … set power_save off`) on bring-up and after any re-activation —
+  NetworkManager's property doesn't always stick on brcmfmac.
+- Startup banner now reports the correct add-on version.
+
 ## 0.8.8
 
 - **Coexists with AdGuard Home / Pi-hole (port 53).** A host-wide DNS server that

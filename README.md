@@ -1,7 +1,7 @@
 # Spider Farmer Bridge for Home Assistant
 
 [![Validate](https://github.com/cobragt2000/spider_farmer_bridge/actions/workflows/validate.yml/badge.svg)](https://github.com/cobragt2000/spider_farmer_bridge/actions/workflows/validate.yml)
-[![hacs](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![hacs](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/default)
 [![Discord](https://img.shields.io/badge/Discord-Join%20our%20chat-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/YZCcdwXTCp)
 ![Discord Online](https://img.shields.io/discord/1527435346420175042)
 [![Integration usage](https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=integration%20usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.sf.total)](https://analytics.home-assistant.io/)
@@ -444,17 +444,26 @@ Home Assistant:
 
 ## Installation
 
-### HACS (custom repository)
+### HACS (recommended)
 
-**One click** — open this repository in your own HACS, then select **Download**:
+Spider Farmer Bridge is in the **default HACS store**, so you can install it straight
+from HACS search:
+
+1. **HACS** → search **Spider Farmer Bridge**
+2. Open it → **Download**, then **restart Home Assistant**
+
+**One click** — or open it directly in your HACS and select **Download**:
 
 [![Open your Home Assistant instance and open this repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=cobragt2000&repository=spider_farmer_bridge&category=integration)
 
-**Or add it manually:**
+<details>
+<summary><b>Fallback — add as a custom repository</b> (if it isn't in your HACS search yet)</summary>
 
 1. HACS → three-dot menu → **Custom repositories** → add
    `https://github.com/cobragt2000/spider_farmer_bridge`, category **Integration**
 2. Install **Spider Farmer Bridge**, restart Home Assistant
+
+</details>
 
 After restarting, add the integration — one click:
 

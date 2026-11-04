@@ -11,7 +11,7 @@
 [![Hotspot add-on version](https://img.shields.io/badge/dynamic/yaml?color=8250df&label=hotspot%20add--on&query=%24.version&url=https%3A%2F%2Fraw.githubusercontent.com%2Fcobragt2000%2Fspider_farmer_bridge%2Fmain%2Fspider_farmer_hotspot%2Fconfig.yaml)](https://github.com/cobragt2000/spider_farmer_bridge)
 [![Downloads](https://img.shields.io/github/downloads/cobragt2000/spider_farmer_bridge/total?color=orange&label=downloads)](https://github.com/cobragt2000/spider_farmer_bridge/releases)
 
-[![Open your Home Assistant instance and open this repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=cobragt2000&repository=spider_farmer_bridge&category=integration)
+<a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=cobragt2000&repository=spider_farmer_bridge&category=integration"><img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open this repository inside the Home Assistant Community Store." height="30"></a>
 
 Local control and monitoring for **Spider Farmer GGS (Genius Grow System)**
 devices — Display Panels, AC5/AC10 power strips, the S-Station single-outlet

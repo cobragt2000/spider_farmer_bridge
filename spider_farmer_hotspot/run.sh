@@ -13,7 +13,7 @@
 #   auto    - nmcli if a running NetworkManager is reachable, else hostapd.
 set -uo pipefail
 
-ADDON_VERSION="0.8.9"
+ADDON_VERSION="0.8.10"
 OPTIONS=/data/options.json
 NM_CON="SF-Bridge-Hotspot"
 DNSMASQ_PID=""
@@ -151,20 +151,76 @@ reassert_nft_if_missing() {
   fi
 }
 
-# Make sure NetworkManager still has our AP connection active (nmcli backend
-# only). On Raspberry Pi built-in radios (brcmfmac) NM sometimes deactivates the
-# AP after a background scan / connectivity check / driver reset - the SSID
-# silently stops broadcasting even though dnsmasq is still alive, so the PID
-# watchdog below never notices ("worked overnight, then the SSID vanished").
-# Re-activate it so the hotspot self-heals without an add-on restart. (v0.8.9)
+# One-shot dump of the radio's actual state to the add-on log. Called at startup
+# and whenever the watchdog has to recover the AP, so "the SSID vanished" issues
+# can be diagnosed from the log alone instead of needing host SSH. Everything is
+# best-effort and read-only; it never prints the radio MAC. (v0.8.10)
+dump_wifi_diag() {
+  local when="${1:-}"
+  command -v iw >/dev/null 2>&1 || { log "diag: iw not available"; return 0; }
+  log "----- Wi-Fi diagnostics (${when}) -----"
+  # A '00'/unset regulatory domain can leave channels flagged no-IR (the radio
+  # may associate but refuse to beacon) - a prime "AP up but no SSID" cause.
+  log "  regdomain: $(iw reg get 2>/dev/null | awk '/^country|^global/{print; exit}' || echo '?')  (config country_code=${COUNTRY:-unset})"
+  local info
+  info=$(iw dev "${IFACE}" info 2>/dev/null)
+  # Note: deliberately skip the 'addr' (MAC) line.
+  log "  ${IFACE}: $(printf '%s' "${info}" | awk '/ssid|type|channel|txpower/{$1=$1;printf "%s; ",$0}' || echo '?')"
+  local drv
+  drv=$(basename "$(readlink -f "/sys/class/net/${IFACE}/device/driver" 2>/dev/null || true)" 2>/dev/null)
+  log "  driver: ${drv:-?}   powersave: $(iw dev "${IFACE}" get power_save 2>/dev/null | awk -F': ' '{print $2}' || echo '?')"
+  local phy
+  phy=$(printf '%s' "${info}" | awk '/wiphy/{print "phy"$2; exit}')
+  if [ -n "${phy}" ]; then
+    log "  ${phy} modes: $(iw phy "${phy}" info 2>/dev/null | awk '/Supported interface modes/{f=1;next} f&&/\*/{gsub(/[\t *]/,"");printf "%s ",$0;next} f{exit}' || echo '?')"
+  fi
+  if command -v nmcli >/dev/null 2>&1; then
+    # A competing wlan0 client profile with autoconnect will fight the AP.
+    log "  nmcli active: $(nmcli -t -f NAME,DEVICE,STATE,TYPE con show --active 2>/dev/null | tr '\n' '|' || echo '?')"
+    log "  nmcli known:  $(nmcli -t -f NAME,TYPE,DEVICE,AUTOCONNECT con show 2>/dev/null | tr '\n' '|' || echo '?')"
+  fi
+  local dm
+  dm=$(dmesg 2>/dev/null | grep -iE "brcmfmac|cfg80211|ieee80211|firmware" | tail -8)
+  if [ -n "${dm}" ]; then
+    log "  recent driver log (last 8):"
+    printf '%s\n' "${dm}" | while IFS= read -r l; do log "    ${l}"; done
+  else
+    log "  recent driver log: none / no kmsg access"
+  fi
+  log "----------------------------------------"
+}
+
+# Make sure the AP is still really up (nmcli backend only). Two failure modes on
+# Raspberry Pi built-in radios (brcmfmac), neither caught by the PID watchdog
+# because dnsmasq keeps running the whole time:
+#   1. NetworkManager deactivates the AP connection (background scan /
+#      connectivity check / driver reset) - 'con show --active' loses it.
+#   2. NM still reports the connection active, but the radio dropped out of AP
+#      mode and stopped beaconing - 'con show --active' still lists it, so we
+#      also check that the interface is actually 'type AP'.
+# Either way, force a full down/up so the hotspot self-heals without an add-on
+# restart, and dump diagnostics so a recurring case is visible in the log.
+# (v0.8.9, extended v0.8.10)
 ensure_ap_up() {
   [ "${BACKEND}" = "nmcli" ] || return 0
   command -v nmcli >/dev/null 2>&1 || return 0
-  if nmcli -t -f NAME con show --active 2>/dev/null | grep -qx "${NM_CON}"; then
+  local active=0 apmode=1 reason=""
+  nmcli -t -f NAME con show --active 2>/dev/null | grep -qx "${NM_CON}" && active=1
+  if command -v iw >/dev/null 2>&1; then
+    iw dev "${IFACE}" info 2>/dev/null | grep -q "type AP" || apmode=0
+  fi
+  if [ "${active}" = "1" ] && [ "${apmode}" = "1" ]; then
     return 0
   fi
-  log "WATCHDOG: AP '${SSID}' is no longer active (NetworkManager dropped it) - bringing it back up."
+  if [ "${active}" = "1" ]; then
+    reason="NM reports AP '${SSID}' active but ${IFACE} is NOT in AP mode (radio stopped beaconing)"
+  else
+    reason="AP '${SSID}' is no longer active (NetworkManager dropped it)"
+  fi
+  log "WATCHDOG: ${reason} - restarting the AP."
+  dump_wifi_diag "watchdog-recover"
   nmcli dev set "${IFACE}" managed yes 2>/dev/null || true
+  nmcli con down "${NM_CON}" 2>/dev/null || true
   if nmcli con up "${NM_CON}" 2>/dev/null; then
     iw dev "${IFACE}" set power_save off 2>/dev/null || true
     log "WATCHDOG: AP reactivated."
@@ -533,14 +589,24 @@ else
   start_hostapd || { log "hostapd backend failed."; exec sleep infinity; }
 fi
 
+# Dump the radio's real state once at startup (regdomain, AP mode, driver,
+# powersave, competing NM profiles, driver errors). Invaluable for diagnosing
+# "AP comes up then the SSID vanishes" reports without needing host SSH.
+dump_wifi_diag "startup"
+
 # Give the hotspot general internet (IP forward + NAT to the uplink), the same
 # as devices have on the normal LAN in the router-NAT method. Many controllers
 # won't attempt their cloud MQTT connection until they can reach the internet,
 # so an isolated hotspot leaves them "connected but offline". The :8883 redirect
 # below still intercepts the cloud connection to the local proxy regardless.
 if [ "${INTERNET_ACCESS}" = "true" ]; then
-  echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null \
-    || sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+  # On HAOS /proc/sys is often read-only to the container but ip_forward is
+  # already 1 host-wide; only try to set it (and quietly) when it isn't, so the
+  # log doesn't show a scary "Read-only file system" line for a non-problem.
+  if [ "$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo 0)" != "1" ]; then
+    { echo 1 > /proc/sys/net/ipv4/ip_forward; } 2>/dev/null \
+      || sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+  fi
   log "ip_forward = $(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo '?') (1 = internet routing on)"
   if nft_table \
      && nft add chain ip sfhs post '{ type nat hook postrouting priority 100 ; }' 2>/dev/null \

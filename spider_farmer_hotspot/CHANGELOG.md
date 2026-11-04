@@ -4,6 +4,23 @@ All notable changes to the **Spider Farmer Hotspot** add-on. The Supervisor
 offers an update whenever the `version` in `config.yaml` increases; the notes
 below are shown on the add-on's Changelog tab.
 
+## 0.8.10
+
+- **Wi-Fi diagnostics in the add-on log.** On startup (and whenever the watchdog
+  has to recover the AP) the add-on now logs the radio's real state: regulatory
+  domain, whether the interface is actually in AP mode, driver, powersave, the
+  radio's supported modes, any competing NetworkManager profiles on the Wi-Fi
+  interface, and recent driver/firmware errors. This makes "the AP comes up then
+  the SSID disappears" reports diagnosable straight from the log, without needing
+  host SSH. The radio MAC is deliberately not logged.
+- **Watchdog now also catches a non-beaconing AP.** Previously it only noticed
+  when NetworkManager *deactivated* the AP connection. It now also detects the
+  case where NetworkManager still reports the connection active but the radio has
+  dropped out of AP mode (a known brcmfmac behavior), and forces a full down/up to
+  restore it.
+- Quieted a harmless `ip_forward: Read-only file system` log line on HAOS (the
+  value is already correct host-wide; the add-on no longer tries to rewrite it).
+
 ## 0.8.9
 
 - **Self-heals when the AP drops (Raspberry Pi / brcmfmac fix).** On some Pi

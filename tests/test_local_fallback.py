@@ -2,6 +2,7 @@
 unreachable, so HA keeps read + control without internet (3.19.96).
 """
 import asyncio
+import errno
 import json
 
 import pytest
@@ -154,3 +155,68 @@ async def test_block_cloud_forces_local_and_skips_upstream(hass, monkeypatch):
 
     await proxy.handle_client(_Reader([]), _Writer())
     assert served, "block_cloud should route the controller to local mode"
+
+
+class _DeadReader:
+    """Mimics a StreamReader whose transport died with ETIMEDOUT.
+
+    asyncio's StreamReaderProtocol.connection_lost(exc) stores the error on the
+    reader via set_exception() instead of feeding EOF, so every read() re-raises
+    it immediately and at_eof() stays False. Since Python 3.11 that error (a
+    builtin TimeoutError) is indistinguishable by type from asyncio.TimeoutError,
+    which is how it used to slip past the 15 s-idle handler and spin the loop
+    (GHSA-h3xj-44pw-qmj9). A `cap` bounds the reads so a regression fails the
+    assertion instead of hanging the test the way it froze HA.
+    """
+
+    def __init__(self, cap: int = 50):
+        self._exc = TimeoutError(errno.ETIMEDOUT, "Operation timed out")
+        self.reads = 0
+        self._cap = cap
+
+    async def read(self, n):
+        self.reads += 1
+        await asyncio.sleep(0)
+        if self.reads > self._cap:
+            # Safety valve: a non-TimeoutError forces the pre-fix loop to exit
+            # so CI ends instead of spinning forever.
+            raise ConnectionResetError("bounded")
+        # Raise asyncio.TimeoutError so the 15 s-idle handler catches it on EVERY
+        # Python (on 3.11+ a dead socket's builtin TimeoutError is literally this
+        # type; on 3.10 they differ, so raising it directly reproduces the 3.11+
+        # condition the bug needs). exception() below still reports the socket as
+        # dead, which is what the fix keys off.
+        raise asyncio.TimeoutError
+
+    def at_eof(self):
+        return False
+
+    def exception(self):
+        return self._exc
+
+
+async def test_serve_local_returns_on_dead_socket_instead_of_spinning(hass: HomeAssistant):
+    """A controller socket that dies with ETIMEDOUT must end local mode, not spin.
+
+    Regression for GHSA-h3xj-44pw-qmj9: the dead read raises TimeoutError at once
+    on every call, so without the exception() guard _serve_local looped without
+    ever suspending — pinning a core and leaking wait_for timers until HA froze
+    and OOMed. With the fix it returns on the first read.
+    """
+    entry = await _setup(hass)
+    proxy = hass.data[DOMAIN][entry.entry_id][DATA_PROXY]
+    proxy.block_cloud = True  # stay local; don't probe the cloud in the loop
+
+    reader = _DeadReader()
+    writer = _Writer()
+
+    await asyncio.wait_for(
+        proxy._serve_local(reader, writer, ("10.0.0.9", 12345), [None]),
+        timeout=5,
+    )
+
+    # It must bail as soon as it sees the stored exception, not loop on it.
+    assert reader.reads <= 2, (
+        f"_serve_local spun on a dead socket ({reader.reads} reads) — "
+        "the ETIMEDOUT TimeoutError was mistaken for a 15 s idle timeout"
+    )

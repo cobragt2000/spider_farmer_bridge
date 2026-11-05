@@ -3,6 +3,21 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.405
+
+### Security
+- **A controller connection dying with ETIMEDOUT could freeze Home Assistant
+  (GHSA-h3xj-44pw-qmj9).** In local-only mode (`Block Cloud`, or the cloud being
+  unreachable), if a controller's TCP socket died with `ETIMEDOUT` rather than a
+  clean disconnect, `_serve_local` could spin without ever yielding — pinning a CPU
+  core and leaking timers until HA froze and ran out of memory. The cause: since
+  Python 3.11 the OS `TimeoutError` (what a dead socket raises) is the *same* class
+  as `asyncio.TimeoutError`, so the dead-socket error was mistaken for the ordinary
+  15-second idle timeout and the loop retried forever. `_serve_local` now checks the
+  reader for a stored exception and ends local mode when the connection is truly gone;
+  a genuinely idle-but-alive connection still waits as before. Thanks to
+  **@clara-mostly-human** for the detailed private report and reproduction.
+
 ## 3.19.404
 
 ### Security

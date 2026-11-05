@@ -1240,6 +1240,17 @@ class MITMProxy:
             try:
                 data = await asyncio.wait_for(client_reader.read(65536), timeout=15)
             except asyncio.TimeoutError:
+                # A socket that died with ETIMEDOUT ALSO raises TimeoutError here:
+                # since Python 3.11 asyncio.TimeoutError IS the builtin TimeoutError,
+                # and asyncio's connection_lost(exc) stores that error on the reader
+                # via set_exception() instead of feeding EOF. So every subsequent
+                # read() re-raises it immediately while at_eof() stays False — the
+                # loop would spin without ever suspending, pinning a core and piling
+                # up cancelled wait_for timers until HA freezes and OOMs
+                # (GHSA-h3xj-44pw-qmj9). A genuinely idle-but-alive connection has no
+                # stored exception, so it keeps waiting through the 15 s as before.
+                if client_reader.exception() is not None:
+                    return
                 data = b""
             except Exception:
                 return

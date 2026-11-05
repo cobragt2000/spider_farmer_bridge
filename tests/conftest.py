@@ -36,6 +36,33 @@ if _OLD_CORE:
 
     _er.EntityRegistry._entity_id_available = _entity_id_available
 
+# 3) HA's camera component hard-imports optional native deps (turbojpeg, av, …)
+#    at module load on newer cores. The time-lapse tests fully mock
+#    `homeassistant.components.camera.async_get_image` (and timelapse.py imports
+#    it lazily), so they never exercise the real component — but monkeypatching
+#    that attribute forces the import, which fails in CI where those native deps
+#    aren't installed (e.g. `No module named 'turbojpeg'`). If the real module
+#    can't be imported, register a minimal stub exposing `async_get_image` so the
+#    suite runs without the heavy dependency chain. When the real module imports
+#    fine (older cores, or a fully-provisioned env) this is a no-op.
+import sys as _sys  # noqa: E402
+import types as _types  # noqa: E402
+
+try:  # pragma: no cover - outcome depends on which optional deps are installed
+    import homeassistant.components.camera  # noqa: F401
+except Exception:  # ImportError, or any optional-dep failure in the chain
+    _camera_stub = _types.ModuleType("homeassistant.components.camera")
+
+    async def _stub_async_get_image(*args, **kwargs):
+        # Every test that reaches capture overrides this via monkeypatch; if one
+        # doesn't, fail loudly rather than silently returning None.
+        raise RuntimeError(
+            "camera stub: async_get_image was not mocked in this test"
+        )
+
+    _camera_stub.async_get_image = _stub_async_get_image
+    _sys.modules["homeassistant.components.camera"] = _camera_stub
+
 
 @pytest.fixture(autouse=True)
 def enable_sockets(socket_enabled):

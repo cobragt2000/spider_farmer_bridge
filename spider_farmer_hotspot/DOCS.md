@@ -72,10 +72,13 @@ the add-on detects wireless interfaces at startup, prefers one that advertises
 [sf-hotspot] auto-selected wifi_interface=wlan0
 ```
 
-If `auto` picks the wrong radio (say it grabbed your LAN Wi-Fi), read that log
-line, then set `wifi_interface` to the correct name. The dropdown offers the
-common names `wlan0`/`wlan1`/`wlan2`; USB dongles with unusual names are still
-handled by `auto` (the log shows the exact name to type if you need to override).
+If `auto` picks the wrong radio (say it grabbed your LAN Wi-Fi), or you added a
+USB dongle you want to pin, read that log line and set `wifi_interface` to the
+**exact name shown**. It's a free-text field, so you can enter any interface the
+log lists — not just `wlan0`/`wlan1`, but USB dongles with predictable names like
+`wlp1s0u1u3` too. When more than one AP-capable card is present (e.g. the Pi's
+built-in radio plus a USB dongle), `auto` just takes the first, so set the name
+explicitly to choose which one runs the AP.
 
 ## Configuration
 
@@ -83,7 +86,7 @@ handled by `auto` (the log shows the exact name to type if you need to override)
 |---|---|---|
 | `hotspot_enabled` | `true` | Master switch. |
 | `ap_backend` | `auto` | `auto` / `nmcli` / `hostapd` (see above). |
-| `wifi_interface` | `auto` | Radio dedicated to the AP. `auto` detects it; or pick `wlan0`/`wlan1`/`wlan2`. See below. |
+| `wifi_interface` | `auto` | Radio dedicated to the AP. `auto` detects it; or type the exact interface name from the log (`wlan0`, a USB dongle like `wlp1s0u1u3`, etc.). Free text — see below. |
 | `ssid` | `SF-Bridge` | Hotspot network name. |
 | `password` | `changeme123` | WPA2 password, min 8 chars. **Change this.** |
 | `security` | `wpa2` | `wpa2` (CCMP), `wpa` (TKIP, for old radios), or `open` (no password - testing only). |
@@ -153,8 +156,10 @@ Use it to debug a device that won't come online:
 
 ## Troubleshooting
 
-- **`interface 'wlan0' not found`** - the add-on log prints available
-  interfaces; set `wifi_interface` to the right one (e.g. `wlan1` for a dongle).
+- **`interface 'wlanX' not found`** - the add-on log prints the available
+  interfaces (look for the `detected wireless interfaces:` line); copy the exact
+  name of the one marked `(AP-capable)` into `wifi_interface`. It's free text, so
+  USB dongles with names like `wlp1s0u1u3` work — type them verbatim.
 - **AP never appears / interface bounces (hostapd)** - NetworkManager is
   managing the radio. Switch `ap_backend` to `nmcli` (recommended on HAOS), or
   set `unmanage_via_nmcli: true`.

@@ -4,6 +4,21 @@ All notable changes to the **Spider Farmer Hotspot** add-on. The Supervisor
 offers an update whenever the `version` in `config.yaml` increases; the notes
 below are shown on the add-on's Changelog tab.
 
+## 0.8.11
+
+- **`wifi_interface` is now a free-text field — any Wi-Fi card works, including
+  USB dongles.** It was previously a fixed dropdown offering only
+  `auto`/`wlan0`/`wlan1`/`wlan2`, so a USB adapter that enumerates under a
+  predictable name (e.g. an RT5370 showing up as `wlp1s0u1u3`) couldn't be
+  selected at all — there was simply no choice for it. You can now type the exact
+  interface name the add-on prints in its `detected wireless interfaces:` log line.
+  (HA add-on option pages are static and can't list your live hardware in a
+  dropdown, which is why a hardcoded list never worked for USB adapters.)
+- **Clearer guidance when several radios are present.** If more than one AP-capable
+  interface is detected (e.g. the Pi's built-in Wi-Fi plus a USB dongle), the log
+  now reminds you to set `wifi_interface` to pin the specific one, since `auto`
+  just takes the first it finds.
+
 ## 0.8.10
 
 - **Wi-Fi diagnostics in the add-on log.** On startup (and whenever the watchdog

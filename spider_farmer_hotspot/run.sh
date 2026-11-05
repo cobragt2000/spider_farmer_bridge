@@ -13,7 +13,7 @@
 #   auto    - nmcli if a running NetworkManager is reachable, else hostapd.
 set -uo pipefail
 
-ADDON_VERSION="0.8.10"
+ADDON_VERSION="0.8.11"
 OPTIONS=/data/options.json
 NM_CON="SF-Bridge-Hotspot"
 DNSMASQ_PID=""
@@ -259,18 +259,26 @@ iface_ap_capable() {
 # and logs every candidate so the user can pick from the dropdown if needed.
 detect_interface() {
   CHOSEN_IFACE=""
-  local cands ifc report=""
+  local cands ifc report="" apcount=0
   cands=$(list_wifi_ifaces)
   [ -z "${cands}" ] && return 1
   for ifc in ${cands}; do
     if iface_ap_capable "${ifc}"; then
       report="${report} ${ifc}(AP-capable)"
+      apcount=$((apcount + 1))
       [ -z "${CHOSEN_IFACE}" ] && CHOSEN_IFACE="${ifc}"
     else
       report="${report} ${ifc}(no-AP?)"
     fi
   done
   log "detected wireless interfaces:${report}"
+  # 'wifi_interface' is free text — set it to any name shown above (e.g. a USB
+  # dongle like wlp1s0u1u3, not just wlanN) to pin that radio. This hint matters
+  # most when more than one AP-capable card is present (e.g. the Pi's built-in
+  # plus a USB dongle) and 'auto' would otherwise just take the first.
+  if [ "${apcount}" -gt 1 ]; then
+    log "  multiple AP-capable interfaces found — set 'wifi_interface' to one of the names above to pin a specific radio (e.g. your USB dongle)."
+  fi
   # If capability probing found nothing (some drivers hide modes), fall back
   # to the first wireless interface.
   [ -z "${CHOSEN_IFACE}" ] && CHOSEN_IFACE="${cands%%$'\n'*}"

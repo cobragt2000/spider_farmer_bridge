@@ -3,6 +3,19 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.406
+
+### Added
+- **Full Spider Farmer light lineup in the PPFD visualizer.** The light-model
+  picker now covers the current SF, G, and SE series — 22 fixtures — grouped by
+  series (SF / G / SE). New this release: SF300, SF600, SF1000, SF1000D,
+  SF2000 Pro, SF4000, G1200W, G1500, G3000, G4500, G5000, G7000, G8600, SE1500,
+  SE3000, SE7000, SE1000W (alongside the existing SE4500, SE5000, SF2000, SF7000,
+  G1000W). Each fixture's PPFD-by-height table is read from Spider Farmer's
+  published PPFD maps and interpolated across hang heights. SF300/SF600 publish
+  only a single PAR-at-height figure, so their center values are exact and the
+  average/edge spread is estimated. (card 0.21.122)
+
 ## 3.19.405
 
 ### Security

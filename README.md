@@ -1,7 +1,7 @@
 # Spider Farmer Bridge for Home Assistant
 
 [![Validate](https://github.com/cobragt2000/spider_farmer_bridge/actions/workflows/validate.yml/badge.svg)](https://github.com/cobragt2000/spider_farmer_bridge/actions/workflows/validate.yml)
-[![hacs](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/default)
+[![Marketplace](https://img.shields.io/badge/Marketplace-Default-41BDF5.svg)](https://github.com/hacs/default)
 [![Discord](https://img.shields.io/badge/Discord-Join%20our%20chat-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/YZCcdwXTCp)
 ![Discord Online](https://img.shields.io/discord/1527435346420175042)
 [![Integration usage](https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=integration%20usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.sf.total)](https://analytics.home-assistant.io/)
@@ -28,7 +28,7 @@ HA can inject commands back.
 > optional component — the **Spider Farmer Hotspot** add-on — which turns your HA
 > host into a Wi-Fi access point the controllers join directly, so you don't need
 > a router that can NAT-redirect traffic. It installs from this same repository
-> via the **Add-on Store** (separately from this HACS integration). If your router
+> via the **Add-on Store** (separately from this Marketplace integration). If your router
 > already redirects the devices, you can ignore it. See
 > [Connecting the devices](#connecting-the-devices).
 
@@ -37,7 +37,7 @@ HA can inject commands back.
 ## Dashboard card
 
 The integration ships bundled Lovelace cards and installs them automatically —
-it serves and auto-registers them, so there's no HACS install and no manual
+it serves and auto-registers them, so there's no Marketplace install and no manual
 Lovelace resource entry. The served URLs carry the integration version, so
 browsers refetch the cards on each release automatically. Four cards are
 bundled:
@@ -47,10 +47,15 @@ bundled:
   (below).
 - **`custom:spider-timelapse-card`** — turns any `camera.*` into a grow
   time-lapse with an optional live/burned env overlay and MP4 export (below).
-- **`custom:ppfd-3d-card`** — a 3D PPFD visualizer for Spider Farmer SE4500,
-  SE5000, SF2000, SF7000 and G1000W grow lights (PPFD curves built from each
-  light's published PPFD map). Set it up entirely from the UI — add the card and
-  use its **visual editor** (no YAML): pick the light model, entities, unit system
+- **`custom:ppfd-3d-card`** — a 3D PPFD visualizer covering the **full current
+  Spider Farmer grow-light lineup** (22 fixtures), grouped by series in the picker:
+  **SF** (SF300, SF600, SF1000, SF1000D, SF2000, SF2000 Pro, SF4000, SF7000),
+  **G** (G1000W, G1200W, G1500, G3000, G4500, G5000, G7000, G8600) and
+  **SE** (SE1500, SE3000, SE4500, SE5000, SE7000, SE1000W). PPFD-by-height curves
+  are built from each light's published PPFD map (SF300/SF600 publish only a single
+  PAR-at-height value, so their average/edge spread is estimated). Set it up
+  entirely from the UI — add the card and use its **visual editor** (no YAML): pick
+  the light model, entities, unit system
   (`auto` follows your Home Assistant unit system, or force `metric` / `imperial`)
   and the brightness source. Add as **many PPFD cards as you like** — each gets its
   own id, so multiple cards never conflict. The editor's brightness controls include
@@ -161,7 +166,7 @@ The **Settings** tab groups every option into alphabetized, collapsible sections
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_Settings_11.png" width="245" alt="Settings — VPD Graph (Leaf VPD tile, VPD graph, Leaf VPD overlay)" />
 </p>
 
-The `custom:ppfd-3d-card` 3D PPFD visualizer (SE4500 / SE5000 / SF2000 / SF7000 / G1000W):
+The `custom:ppfd-3d-card` 3D PPFD visualizer (full SF / G / SE lineup — 22 fixtures):
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/PPFD_02.png" width="330" alt="PPFD 3D visualizer — SE4500" />
@@ -442,24 +447,60 @@ Home Assistant:
   Your redirect (or the hotspot) forwards the devices' `8883` traffic to that
   port — the devices still dial `8883`, only the HA-side listener differs.
 
+### Firmware compatibility
+
+The bridge speaks the devices' own cloud protocol, so it isn't tied to one firmware
+build — but these are the firmware versions it is **currently verified against** (the
+versions on the author's rig). Each device reports its firmware in the Spider Farmer app
+under the device's **Device info / About** screen.
+
+| Device | Hardware rev | Verified firmware |
+| --- | --- | --- |
+| Display controller (DP-series, e.g. the panel controllers) | 2.x | **3.20** |
+| Power Strip **AC5** | S-ZC5 | **3.14** |
+| Power Strip **AC10** | S-ZC10 | **3.14** |
+| **SE-series** light (SE 4500) | S-TG-A | **1.7** |
+| **S-Station** (single outlet) | US-110 | **1.9** |
+
+> ⚠️ **Be cautious about updating firmware.** The bridge is validated against the
+> versions in the table above. Device firmware updates can change the protocol in ways
+> that break tile state, hide accessories, or stop a device from being controlled — and
+> the device firmware generally can't be rolled back. **Before you let a device update
+> its firmware, check this table for the known-working version.** If a device is offering
+> a **newer** firmware that isn't listed here as verified, hold off and first
+> [open a GitHub request](https://github.com/cobragt2000/spider_farmer_bridge/issues)
+> with the device model and the new firmware version, so support can be confirmed (or
+> added) before you commit to the upgrade. (The hotspot add-on's **`block_updates`**
+> option can hold your controllers on their current firmware — see
+> [Connecting the devices](#connecting-the-devices).)
+
+If a device on a firmware **not** in the table misbehaves, please
+[open an issue](https://github.com/cobragt2000/spider_farmer_bridge/issues) with the
+device model and its firmware version so the list can be kept current.
+
 ## Installation
 
-### HACS (recommended)
+### Marketplace (recommended)
 
-Spider Farmer Bridge is in the **default HACS store**, so you can install it straight
-from HACS search:
+> **Marketplace** is the community store built into Home Assistant (**Settings →
+> Marketplace**). It replaced the separate **HACS** add-on in Home Assistant **2026.11**
+> — on 2026.11+ it's already there; on older versions it's **HACS** and the steps are the
+> same, just under that name.
 
-1. **HACS** → search **Spider Farmer Bridge**
+Spider Farmer Bridge is in the **default store**, so you can install it straight from
+Marketplace search:
+
+1. **Settings → Marketplace** → search **Spider Farmer Bridge**
 2. Open it → **Download**, then **restart Home Assistant**
 
-**One click** — or open it directly in your HACS and select **Download**:
+**One click** — or open it directly in your Marketplace and select **Download**:
 
 [![Open your Home Assistant instance and open this repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=cobragt2000&repository=spider_farmer_bridge&category=integration)
 
 <details>
-<summary><b>Fallback — add as a custom repository</b> (if it isn't in your HACS search yet)</summary>
+<summary><b>Fallback — add as a custom repository</b> (if it isn't in search yet)</summary>
 
-1. HACS → three-dot menu → **Custom repositories** → add
+1. **Settings → Marketplace** → three-dot menu → **Custom repositories** → add
    `https://github.com/cobragt2000/spider_farmer_bridge`, category **Integration**
 2. Install **Spider Farmer Bridge**, restart Home Assistant
 
@@ -499,7 +540,7 @@ with the OS's own Wi-Fi handling; a raw-`hostapd` backend is also available.
 
 Install it once you've added this repo to the **Add-on Store** (Settings →
 Add-ons → Add-on Store → ⋮ → Repositories → the same repo URL you added in
-HACS). Set an SSID/password, then pair each controller to the hotspot with the
+Marketplace). Set an SSID/password, then pair each controller to the hotspot with the
 Spider Farmer app (hold the controller's mode button ~5 s to enter pairing).
 Full steps in [`spider_farmer_hotspot/DOCS.md`](spider_farmer_hotspot/DOCS.md).
 
@@ -516,7 +557,7 @@ it back off to let an update through.
 
 <p align="center"><img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Hotspot_01.png" width="900" alt="Spider Farmer Hotspot add-on status page — connected controllers with signal, link speed, IP, and lease"></p>
 
-> One repo, two stores: HA installs *integrations* (HACS) and *add-ons*
+> One repo, two stores: HA installs *integrations* (Marketplace) and *add-ons*
 > (Supervisor) separately, so you add this repository's URL in both places —
 > but it's the same URL and the same repo.
 

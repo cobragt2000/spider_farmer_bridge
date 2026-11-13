@@ -433,6 +433,32 @@ def test_heater_and_dehumidifier_auto_gear_write_level():
     assert m["params"]["dehumidifier"]["level"] == 1
 
 
+def test_dehumidifier_level_syncs_config_level():
+    """v3.19.419: the dedicated "Dehumidifier Gear" select was removed; the single
+    "Dehumidifier Level" (Low/High) now keeps config `level` (the Humidity-mode gear)
+    in sync with `mLevel`, so the one control drives Humidity mode too. A level/wind
+    write must set BOTH fields."""
+    import json
+    from custom_components.sf.proxy.command_handler import _cmd_climate_config
+    dstate = {"dehumidifier": {"modeType": 4, "mOnOff": 1, "mLevel": 0, "level": 0,
+                               "timePeriod": [{"weekmask": 127}],
+                               "cycleTime": {"weekmask": 127, "startTime": 0,
+                                             "openDur": 0, "closeDur": 0, "times": 1}}}
+    m = _cmd_climate_config("MAC", "UID", "dehumidifier", "High", "level", dstate)
+    assert m["params"]["dehumidifier"]["mLevel"] == 1
+    assert m["params"]["dehumidifier"]["level"] == 1          # synced
+    m = _cmd_climate_config("MAC", "UID", "dehumidifier",
+                            json.dumps({"wind": "Low"}), "apply_bundle", dstate)
+    assert m["params"]["dehumidifier"]["mLevel"] == 0
+    assert m["params"]["dehumidifier"]["level"] == 0          # synced
+    # A non-dehumidifier (heater) must NOT get the sync (it has a real Automatic gear).
+    hstate = {"heater": {"modeType": 3, "mOnOff": 1, "mLevel": 2, "level": 5,
+                         "timePeriod": [{"weekmask": 127}], "cycleTime": {"weekmask": 127}}}
+    m = _cmd_climate_config("MAC", "UID", "heater", "3", "level", hstate)
+    assert m["params"]["heater"]["mLevel"] == 3
+    assert "level" not in m["params"]["heater"]               # stripped, not synced
+
+
 def test_fan_environment_running_speed_automatic():
     """v3.19.139: fan/blower Environment running gear/speed accepts Automatic
     (maxSpeed 0 = the controller picks it)."""

@@ -66,6 +66,24 @@ _SESSION_FMT = "%Y%m%d-%H%M%S"
 # tell OUR folders apart from anything else that may live in the storage root.
 _SESSION_RE = re.compile(r"^\d{8}-\d{6}$")
 
+# Captures from the SAME camera are serialized through a per-camera lock. Several
+# time-lapse instances can share one camera (e.g. 5/10/15/20/30/60-min lapses of
+# the same feed); at aligned boundaries they all fire at once and most cameras
+# can only answer one `async_get_image` at a time, so the losers get
+# "Unable to get image" and silently skip that frame. The lock makes same-camera
+# captures queue (a second or two apart) instead of colliding; different cameras
+# still run in parallel. Keyed by camera entity_id, shared across all instances.
+# (v3.19.407)
+_CAMERA_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+def _camera_lock(cam: str) -> asyncio.Lock:
+    lock = _CAMERA_LOCKS.get(cam)
+    if lock is None:
+        lock = asyncio.Lock()
+        _CAMERA_LOCKS[cam] = lock
+    return lock
+
 
 def _safe_segment(name: str) -> bool:
     """A single path segment is safe when it has no separators or traversal."""
@@ -457,8 +475,11 @@ class TimelapseController:
             # Hard outer bound: async_get_image's own timeout can hang on a broken stream
             # (e.g. an RTSP worker erroring), which would freeze the loop. wait_for makes a
             # hang a normal failure that retries. (v3.19.380)
-            image = await asyncio.wait_for(
-                async_get_image(self.hass, self.camera, timeout=15), timeout=20)
+            # Serialize per camera so sibling lapses on the same feed don't collide at an
+            # aligned boundary and lose frames to "Unable to get image". (v3.19.407)
+            async with _camera_lock(self.camera):
+                image = await asyncio.wait_for(
+                    async_get_image(self.hass, self.camera, timeout=15), timeout=20)
             content = image.content
             if not content:
                 raise ValueError("empty image")

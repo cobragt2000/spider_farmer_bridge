@@ -56,8 +56,16 @@ async def async_setup_entry(
 
         @callback
         def _sync_tl_sensors() -> None:
+            cur = set(mgr.ids())
+            # Forget ids whose instance was removed so re-creating the same tl_id
+            # later (delete a time-lapse, then set it up again with the same
+            # name/camera) adds a FRESH sensor instead of being skipped as "already
+            # known" — the old entity self-removes on deletion, so without this the
+            # re-added instance never got a status sensor and the card's "Set up"
+            # looked like it did nothing. (v3.19.408)
+            known.intersection_update(cur)
             new = []
-            for tl_id in mgr.ids():
+            for tl_id in cur:
                 if tl_id in known:
                     continue
                 known.add(tl_id)

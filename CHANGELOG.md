@@ -3,6 +3,252 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.425 
+
+### Fixed
+- **The Settings → Soil sensors section now opens instantly.** It had been left out
+  of the card's render allowlist, so tapping its header didn't trigger a re-render —
+  the section only expanded on the next unrelated update (a lag of up to a second).
+  Added it to the allowlist; it now opens like every other Settings section
+  (measured ~29 ms, matching the others).
+
+## 3.19.424 
+
+### Added
+- **Soil sensor tile layouts.** A new Settings → Soil sensors section lets each card
+  choose how its soil probes appear on Overview:
+  - **Averaged** (default, unchanged) — one tile per metric, averaged across probes.
+  - **Per sensor** — one tile per probe showing Temp, Moisture and EC together; tap
+    it for a history graph with a Temp / Moisture / EC picker.
+  - **Split** — three tiles per probe (Temp, Moisture, EC), each with its own graph.
+  In a split mode, an **Averaged tiles & stats** choice decides what happens to the
+  averaged tiles and the All Soil Stats summary: **Replace** (per-sensor only),
+  **Keep** (averages too), or **Stats only** (keep just the All Soil Stats tile). The
+  choice persists server-side and commits through the card's Apply/Discard bar.
+
+## 3.19.423 
+
+### Added
+- **Hide the tab bar for a compact card.** A new Settings → Tile extras toggle,
+  "Hide the tab bar", collapses the row of tabs. **Tap the card title** (its name in
+  the header) to show or hide the tabs again at any time — handy since hiding the bar
+  also hides the Settings tab. The setting persists server-side, so it resumes on
+  every device. The Settings toggle commits through the card's Apply/Discard bar like
+  every other setting; the title tap is an immediate quick-toggle.
+
+### Fixed
+- **PPFD card editor now respects the Units setting.** With Units set to Metric, the
+  Defaults and Tent-size fields were still labelled and entered in inches/feet. They
+  now follow the selected units — Light/Plant height in cm and the tent in metres when
+  Metric is chosen, inches/feet when Imperial — matching the visualizer. Stored values
+  are unchanged (kept internally in imperial), so existing cards are unaffected.
+
+## 3.19.422
+
+### Changed
+- **Harmonized the Mode control names to the "(set)" convention.** The settable
+  mode selects for Fan, Blower, Heater, Humidifier, and Dehumidifier were named
+  "… Mode Set", while every other settable control uses "… (set)". They are now
+  "Fan Mode (set)", "Blower Mode (set)", etc., matching the read-only "… Mode"
+  sensor beside each. Entity IDs are unchanged — display name only.
+
+## 3.19.421
+
+### Changed
+- **Disambiguated the duplicate-named accessory entities.** Each accessory had a
+  read-only sensor and a settable control sharing the exact same name (two "Blower
+  Speed", two "Dehumidifier Level", two "Heater Level", two "Humidifier Level", two
+  "Fan Speed", two "Fan Oscillation", two "Fan Natural Wind", two "Mode"), which made them impossible to tell
+  apart in the entity and automation pickers. The settable control in each pair is now
+  suffixed "(set)" (e.g. "Blower Speed (set)"), while the read-only sensor keeps the
+  plain name. Entity IDs are unchanged — only the display name moved — so dashboards,
+  automations, and the card are unaffected.
+
+### Docs
+- Refreshed `docs/ENTITIES.md` and the README entity list to match recent changes:
+  the "(set)" control naming, **Display Off** now a minutes number (0 = off) instead
+  of a select, the new **Firmware Version** / **Hardware Version** diagnostic sensors
+  (on every controller, including the AC5 / AC10 power strips), and the retired
+  "Dehumidifier Gear" control.
+
+## 3.19.420
+
+### Fixed
+- **The retired "Dehumidifier Gear" entity is now removed automatically.** In 3.19.419
+  it stopped being created but lingered as a disabled "no longer provided" entity that
+  couldn't be deleted from the UI. Setup now removes it from the entity registry (like
+  the other retired entities), so it's gone after a restart — no manual cleanup.
+
+## 3.19.419
+
+### Changed
+- **Removed the duplicate "Dehumidifier Gear" control.** The dehumidifier had both
+  a "Dehumidifier Gear" and a "Dehumidifier Level" select, both just Low/High —
+  confusing, since the dehumidifier has a single Low/High setting (unlike the heater,
+  which has a real Automatic gear). "Dehumidifier Gear" is gone; the single
+  "Dehumidifier Level" now drives every mode, and its write keeps the device's
+  Humidity-mode gear field (`level`) in sync with the manual level (`mLevel`) so
+  Humidity mode still responds. The card falls back to the Level control
+  automatically — no card change.
+
+## 3.19.418
+
+### Changed
+- **Trimmed the Display Off poll to the S-Station only** (no extra traffic to the
+  display panels). The panels already report `system.scroff` in the `getConfigFile`
+  the integration polls, so a dedicated read for them was redundant; only the
+  S-Station — which omits `scroff` from its config file and answers only a targeted
+  read — is polled for it.
+
+## 3.19.417
+
+### Fixed
+- **"Display Off" now shows the controller's actual value instead of "unknown".**
+  The screen-off (`scroff`) value was being published to a topic keyed on the raw
+  CONNECT MAC, while the entity listens on the normalized (lowercase) MAC — so the
+  value never reached the control. This had been the case since the feature was
+  added, which is why Display Off was always blank. Now published on the normalized
+  MAC, matching the firmware sensors and every other state, so it populates (0 = off,
+  1–10 min) from the connect-time + periodic poll added in 3.19.415.
+
+## 3.19.416
+
+### Changed
+- **"Display Off" is now a number (0–10 min; 0 = off) instead of a dropdown**, so on
+  the device page it renders like the other Configuration rows — icon, "Display Off"
+  label on the left, compact value box on the right — rather than a full-width
+  dropdown. A stale select-domain entity from the previous version is cleaned up on
+  setup.
+
+## 3.19.415
+
+### Fixed
+- **"Display Off" is now actively polled, so it should never sit "unknown".** The
+  integration now reads `system.scroff` from each screen device (display panels +
+  S-Station) at connect and on its periodic config poll, instead of waiting for the
+  SF app to read it. The S-Station answers only this targeted read (it has no
+  `system` block in its full config), so it now populates like the panels do. The
+  control stays a dropdown (Off / 1–10 min) so "Off" shows literally.
+
+## 3.19.414
+
+### Fixed
+- **Firmware/Hardware Version sensors now appear on the AC5 and AC10 power strips.**
+  A pure-outlet strip reports no air-sensor block, so the entity-detection pass that
+  creates device-level diagnostics never runs for it — the new firmware/hardware
+  sensors (3.19.411) were created for every other controller but not these. They're
+  now created on the strip's first outlet report, the same way the Reboot button is.
+- **S-Station "Display Off" more reliably leaves "unknown".** Its screen-off value
+  decode is no longer gated behind device-type detection and fires on any config
+  frame carrying the bare `scroff`, so the control reflects the value once it's read
+  or set from the SF app or the card.
+
+## 3.19.413
+
+### Added
+- **Time-lapse ⚙ settings now show an approximate storage estimate** next to Keep
+  (days): "≈ <size> at full retention", computed from *this* time-lapse's own average
+  frame size (folder bytes ÷ frame count) × frames-per-day at the chosen interval ×
+  the retention days. Shows a hint until the first frames land. (Card 0.21.130.)
+
+### Changed
+- Time-lapse ⚙ settings: the Snapshot interval, Keep (days), and Capture daily at
+  boxes are now a uniform width instead of each sizing to its own content.
+
+### Fixed
+- **S-Station "Display Off" now populates instead of showing "unknown"** (and the
+  control is kept — 3.19.411 wrongly removed it). The S-Station does have a screen-off
+  setting; it just delivers it differently from the display panels: it answers a
+  targeted `getConfigField ["system","scroff"]` with a bare `data.scroff`, whereas the
+  panels report `configFile.system.scroff`. The bare form is now decoded too, so once
+  the value has been set (from the SF app or the card) the Display Off control reflects
+  it. The diagnostic log no longer flags that bare `scroff` read as novel.
+
+## 3.19.411
+
+### Added
+- **Firmware Version + Hardware Version diagnostic sensors** for every controller
+  (display panels, AC5/AC10 strips, S-Station, SE light). Each device reports these
+  in its `getSysSta` system block (e.g. firmware `1.9`, hardware `US-110-V1.5`), but
+  that block never entered the entity-detection evidence, so no firmware sensor was
+  ever created. They're now created per device type and populated from the live
+  system frame. Find them under the device's **Diagnostic** section.
+
+### Fixed
+- **S-Station "Display Off" no longer shows a permanent "unknown".** The Display Off
+  (auto screen-off) control was created for the S-Station, but that device reports no
+  `system.scroff` value (it has no configurable screen-off), so the control sat
+  unknown forever. It's no longer created for the S-Station; display panels, which do
+  report it, are unchanged.
+
+### Fixed
+- **Diagnostic log no longer flags consumed data as "NOVEL … feature candidate".**
+  The diagnostic log's novel-field detector reports wire-level field names the raw
+  frame carries; several of those are in fact consumed downstream under renamed
+  entities, so the "(not consumed by the integration — feature candidate)" note read
+  as misleading unfinished work. The known-schema table now covers them: the day/night
+  `target` setpoint block, `calibration` and `alarm` blocks, the full `configFile` /
+  `senConfig` dumps, light `ppfdMin/MaxBrightness`, blower `closeCO2` / `cycleTime`,
+  soil `type` / `mst_fw_ver` + the live `*Alarm` flags, the smart-outlet automation
+  fields (`tempAdd` / `humiAdd` / `co2Add` / `addWater` / `timePeriod` / `cycleTime`),
+  and soil readings folded into the main sensor block. Genuinely new fields are still
+  flagged, so the log keeps its feature-hunting value. (Diagnostic log only — no
+  change to device behavior or entities.)
+
+## 3.19.409
+
+### Added
+- **Built-in Time-lapse tab on the main card.** A "Time-lapse" tab can now be enabled
+  per panel from the card's **Settings** tab (Devices → "Show Time-lapse tab"). It
+  embeds the Spider Time-lapse card bound to that panel, so you can set up and watch a
+  grow time-lapse without adding a separate card. At setup you pick the camera and
+  the snapshot interval right there; once it's capturing, those controls move out of
+  the way. (Card 0.21.128.)
+- **Snapshot interval is now changeable in the Time-lapse card's ⚙ settings.** The
+  capture cadence (5 min … 1 day) used to be editable only at setup. It now lives in
+  the gear panel alongside Keep (days) and — for a 1-day lapse — the "Capture daily at"
+  time, all on one line, and applies to the running time-lapse in place.
+
+### Changed
+- Time-lapse ⚙ overlay settings: the "All together" / "Show labels" toggles and the
+  placement hint now sit directly under the env-source and text-size row; dropdowns
+  size to their selection instead of stretching full-width.
+- Time-lapse env-overlay dragging: overlay boxes now treat each other as solid and
+  slide flush instead of overlapping (axis-by-axis collision), positions store to
+  0.1% precision so snapped boxes have no hairline seam, a tall box is clamped to the
+  image bottom (height-aware, not a fixed 92%), and boxes are clipped to the image
+  (square corners, `overflow: hidden`).
+- README: added a **Firmware compatibility** table (device → hardware → verified
+  firmware) covering the display controllers, AC5/AC10 power strips, SE light, and
+  S-Station.
+
+## 3.19.408
+
+### Fixed
+- **Couldn't set up a time-lapse again after deleting one.** Deleting a time-lapse
+  and then creating a new one with the same name + camera (same `tl_id`) did nothing
+  — the card's "Set up" button appeared dead. The status-sensor platform tracked the
+  ids it had created in a set it never pruned on deletion, so a reused `tl_id` was
+  skipped forever and never got its sensor back; the card then couldn't find the
+  instance. It now forgets removed ids, so re-creating a previously-deleted time-lapse
+  adds a fresh sensor and works immediately (no reload needed).
+
+## 3.19.407
+
+### Fixed
+- **Time-lapse no longer intermittently skips frames when several lapses share one
+  camera.** With multiple time-lapse instances on the same `camera.*` entity (e.g.
+  5/10/15/20/30/60-minute lapses of one feed), their aligned capture boundaries
+  coincide and they all pulled an image from the camera at the same instant. Most
+  cameras answer only one `async_get_image` at a time, so all but one got
+  "Unable to get image" and silently skipped that frame — which looked like the
+  lapse randomly stopping. Captures from the same camera are now serialized through
+  a per-camera lock, so siblings queue a second or two apart and every frame is
+  taken; different cameras still capture fully in parallel.
+
+### Changed
+- README now documents the full SF / G / SE PPFD light lineup (22 fixtures).
+
 ## 3.19.406
 
 ### Added

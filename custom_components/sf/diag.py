@@ -54,16 +54,26 @@ _LOGGER = logging.getLogger(__name__)
 # Anything outside this table is NOVEL and gets flagged.
 _KNOWN_FIELDS: dict[str, set] = {
     "sensor": {"temp", "humi", "co2", "vpd", "ppfd",
-               "isDaySensor", "isDayEnvTarget"},
+               "isDaySensor", "isDayEnvTarget",
+               # soil readings some controllers fold into the main sensor block
+               # (exposed as soil temp/moisture/EC entities)
+               "tempSoil", "humiSoil", "ECSoil",
+               # live per-metric alarm flags — knowingly ignored here; alarm
+               # state is driven by alarmLast / getAlarmLog
+               "tempAlarm", "humiAlarm", "vpdAlarm", "co2Alarm", "ppfdAlarm",
+               "tempSoilAlarm", "humiSoilAlarm", "ECSoilAlarm"},
     "alarmLast": {"id", "epoch", "devType", "alarmType", "env", "subidx"},
     "light":  {"mOnOff", "on", "mLevel", "level", "modeType", "lastAutoModeType",
-               "timePeriod", "alarm", "darkTemp", "offTemp", "ppfdPeriod"},
+               "timePeriod", "alarm", "darkTemp", "offTemp", "ppfdPeriod",
+               "ppfdMinBrightness", "ppfdMaxBrightness"},
     "light2": {"mOnOff", "on", "mLevel", "level", "modeType", "lastAutoModeType",
-               "timePeriod", "alarm", "darkTemp", "offTemp", "ppfdPeriod"},
+               "timePeriod", "alarm", "darkTemp", "offTemp", "ppfdPeriod",
+               "ppfdMinBrightness", "ppfdMaxBrightness"},
     "fan":    {"mOnOff", "on", "mLevel", "level", "modeType", "shakeLevel",
-               "natural", "timePeriod", "alarm", "maxSpeed", "minSpeed"},
+               "natural", "timePeriod", "alarm", "maxSpeed", "minSpeed",
+               "cycleTime"},
     "blower": {"mOnOff", "on", "mLevel", "level", "modeType", "timePeriod",
-               "alarm", "maxSpeed", "minSpeed"},
+               "alarm", "maxSpeed", "minSpeed", "cycleTime", "closeCO2"},
     "humidifier":   {"on", "mOnOff", "mLevel", "level", "modeType", "alarm",
                      "timePeriod", "cycleTime"},
     "dehumidifier": {"on", "mOnOff", "mLevel", "level", "modeType", "alarm",
@@ -76,9 +86,36 @@ _KNOWN_FIELDS: dict[str, set] = {
             "wifi", "eth", "mqtt", "bluetooth"},
     "oplogLast": {"id", "epoch", "opType", "modeType", "devType",
                   "subidx", "env"},
-    "_soil":  {"id", "tempSoil", "humiSoil", "ECSoil"},   # items of "sensors"
-    "_outlet": {"mOnOff", "on", "modeType", "alarm"},     # values of outlet.O*
+    "_soil":  {"id", "tempSoil", "humiSoil", "ECSoil",    # items of "sensors"
+               # probe model + firmware (note_soil_type: Pro vs Basic) + live
+               # alarm flags (knowingly ignored — state via getAlarmLog)
+               "type", "typeCode", "mst_fw_ver",
+               "tempSoilAlarm", "humiSoilAlarm", "ECSoilAlarm"},
+    "_outlet": {"mOnOff", "on", "modeType", "alarm",      # values of outlet.O*
+                # smart-outlet automation (decoded in bus.py, set via
+                # command_handler): env triggers, schedule, cycle, watering
+                "tempAdd", "humiAdd", "co2Add", "addWater",
+                "timePeriod", "cycleTime"},
+    # Day/night climate SETPOINT program — consumed since v3.19.90 as the
+    # Environment "target device" (number.sf_<p>_env_{temp,humi,co2}_{day,night,
+    # deadband} + the day-window text entities).
+    "target": {"dayTime", "temp", "humi", "co2"},
+    # Sensor calibration offsets — consumed by the card's Calibration tab.
+    "calibration": {"temp", "humi", "co2", "ppfd"},
+    # Alarm thresholds — consumed by the Alerts tab (decode_alarm_settings).
+    "alarm": {"temp", "humi", "vpd", "co2", "ppfd",
+              "tempSoil", "humiSoil", "ECSoil",
+              "devOffline", "dehumiWaterFull", "humiWaterLess", "lightTemp",
+              "waterLeak", "waterLess"},
 }
+# Blocks that ARE consumed but whose nested structure we deliberately don't
+# field-scan: configFile is the full getConfigFile dump (a container of other
+# blocks already known individually); senConfig is a per-probe label/calibration
+# list parsed by entity_defs. Listed so neither is mis-flagged as "unknown".
+_KNOWN_CONTAINER_BLOCKS = {"configFile", "senConfig"}
+# Bare scalars returned by targeted getConfigField reads (e.g. the S-Station's
+# ["system","scroff"] → {"scroff": 240}); consumed (Display Off), so not novel.
+_KNOWN_SCALAR_BLOCKS = {"scroff"}
 # Standalone SE-series lights report these as flat top-level fields
 _SE_TOP_LEVEL = {
     "mode", "brightness", "isScreenOn", "isIoTx", "isIoRx",
@@ -90,7 +127,8 @@ _SE_TOP_LEVEL = {
 # (consumed since 3.19.7) and oplogLast (consumed since 3.19.42).
 _ALARM_BLOCKS = {"count", "list", "alarmLast", "oplogLast"}
 _KNOWN_BLOCKS = (set(_KNOWN_FIELDS) | {"outlet", "sensors"}
-                 | _SE_TOP_LEVEL | _ALARM_BLOCKS)
+                 | _SE_TOP_LEVEL | _ALARM_BLOCKS | _KNOWN_CONTAINER_BLOCKS
+                 | _KNOWN_SCALAR_BLOCKS)
 
 
 class SfDiag:
@@ -259,6 +297,8 @@ class SfDiag:
                         f"= {self._j(content)}",
                     )
                 continue
+            if block in _KNOWN_CONTAINER_BLOCKS:
+                continue  # consumed container — don't field-scan its internals
             if block == "sensors" and isinstance(content, list):
                 for item in content:
                     if isinstance(item, dict):

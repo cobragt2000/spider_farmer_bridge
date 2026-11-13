@@ -32,6 +32,53 @@ def test_retention_sweeps_old_perboot_files(tmp_path):
     assert not old_dated.exists()   # >30 days dated backup — deleted
 
 
+def test_consumed_blocks_not_flagged_novel(tmp_path):
+    """Fields/blocks the integration consumes downstream (under renamed entities)
+    must NOT be flagged NOVEL — that log line was misleading. A genuinely unknown
+    field still fires."""
+    diag = SfDiag()
+    log = str(tmp_path / "diag.log")
+    diag.setup(log, days=5)
+    frame = {
+        "method": "getDevSta",
+        "data": {
+            "sensor": {"temp": 24.5, "tempSoil": 20.0, "humiSoil": 55,
+                       "ECSoil": 1.2, "humiSoilAlarm": 0, "reallyNewField": 1},
+            "light": {"mOnOff": 1, "ppfdMinBrightness": 11, "ppfdMaxBrightness": 100},
+            "blower": {"mOnOff": 1, "closeCO2": 0, "cycleTime": {"openDur": 10}},
+            "sensors": [{"id": "AA01", "tempSoil": 20, "type": 2,
+                         "mst_fw_ver": 4, "ECSoilAlarm": 0}],
+            "outlet": {"O1": {"mOnOff": 1, "tempAdd": 1, "humiAdd": 1,
+                              "co2Add": 1, "addWater": {"time": 60},
+                              "timePeriod": [], "cycleTime": {}}},
+            "target": {"dayTime": {"startTime": 18000, "endTime": 82800},
+                       "temp": {"targetDay": 26, "targetNight": 22, "deadband": 1}},
+            "calibration": {"temp": 0, "humi": 5, "co2": 0, "ppfd": 0},
+            "alarm": {"temp": {"enabled": 0, "vmin": 20, "vmax": 27}},
+            "configFile": {"light": {"modeType": 1}, "outlet": {}},
+            "senConfig": [{"id": "AA01", "label": "Mother Plant"}],
+        },
+    }
+    diag.frame("4e01", "4e01", "4e01", "getDevSta", frame)
+    diag.shutdown()
+    content = _read(log)
+
+    for token in ("unknown top-level block 'target'",
+                  "unknown top-level block 'calibration'",
+                  "unknown top-level block 'alarm'",
+                  "unknown top-level block 'configFile'",
+                  "unknown top-level block 'senConfig'",
+                  "light.ppfdMinBrightness", "light.ppfdMaxBrightness",
+                  "blower.closeCO2", "blower.cycleTime",
+                  "sensor.tempSoil", "sensor.humiSoilAlarm",
+                  "_soil.type", "_soil.mst_fw_ver", "_soil.ECSoilAlarm",
+                  "_outlet.tempAdd", "_outlet.addWater", "_outlet.cycleTime",
+                  "target.", "configFile."):
+        assert token not in content, f"should NOT be flagged NOVEL: {token}"
+    # A genuinely unknown field still fires — the detector isn't just muted.
+    assert content.count("NOVEL   [4e01] sensor.reallyNewField") == 1
+
+
 def _read(path):
     deadline = time.time() + 2
     while time.time() < deadline:

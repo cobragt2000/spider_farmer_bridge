@@ -150,6 +150,9 @@ async def test_s_station_has_no_indicator_light(hass: HomeAssistant):
     assert f"ggs_{ST_LC}_indicator_light" not in uids
     assert f"ggs_{ST_LC}_outlet_1" in uids
     assert f"ggs_{ST_LC}_display_off" in uids
+    # v3.19.411: firmware/hardware diagnostic sensors (from getSysSta).
+    assert f"ggs_{ST_LC}_fw_version" in uids
+    assert f"ggs_{ST_LC}_hw_version" in uids
 
 
 async def test_outlet_only_strip_skips_plan_and_calibration(hass: HomeAssistant):

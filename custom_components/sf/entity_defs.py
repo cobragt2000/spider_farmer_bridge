@@ -318,11 +318,25 @@ def build_device_entities(
             # 0 = idle, 1 = cleaning (heat), 2 = cooling (5-min cooldown).
             defs.append(d("sensor", "sensor_cleaning_phase", "Sensor Cleaning Phase",
               entity_category="diagnostic", icon="mdi:progress-clock"))
-    # ── System/health diagnostics (v3.19.42): the "sys" block ─────────────
-    if want("sys"):
+    # ── Firmware / hardware version (v3.19.411) ───────────────────────────
+    # Every controller reports ver + hwver in its getSysSta `sys` block, but
+    # that block never enters blocks_seen, so these can't be gated on
+    # want("sys") (which never fires — that's why no firmware sensor existed).
+    # Create them per controller from the device type, like the Reboot button;
+    # _decode_sys publishes the fw_version / hw_version states on each getSysSta.
+    if dtype in ("cb", "ps5", "ps10", "st", "se"):
         defs += [
             d("sensor", "fw_version", "Firmware Version",
               icon="mdi:chip", entity_category="diagnostic"),
+            d("sensor", "hw_version", "Hardware Version",
+              icon="mdi:memory", entity_category="diagnostic"),
+        ]
+    # ── System/health diagnostics (v3.19.42): the "sys" block ─────────────
+    # Uptime / Wi-Fi / Ethernet stay gated on the sys evidence block; harmless
+    # if it never fires (no spurious "unknown" entities for devices that don't
+    # report wifi/eth, e.g. the SE light which has no Wi-Fi RSSI).
+    if want("sys"):
+        defs += [
             d("sensor", "uptime", "Uptime", unit="s",
               device_class="duration", state_class="measurement",
               icon="mdi:timer-outline", entity_category="diagnostic"),
@@ -354,9 +368,17 @@ def build_device_entities(
 
     # ── Display Off / Auto Screen Off (v3.19.259) — controllers with a built-in
     # screen (display panels + the S-Station) auto-dim after N minutes (0=off). ─
+    # Display panels report it as configFile.system.scroff; the S-Station answers a
+    # targeted getConfigField ["system","scroff"] with a bare data.scroff — both
+    # decoded in mitm_proxy (so this control no longer sits "unknown" on the
+    # S-Station once it's been set). (st path restored v3.19.412)
     if dtype in ("cb", "st"):
-        defs.append(d("select", "display_off", "Display Off",
-                      options=["Off"] + [str(i) for i in range(1, 11)],
+        # A number (0 = off, 1-10 min) so it renders like the other Configuration
+        # rows (icon · label left · compact value box) instead of a full-width
+        # dropdown. HA renders selects full-width, numbers compact. (v3.19.416)
+        defs.append(d("number", "display_off", "Display Off",
+                      unit="min", num_mode="box",
+                      min_value=0, max_value=10, step=1, default_value=0,
                       entity_category="config", icon="mdi:monitor-off"))
 
     # Reboot button (v3.19.288): one per GGS controller. Injects the firmware's
@@ -417,14 +439,16 @@ def build_device_entities(
             # Mirrors the blower_speed report; command routes to the blower
             # block's percentage subfield. kind="blower" selects the
             # off/floor-aware number entity in number.py.
-            d("number", "blower_speed_set", "Blower Speed",
+            d("number", "blower_speed_set", "Blower Speed (set)",
+              object_id=(f"sf_{slot}_blower_speed" if slot else None),
               unit="%", icon="mdi:speedometer", kind="blower",
               command_field="blower", command_subfield="percentage",
               min_value=0, max_value=100, step=5),
             d("sensor", "blower_mode", "Blower Mode",
               device_class="enum", options=list(_FAN_MODE_OPTIONS), icon="mdi:cog"),
             # ── Mode-aware controls (surfaced per-mode by the card's blower tile) ──
-            d("select", "blower_mode_set", "Blower Mode Set", icon="mdi:cog",
+            d("select", "blower_mode_set", "Blower Mode (set)", icon="mdi:cog",
+              object_id=(f"sf_{slot}_blower_mode_set" if slot else None),
               options=["Manual", "Time Slot", "Cycle", "Environment"],
               command_field="blower", command_subfield="mode"),
             d("select", "blower_run_mode", "Blower Run Mode", icon="mdi:cog-sync",
@@ -468,7 +492,8 @@ def build_device_entities(
             # Inline speed slider in % (0 = Off, 10-100 in 10s) mapped to the
             # fan's 10 gears. kind="fan" selects the gear<->percent number in
             # number.py; reads fan_gear (0-10) and shows it as a percentage.
-            d("number", "fan_gear_set", "Fan Speed",
+            d("number", "fan_gear_set", "Fan Speed (set)",
+              object_id=(f"sf_{slot}_fan_speed" if slot else None),
               unit="%", icon="mdi:speedometer", kind="fan",
               command_field="fan", command_subfield="percentage",
               min_value=0, max_value=100, step=10),
@@ -476,17 +501,20 @@ def build_device_entities(
               state_class="measurement", icon="mdi:rotate-3d-variant"),
             d("binary_sensor", "fan_natural_wind", "Fan Natural Wind",
               icon="mdi:weather-windy"),
-            d("number", "fan_oscillation_set", "Fan Oscillation",
+            d("number", "fan_oscillation_set", "Fan Oscillation (set)",
+              object_id=(f"sf_{slot}_fan_oscillation" if slot else None),
               icon="mdi:rotate-3d-variant", command_field="fan",
               command_subfield="oscillation_level",
               min_value=0, max_value=10),
-            d("switch", "fan_natural_wind_set", "Fan Natural Wind",
+            d("switch", "fan_natural_wind_set", "Fan Natural Wind (set)",
+              object_id=(f"sf_{slot}_fan_natural_wind" if slot else None),
               icon="mdi:weather-windy", command_field="fan",
               command_subfield="natural_wind", kind="toggle"),
             d("sensor", "fan_mode", "Fan Mode",
               device_class="enum", options=list(_FAN_MODE_OPTIONS), icon="mdi:cog"),
             # ── Mode-aware controls (surfaced per-mode by the card's fan tile) ──
-            d("select", "fan_mode_set", "Fan Mode Set", icon="mdi:cog",
+            d("select", "fan_mode_set", "Fan Mode (set)", icon="mdi:cog",
+              object_id=(f"sf_{slot}_fan_mode_set" if slot else None),
               options=["Manual", "Time Slot", "Cycle", "Environment"],
               command_field="fan", command_subfield="mode"),
             d("select", "fan_run_mode", "Fan Run Mode", icon="mdi:cog-sync",
@@ -599,7 +627,8 @@ def build_device_entities(
         defs += [
             d("switch", "humidifier", "Humidifier",
               icon="mdi:air-humidifier", kind="climate"),
-            d("number", "humidifier_level_set", "Humidifier Level",
+            d("number", "humidifier_level_set", "Humidifier Level (set)",
+              object_id=(f"sf_{slot}_humidifier_level" if slot else None),
               icon="mdi:water-percent", command_field="humidifier",
               command_subfield="level", min_value=1, max_value=4,
               num_mode="box"),
@@ -610,7 +639,8 @@ def build_device_entities(
             d("sensor", "humidifier_water", "Humidifier Tank",
               device_class="enum", options=["Full", "Empty"], icon="mdi:water"),
             # ── Mode-aware controls (card humidifier tile) ──
-            d("select", "humidifier_mode_set", "Humidifier Mode Set", icon="mdi:cog",
+            d("select", "humidifier_mode_set", "Humidifier Mode (set)", icon="mdi:cog",
+              object_id=(f"sf_{slot}_humidifier_mode_set" if slot else None),
               options=["Manual", "Time Slot", "Cycle", "Humidity"],
               command_field="humidifier", command_subfield="mode"),
             # Humidity-mode gear: "Automatic" (device picks the level from the
@@ -642,7 +672,8 @@ def build_device_entities(
         defs += [
             d("switch", "dehumidifier", "Dehumidifier",
               icon="mdi:air-humidifier-off", kind="climate"),
-            d("select", "dehumidifier_level_set", "Dehumidifier Level",
+            d("select", "dehumidifier_level_set", "Dehumidifier Level (set)",
+              object_id=(f"sf_{slot}_dehumidifier_level" if slot else None),
               icon="mdi:air-humidifier-off", command_field="dehumidifier",
               command_subfield="level", options=["Low", "High"]),
             d("binary_sensor", "dehumidifier_active", "Dehumidifier Active", icon="mdi:air-humidifier-off"),
@@ -654,15 +685,14 @@ def build_device_entities(
             d("sensor", "dehumidifier_tank", "Dehumidifier Tank",
               device_class="enum", options=["Empty", "Full"], icon="mdi:cup-water"),
             # ── Mode-aware controls (card dehumidifier tile) ──
-            d("select", "dehumidifier_mode_set", "Dehumidifier Mode Set", icon="mdi:cog",
+            d("select", "dehumidifier_mode_set", "Dehumidifier Mode (set)", icon="mdi:cog",
+              object_id=(f"sf_{slot}_dehumidifier_mode_set" if slot else None),
               options=["Manual", "Time Slot", "Cycle", "Humidity"],
               command_field="dehumidifier", command_subfield="mode"),
-            # Humidity-mode gear: Low / High (no Automatic — the mode itself is
-            # the auto behaviour). Stored in the device `level` field (0=Low,
-            # 1=High).
-            d("select", "dehumidifier_gear", "Dehumidifier Gear",
-              icon="mdi:air-humidifier-off", options=["Low", "High"],
-              command_field="dehumidifier", command_subfield="auto_gear"),
+            # NOTE: the separate "Dehumidifier Gear" select (Humidity-mode gear,
+            # config `level`) was removed v3.19.419 — it duplicated "Dehumidifier
+            # Level" (Low/High). The single level control now keeps config `level`
+            # in sync with `mLevel` so Humidity mode still responds (command_handler).
             d("text", "dehumidifier_schedule_start", "Dehumidifier Schedule Start",
               icon="mdi:clock-start", command_field="dehumidifier",
               command_subfield="schedule_start"),
@@ -686,7 +716,8 @@ def build_device_entities(
         defs += [
             d("switch", "heater", "Heater",
               icon="mdi:radiator", kind="climate"),
-            d("number", "heater_level_set", "Heater Level",
+            d("number", "heater_level_set", "Heater Level (set)",
+              object_id=(f"sf_{slot}_heater_level" if slot else None),
               icon="mdi:radiator", command_field="heater",
               command_subfield="level", min_value=1, max_value=10),
             d("binary_sensor", "heater_active", "Heater Active", icon="mdi:radiator"),
@@ -696,7 +727,8 @@ def build_device_entities(
             d("sensor", "heater_status", "Heater Status",
               device_class="enum", options=["OK", "Alarm"], icon="mdi:fire"),
             # ── Mode-aware controls (card heater tile) ──
-            d("select", "heater_mode_set", "Heater Mode Set", icon="mdi:cog",
+            d("select", "heater_mode_set", "Heater Mode (set)", icon="mdi:cog",
+              object_id=(f"sf_{slot}_heater_mode_set" if slot else None),
               options=["Manual", "Time Slot", "Cycle", "Temperature"],
               command_field="heater", command_subfield="mode"),
             # Temperature-mode gear: Automatic (controller picks the level from
@@ -734,7 +766,8 @@ def build_device_entities(
             # via isForceSlaveMode; it's included so the select accepts the "Linked"
             # state, but it follows the RJ12 cable to a controller — picking it here
             # is a no-op (see _cmd_se_mode). (v3.19.395)
-            d("select", "se_mode_set", "Mode", icon="mdi:cog",
+            d("select", "se_mode_set", "Mode (set)", icon="mdi:cog",
+              object_id=(f"sf_{slot}_mode" if slot else None),
               options=["Manual", "Automatic", "Linked"], command_field="se_mode"),
             d("text", "se_schedule_start_set", "Schedule Start",
               icon="mdi:clock-start", command_field="se_light",

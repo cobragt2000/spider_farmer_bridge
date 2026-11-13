@@ -96,12 +96,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # One-time (3.19.307): Display Off changed number -> select; drop the stale
     # number-domain ghost left on display panels adopted before the change.
-    _migrate_display_off_to_select(hass, entry)
+    _migrate_display_off_to_number(hass, entry)
 
     # One-time (3.19.392): the "Operations" (oplog) diagnostic sensor is no longer
     # created (its state was just the last op time and nothing consumed it). Remove
     # the existing entity so it doesn't linger as an "unavailable" ghost.
     _migrate_remove_oplog(hass, entry)
+    _migrate_remove_dehumidifier_gear(hass, entry)
 
     # One-time (3.19.103): soil calibration/substrate entity ids were never
     # re-homed when a Display Panel's dp slot changed, so a dp1<->dp2 swap left
@@ -629,14 +630,14 @@ def _migrate_cal_to_editable(hass: HomeAssistant, entry: ConfigEntry) -> None:
             "editable number/select entities", removed)
 
 
-def _migrate_display_off_to_select(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """3.19.307: "Display Off / Auto Screen Off" was a number entity before it
-    became a select (Off / 1–10 min). The two live under different domains but
-    share the unique_id ``ggs_<mac>_display_off``, so the stale number-domain
-    entity lingers on the device page as an unavailable "no longer provided"
-    ghost (seen on display panels adopted before the change). Remove it; the
-    select platform recreates the editable version with the same unique_id.
-    Idempotent."""
+def _migrate_display_off_to_number(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """3.19.416: "Display Off / Auto Screen Off" is a number (0 = off, 1-10 min)
+    so it renders like the other Configuration rows instead of a full-width
+    dropdown. It was a select between 3.19.307 and 3.19.415. Both live under
+    different domains but share the unique_id ``ggs_<mac>_display_off``, so the
+    stale non-number entity lingers on the device page as an unavailable "no
+    longer provided" ghost. Remove it; the number platform recreates the editable
+    version with the same unique_id. Idempotent."""
     import re
     from homeassistant.helpers import entity_registry as er
 
@@ -644,7 +645,7 @@ def _migrate_display_off_to_select(hass: HomeAssistant, entry: ConfigEntry) -> N
     uid_re = re.compile(r"^ggs_[0-9a-f]+_display_off$")
     removed = 0
     for e in list(er.async_entries_for_config_entry(ent_reg, entry.entry_id)):
-        if e.domain == "number" and uid_re.match(e.unique_id or ""):
+        if e.domain != "number" and uid_re.match(e.unique_id or ""):
             try:
                 ent_reg.async_remove(e.entity_id)
                 removed += 1
@@ -652,8 +653,8 @@ def _migrate_display_off_to_select(hass: HomeAssistant, entry: ConfigEntry) -> N
                 pass
     if removed:
         _LOGGER.info(
-            "Removed %d stale number-domain Display Off entity(ies) now "
-            "replaced by the select version", removed)
+            "Removed %d stale non-number Display Off entity(ies) now "
+            "replaced by the number version", removed)
 
 
 def _migrate_remove_oplog(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -677,6 +678,29 @@ def _migrate_remove_oplog(hass: HomeAssistant, entry: ConfigEntry) -> None:
                 pass
     if removed:
         _LOGGER.info("Removed %d retired Operations (oplog) sensor(s)", removed)
+
+
+def _migrate_remove_dehumidifier_gear(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """3.19.419: the separate "Dehumidifier Gear" select (unique_id
+    ``ggs_<mac>_dehumidifier_gear``) is no longer created — it duplicated
+    "Dehumidifier Level" (the dehumidifier has a single Low/High setting). Remove
+    any existing entity so it doesn't sit on the device page as a disabled "no
+    longer provided" ghost the user can't delete. Idempotent."""
+    import re
+    from homeassistant.helpers import entity_registry as er
+
+    ent_reg = er.async_get(hass)
+    uid_re = re.compile(r"^ggs_[0-9a-f]+_dehumidifier_gear$")
+    removed = 0
+    for e in list(er.async_entries_for_config_entry(ent_reg, entry.entry_id)):
+        if e.domain == "select" and uid_re.match(e.unique_id or ""):
+            try:
+                ent_reg.async_remove(e.entity_id)
+                removed += 1
+            except KeyError:
+                pass
+    if removed:
+        _LOGGER.info("Removed %d retired Dehumidifier Gear select(s)", removed)
 
 
 def _seed_component_decisions(hass: HomeAssistant, entry: ConfigEntry) -> None:

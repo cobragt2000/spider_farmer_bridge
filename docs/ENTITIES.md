@@ -32,6 +32,15 @@ Display **names** stay physical (e.g. `SF Display Panel A1B2`) and use
 Slots (including soil probes) are editable in **Configure → Device mappings**;
 history follows the slot.
 
+Where an accessory has both a **read-only value sensor** and a **settable
+control** for the same quantity (Blower Speed, Fan Speed, Fan Oscillation,
+Fan Natural Wind, Heater / Humidifier / Dehumidifier Level, and every Mode select),
+the sensor keeps the plain
+name and the control is suffixed **"(set)"** (e.g. `number` *Blower Speed (set)*
+beside `sensor` *Blower Speed*) so the two are distinguishable in the entity and
+automation pickers. Both share the same `<field>` slug, so their entity IDs are
+unchanged — only the display name differs.
+
 ---
 
 ## Air sensors
@@ -56,11 +65,14 @@ panel with no CO2 probe simply has no CO2 sensor. Two decimals on display.
 
 ## System / diagnostics
 
-For controllers that report the `sys` block. Grouped under Diagnostic.
+Grouped under Diagnostic. Firmware Version and Hardware Version are created for
+every controller (display panels, the AC5 / AC10 power strips, and the S-Station);
+uptime and the link sensors appear for controllers that report the `sys` block.
 
 | Entity | Suffix | Domain | Description |
 |---|---|---|---|
 | Firmware Version | `fw_version` | sensor | Controller firmware (`sys.ver`). |
+| Hardware Version | `hw_version` | sensor | Controller hardware revision (`sys.hwver`). |
 | Uptime | `uptime` | sensor | Time since the controller last booted. |
 | WiFi Signal | `wifi_rssi` | sensor | Wi-Fi RSSI (dBm). |
 | WiFi Connected | `wifi_connected` | binary_sensor | Wi-Fi link up. |
@@ -74,7 +86,7 @@ block).
 | Entity | Suffix | Domain | Description |
 |---|---|---|---|
 | Reboot | `reboot` | button | Reboots the controller (firmware `setDevRestart`). One per controller — display panels, AC5 / AC10 power strips, and the S-Station. Diagnostic category; only acts when *Allow device control* is on and the controller is online. |
-| Display Off | `display_off` | select | Auto screen-off delay (`Off` / `1`–`10` minutes) for controllers with a built-in screen (display panels, S-Station). Config category. |
+| Display Off | `display_off` | number | Auto screen-off delay in minutes (`0` = off, range `0`–`10`), shown as a compact box, for controllers with a built-in screen (display panels, S-Station). Config category. |
 | Indicator Light | `indicator_light` | switch | The physical status LED on the AC5 / AC10 power strips. |
 
 ## Alarm & event feed
@@ -114,10 +126,10 @@ Light tile surfaces the settings.
 | Entity | Suffix | Domain | Description |
 |---|---|---|---|
 | Fan | `fan` | fan | On/off + speed (10 gears). |
-| Fan Speed | `fan_speed` | sensor / number | Gear read-back (sensor) and setter (number, 0–100 %). |
-| Fan Oscillation | `fan_oscillation` | sensor / number | Oscillation level read-back and setter. |
-| Fan Natural Wind | `fan_natural_wind` | binary_sensor / switch | Natural-wind mode state and toggle. |
-| Fan Mode | `fan_mode` | sensor / select | Mode read-back (sensor) and setter (`fan_mode_set`). |
+| Fan Speed | `fan_speed` | sensor / number | Gear read-back (sensor, *Fan Speed*) and setter (number, *Fan Speed (set)*, 0–100 %). |
+| Fan Oscillation | `fan_oscillation` | sensor / number | Oscillation level read-back (*Fan Oscillation*) and setter (*Fan Oscillation (set)*). |
+| Fan Natural Wind | `fan_natural_wind` | binary_sensor / switch | Natural-wind mode state (*Fan Natural Wind*) and toggle (*Fan Natural Wind (set)*). |
+| Fan Mode | `fan_mode` | sensor / select | Mode read-back (sensor, *Fan Mode*) and setter (select, *Fan Mode (set)*). |
 | Fan Run Mode | `fan_run_mode` | select | Schedule vs cycle run mode. |
 | Fan Schedule Start / Stop | `fan_schedule_start` / `_stop` | text | Time-Slot schedule window. |
 | Fan Schedule Gear | `fan_schedule_gear` | number | Scheduled speed. |
@@ -132,8 +144,8 @@ Same shape as the fan, plus a CO2 toggle.
 | Entity | Suffix | Domain | Description |
 |---|---|---|---|
 | Blower | `blower` | fan | On/off + speed (25 % floor). |
-| Blower Speed | `blower_speed` | sensor / number | Speed read-back and setter (0 = off, 25–100 %). |
-| Blower Mode | `blower_mode` | sensor / select | Mode read-back and setter (`blower_mode_set`). |
+| Blower Speed | `blower_speed` | sensor / number | Speed read-back (sensor, *Blower Speed*) and setter (number, *Blower Speed (set)*, 0 = off, 25–100 %). |
+| Blower Mode | `blower_mode` | sensor / select | Mode read-back (sensor, *Blower Mode*) and setter (select, *Blower Mode (set)*). |
 | Blower Run Mode | `blower_run_mode` | select | Schedule vs cycle. |
 | Blower Schedule Start / Stop | `blower_schedule_start` / `_stop` | text | Schedule window. |
 | Blower Running / Standby Speed | `blower_running_speed` / `blower_standby_speed` | number | In-window / off-window speed. |
@@ -154,7 +166,7 @@ and schedule/cycle; they differ in the **Level** control and the **fault** senso
 | Heater Level (set) | `heater_level` | number | Heater gear (1–10). |
 | Humidifier Level (set) | `humidifier_level` | number | Humidifier gear (1–4). |
 | Dehumidifier Level (set) | `dehumidifier_level` | select | Low / High. |
-| Mode | `<dev>_mode` | sensor / select | Mode read-back and setter (`<dev>_mode_set`). |
+| Mode | `<dev>_mode` | sensor / select | Mode read-back (sensor, *<Device> Mode*) and setter (select, *<Device> Mode (set)*). |
 | Heater Status | `heater_status` | sensor | `OK` / `Alarm` (per-device heater fault). |
 | Humidifier Tank | `humidifier_tank` | sensor | `Full` / `Empty` (empty = out of water). |
 | Dehumidifier Tank | `dehumidifier_tank` | sensor | `Empty` / `Full` (full = collection tank full). |
@@ -170,7 +182,7 @@ object IDs slugify the names below.
 | Entity | Suffix | Domain | Description |
 |---|---|---|---|
 | Light | `se_light` | light | On/off + brightness. |
-| Mode | `se_mode` (read) / `se_mode_set` | sensor / select | Manual / Automatic. |
+| Mode | `se_mode` (read) / `se_mode_set` | sensor / select | Manual / Automatic. Sensor is *Mode*; the setter is *Mode (set)*. |
 | Brightness | `se_brightness` | sensor | Reported brightness. |
 | Active | `se_active` | binary_sensor | Currently on. |
 | Schedule Start / Stop | `se_schedule_start_set` / `se_schedule_end_set` | text | Schedule window. |

@@ -2443,6 +2443,21 @@ class SfBus:
                 self._add_defs(rb_defs)
                 DIAG.bus_event(f"outlet_seen {rb_uid}")
 
+        # Firmware / Hardware Version diagnostics — device-level, same as Reboot
+        # above. A pure-outlet strip (ac5/ac10) never runs blocks_seen, so these
+        # dtype-gated sensors from build_device_entities were never created for it
+        # (every other controller got them). Create them here by unique id. (v3.19.414)
+        for _ver_uid in (f"ggs_{mac}_fw_version", f"ggs_{mac}_hw_version"):
+            if _ver_uid not in self._registered:
+                _ver_defs = [
+                    d for d in build_device_entities(device_cfg, slot=slot)
+                    if d.unique_id == _ver_uid
+                ]
+                if _ver_defs:
+                    self._pruned.discard(_ver_uid)
+                    self._add_defs(_ver_defs)
+                    DIAG.bus_event(f"outlet_seen {_ver_uid}")
+
         # Outlet Mode (Standalone/Smart) select — a device-level select tied to
         # hasOutlets on ps5/ps10, like the Indicator LED and Reboot above. A pure-
         # outlet strip reports no SF sensor block, so blocks_seen never runs and

@@ -12,7 +12,8 @@ keeps working normally.
 
 This add-on is the *networking* half. The protocol decoding, entities, and
 Lovelace cards live in the **Spider Farmer Bridge** custom integration, which
-you install from the same repository via HACS. Install both (see below).
+you install from the same repository via Marketplace (called HACS before Home
+Assistant 2026.11). Install both (see below).
 
 ## How it fits together
 
@@ -32,7 +33,7 @@ The integration and this add-on ship from the **same GitHub repo**. Home
 Assistant keeps integrations and add-ons in separate stores, so you add the one
 URL in two places:
 
-1. **HACS → Custom repositories** → add the repo URL (category *Integration*).
+1. **Settings → Marketplace → ⋮ → Custom repositories** → add the repo URL (category *Integration*).
    Install **Spider Farmer Bridge**, restart HA, add the integration.
 2. **Settings → Add-ons → Add-on Store → ⋮ → Repositories** → add the *same*
    repo URL. Install **Spider Farmer Hotspot** from the list that appears.

@@ -70,6 +70,24 @@ async def test_reboot_button_created_for_pure_outlet_strip(hass: HomeAssistant):
     assert reboot[0].entity_id.startswith("button.")
 
 
+async def test_firmware_sensors_created_for_pure_outlet_strip(hass: HomeAssistant):
+    """v3.19.414: fw_version/hw_version are dtype-gated device-level sensors. A
+    pure-outlet ps5/ps10 strip never runs blocks_seen, so (like Reboot) they must
+    be created via outlet_seen — otherwise ac5/ac10 had no firmware sensors while
+    every other controller did."""
+    entry = await _setup(hass)
+    bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+    strip_mac, strip_lc = "0A1B2C3D4E18", "0a1b2c3d4e18"
+    cfg = {"mac": strip_mac, "type": "ps10"}
+    bus.register_device(cfg)
+    bus.outlet_seen(strip_mac, 1, cfg)   # no blocks_seen — strip has no sensor block
+    await hass.async_block_till_done()
+    reg = er.async_get(hass)
+    uids = {e.unique_id for e in er.async_entries_for_config_entry(reg, entry.entry_id)}
+    assert f"ggs_{strip_lc}_fw_version" in uids, "fw_version missing on pure-outlet strip"
+    assert f"ggs_{strip_lc}_hw_version" in uids, "hw_version missing on pure-outlet strip"
+
+
 async def test_reboot_command_payload():
     """setDevRestart envelope: method + empty params + pid + uid."""
     from custom_components.sf.proxy.mitm_proxy import MITMProxy, _mac

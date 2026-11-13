@@ -49,7 +49,7 @@ interface CardConfig {
   title?: string;
   accent?: string;
   default_tab?:
-    | "overview" | "environment" | "outlets" | "outlets_log" | "device_log" | "vpd"
+    | "overview" | "environment" | "outlets" | "outlets_log" | "device_log" | "timelapse" | "vpd"
     | "calibration" | "alerts" | "log";
 }
 interface OutletSlot {
@@ -417,7 +417,7 @@ export class SpiderFarmerCard extends LitElement {
   @property({ attribute: false }) hass?: Hass;
   @state() private config!: CardConfig;
   @state() private tab:
-    "overview" | "env" | "outlets" | "olog" | "dlog" | "vpd" | "cali" | "alerts" | "log" | "settings" = "overview";
+    "overview" | "env" | "outlets" | "olog" | "dlog" | "tlapse" | "vpd" | "cali" | "alerts" | "log" | "settings" = "overview";
   // Environment tab sub-view: null = follow the default (Planting Plan when a
   // plan is active, else Environment); set when the user taps the toggle.
   @state() private envSubView: "env" | "plan" | null = null;
@@ -491,6 +491,7 @@ export class SpiderFarmerCard extends LitElement {
   @state() private _setDevOpen = false;
   @state() private _setOutletOpen = false;
   @state() private _setLayoutOpen = false;
+  @state() private _setSoilOpen = false;
   @state() private vpdLeaf = false;
   // Ephemeral VPD tab UI state (not persisted): current growth stage, view,
   // highlight-band toggle, target source, and the custom band bounds (kPa).
@@ -530,6 +531,17 @@ export class SpiderFarmerCard extends LitElement {
   // power entity id. deviceQuickRemember restores a device's mode (which re-engages
   // the controller's stored settings for that mode) on quick-on.
   @state() private showDeviceLog = false;
+  // Hide the tab bar for a compact card. Tap the card title (its name in the
+  // header) to toggle. Persisted server-side (card_options `hide_tabs`) so it
+  // resumes across devices + sessions.
+  @state() private hideTabs = false;
+  // Built-in Time-lapse tab (settings toggle) + the panel-scoped camera it uses. (v0.21.117)
+  @state() private showTimelapseTab = false;
+  @state() private tlCam = "";
+  // Snapshot interval (seconds) + daily-at time for the built-in Time-lapse tab,
+  // so the capture cadence is changeable right there. (v0.21.123)
+  @state() private tlInterval = 300;
+  @state() private tlDailyAt = "00:00";
   @state() private showDeviceQuick = false;
   @state() private deviceQuickRemember = false;
   @state() private dlogOpen: string | null = null; // expanded device key (shares ologRange window)
@@ -685,6 +697,9 @@ export class SpiderFarmerCard extends LitElement {
     showOutletsLog?: boolean; showOutletQuick?: boolean; outletQuickRemember?: boolean; outletQuickNames?: boolean;
     showVpd?: boolean; vpdLeaf?: boolean; showLeafVpd?: boolean;
     showDeviceLog?: boolean; showDeviceQuick?: boolean; deviceQuickRemember?: boolean;
+    hideTabs?: boolean;
+    soilMode?: "avg" | "sensor" | "split"; soilKeep?: "replace" | "keep" | "stats";
+    showTimelapseTab?: boolean; tlCam?: string; tlInterval?: number; tlDailyAt?: string;
     tileRadius?: number; tileBorderW?: number; tileBorderCol?: string; tileBg?: string;
     taTiles?: boolean; taDevices?: boolean; taOutlets?: boolean;
     cdShow?: boolean; cdDevice?: boolean; cdOutlet?: boolean; cdSecs?: number;
@@ -702,6 +717,18 @@ export class SpiderFarmerCard extends LitElement {
   @state() private soilGraphOpen: "temperature" | "moisture" | "ec" | null = null;
   // "All Soil Sensors Stats" table expanded (Overview, 2+ probes).
   @state() private soilAllOpen = false;
+  // Soil tile layout: "avg" = 3 averaged tiles (default), "sensor" = one tile per
+  // probe with Temp/Moisture/EC on it, "split" = three tiles per probe. soilKeep
+  // decides what happens to the averaged tiles + All Soil Stats in a split mode:
+  // "replace" (only per-sensor), "keep" (averages too), "stats" (keep All Soil
+  // Stats only). Both persist server-side (card_options soil_mode / soil_keep).
+  @state() private soilMode: "avg" | "sensor" | "split" = "avg";
+  @state() private soilKeep: "replace" | "keep" | "stats" = "replace";
+  // Which per-sensor tile's history graph is open — a probe slot ("soil1") in
+  // "sensor" mode, or "soil1:temperature" in "split" mode. Plus the metric picked
+  // in an open combined (sensor-mode) graph.
+  @state() private soilTileGraph: string | null = null;
+  @state() private soilTileMetric: "temperature" | "moisture" | "ec" = "temperature";
   // Which device tile's controls are expanded on Overview ("domain:suffix" or null).
   @state() private deviceOpen: string | null = null;
   // Which device tile's level history graph is open ("domain:suffix" or null).
@@ -758,6 +785,7 @@ export class SpiderFarmerCard extends LitElement {
       : dt === "outlets" ? "outlets"
       : dt === "outlets_log" ? "olog"
       : dt === "device_log" ? "dlog"
+      : dt === "timelapse" ? "tlapse"
       : dt === "vpd" ? "vpd"
       : dt === "calibration" || dt === "cali" ? "cali"
       : dt === "alerts" ? "alerts"
@@ -810,6 +838,9 @@ export class SpiderFarmerCard extends LitElement {
         if (typeof j.showLeafVpd === "boolean") this.showLeafVpd = j.showLeafVpd;
         if (typeof j.vpdLeaf === "boolean") this.vpdLeaf = j.vpdLeaf;
         if (typeof j.showDeviceLog === "boolean") this.showDeviceLog = j.showDeviceLog;
+        if (typeof j.hideTabs === "boolean") this.hideTabs = j.hideTabs;
+        if (j.soilMode === "avg" || j.soilMode === "sensor" || j.soilMode === "split") this.soilMode = j.soilMode;
+        if (j.soilKeep === "replace" || j.soilKeep === "keep" || j.soilKeep === "stats") this.soilKeep = j.soilKeep;
         if (typeof j.showDeviceQuick === "boolean") this.showDeviceQuick = j.showDeviceQuick;
         if (typeof j.deviceQuickRemember === "boolean") this.deviceQuickRemember = j.deviceQuickRemember;
         if (typeof j.customNames === "boolean") this.customOutletNames = j.customNames;
@@ -841,6 +872,9 @@ export class SpiderFarmerCard extends LitElement {
     showOutletsLog?: boolean; showOutletQuick?: boolean; outletQuickRemember?: boolean; outletQuickNames?: boolean;
     showVpd?: boolean; vpdLeaf?: boolean; showLeafVpd?: boolean;
     showDeviceLog?: boolean; showDeviceQuick?: boolean; deviceQuickRemember?: boolean;
+    hideTabs?: boolean;
+    soilMode?: "avg" | "sensor" | "split"; soilKeep?: "replace" | "keep" | "stats";
+    showTimelapseTab?: boolean; tlCam?: string; tlInterval?: number; tlDailyAt?: string;
     graphRange?: number;
     ologRange?: number;
     powerMetric?: string;
@@ -872,6 +906,13 @@ export class SpiderFarmerCard extends LitElement {
     if (co.vpd_leaf === "1" || co.vpd_leaf === "0") out.vpdLeaf = co.vpd_leaf === "1";
     if (co.leaf_vpd_tile === "1" || co.leaf_vpd_tile === "0") out.showLeafVpd = co.leaf_vpd_tile === "1";
     if (co.device_log === "1" || co.device_log === "0") out.showDeviceLog = co.device_log === "1";
+    if (co.hide_tabs === "1" || co.hide_tabs === "0") out.hideTabs = co.hide_tabs === "1";
+    if (co.soil_mode === "avg" || co.soil_mode === "sensor" || co.soil_mode === "split") out.soilMode = co.soil_mode;
+    if (co.soil_keep === "replace" || co.soil_keep === "keep" || co.soil_keep === "stats") out.soilKeep = co.soil_keep;
+    if (co.timelapse_tab === "1" || co.timelapse_tab === "0") out.showTimelapseTab = co.timelapse_tab === "1";
+    if (co.tl_cam !== undefined) out.tlCam = co.tl_cam;
+    if (co.tl_interval !== undefined) out.tlInterval = Number(co.tl_interval) || 300;
+    if (co.tl_daily_at !== undefined) out.tlDailyAt = String(co.tl_daily_at);
     if (co.device_quick === "1" || co.device_quick === "0") out.showDeviceQuick = co.device_quick === "1";
     if (co.device_quick_remember === "1" || co.device_quick_remember === "0") out.deviceQuickRemember = co.device_quick_remember === "1";
     if (co.graph_range) out.graphRange = Number(co.graph_range) || 6;
@@ -1060,6 +1101,14 @@ export class SpiderFarmerCard extends LitElement {
       this.hass?.callService("sf", "set_card_option", { entity_id: eid, key, value });
     }
   }
+  // Tap the card title to show/hide the tab bar. Persists immediately (server-side
+  // + localStorage cache) so the choice resumes everywhere — it's the escape hatch
+  // back to the tabs (and Settings) when the bar is hidden.
+  private toggleTabs(): void {
+    this.hideTabs = !this.hideTabs;
+    this.persistColorOption("hide_tabs", this.hideTabs ? "1" : "0");
+    this.cacheColors();
+  }
   // Mirror the current display settings into the localStorage cache (instant paint).
   private cacheColors(): void {
     try {
@@ -1075,7 +1124,8 @@ export class SpiderFarmerCard extends LitElement {
         outletQuickNames: this.outletQuickNames,
         showVpd: this.showVpd, vpdLeaf: this.vpdLeaf, showLeafVpd: this.showLeafVpd,
         showDeviceLog: this.showDeviceLog, showDeviceQuick: this.showDeviceQuick,
-        deviceQuickRemember: this.deviceQuickRemember,
+        deviceQuickRemember: this.deviceQuickRemember, hideTabs: this.hideTabs,
+        soilMode: this.soilMode, soilKeep: this.soilKeep,
         hi: this.colHi, lo: this.colLo, in: this.colIn, hide2: this.hideLight2,
         omode: this.outletColorMode, ocManual: this.ocManual, ocSched: this.ocSched,
         ocEnv: this.ocEnv, ocDrip: this.ocDrip,
@@ -1130,13 +1180,30 @@ export class SpiderFarmerCard extends LitElement {
   // or null. Each tile keeps a stable id so ordering survives tiles coming/going.
   private overviewNatural(): { params: TileItem[]; devices: TileItem[]; outlets: TileItem[]; energy: TileItem | null } {
     const nz = (v: unknown) => (v !== nothing ? v : undefined);
+    // Soil layout (Settings → Soil sensors). In a split mode the averaged tiles and
+    // the All Soil Stats tile are shown/hidden per soilKeep. (soil modes)
+    const showAvg = this.soilMode === "avg" || this.soilKeep === "keep";
+    const showStats = this.soilMode === "avg" || this.soilKeep === "keep" || this.soilKeep === "stats";
     const params: TileItem[] = [];
     for (const p of PARAMS) {
+      if (p[0].startsWith("soil_avg_") && !showAvg) continue;
       const tpl = this.renderParam(p);
       if (tpl !== nothing) params.push({ id: p[0], tpl, pop: this.paramPop(p[0]) });
     }
-    const soil = this.soilStatsTile();
-    if (soil !== nothing) params.push({ id: "soil_stats", tpl: soil, pop: nz(this.renderSoilAllTable()) });
+    if (this.soilMode === "sensor") {
+      for (const slot of this.soilProbeSlots())
+        params.push({ id: `soil_sensor_${slot}`, tpl: this.soilSensorTile(slot), pop: nz(this.soilSensorPop(slot)) });
+    } else if (this.soilMode === "split") {
+      for (const slot of this.soilProbeSlots())
+        for (const m of SpiderFarmerCard.SOIL_METRICS) {
+          const t = this.soilSplitTile(slot, m);
+          if (t !== nothing) params.push({ id: `soil_${slot}_${m.key}`, tpl: t, pop: nz(this.soilSplitPop(slot, m.key)) });
+        }
+    }
+    if (showStats) {
+      const soil = this.soilStatsTile();
+      if (soil !== nothing) params.push({ id: "soil_stats", tpl: soil, pop: nz(this.renderSoilAllTable()) });
+    }
     const devices: TileItem[] = this.overviewDevices().map((d) => {
       const key = `${d.domain}:${d.suffix}`;
       return { id: key, tpl: this.deviceTile(d), pop: this.devicePop(d, key) };
@@ -1762,7 +1829,8 @@ export class SpiderFarmerCard extends LitElement {
   // (this.paramOpen) with its target band/alarm colouring. Pass `src` to draw an
   // arbitrary sensor instead (device-level popouts) — no band, plain colouring,
   // and its own close handler. (v0.21.75)
-  private renderParamGraph(src?: { eid: string; label: string; onClose: () => void }) {
+  private renderParamGraph(src?: { eid: string; label: string; onClose: () => void;
+    picker?: { options: { key: string; label: string }[]; current: string; onPick: (k: string) => void } }) {
     const suffix = src ? null : this.paramOpen;
     if (!src && !suffix) return nothing;
     // The S-Station Power graph can plot a chosen metric (Watts/Volts/Amps/kWh);
@@ -1797,6 +1865,11 @@ export class SpiderFarmerCard extends LitElement {
         this.setPowerMetric((e.target as HTMLSelectElement).value)}>
       ${SpiderFarmerCard.POWER_METRICS.map((m) => html`
         <option value=${m.key} ?selected=${this.powerMetric === m.key}>${m.label}</option>`)}
+    </select>`
+      : src?.picker ? html`<select class="pg-range" @change=${(e: Event) =>
+          src.picker!.onPick((e.target as HTMLSelectElement).value)}>
+      ${src.picker.options.map((o) => html`
+        <option value=${o.key} ?selected=${src!.picker!.current === o.key}>${o.label}</option>`)}
     </select>` : nothing;
     if (this._graphLoading[key])
       return html`<div class="param-graph"><div class="pg-head"><span>${label}</span>${metricSel}${rangeSel}<span class="pg-now">…</span><ha-icon icon="mdi:close" @click=${closeGraph}></ha-icon></div><span class="pg-note">Loading history…</span></div>`;
@@ -2203,7 +2276,8 @@ export class SpiderFarmerCard extends LitElement {
       return false;
     return changed.has("config") || changed.has("hass")
       || changed.has("tab") || changed.has("soilOpen") || changed.has("soilGraphOpen")
-      || changed.has("soilAllOpen") || changed.has("outletDraft")
+      || changed.has("soilAllOpen") || changed.has("soilMode") || changed.has("soilKeep")
+      || changed.has("soilTileGraph") || changed.has("soilTileMetric") || changed.has("outletDraft")
       || changed.has("outletNameDraft") || changed.has("outletCfgDraft") || changed.has("_stDt")
       || changed.has("_cdTick")
       || changed.has("alertsDraft") || changed.has("deviceOpen") || changed.has("deviceGraphOpen")
@@ -2214,7 +2288,7 @@ export class SpiderFarmerCard extends LitElement {
       || changed.has("logType") || changed.has("colorMode")
       || changed.has("colorModeIn") || changed.has("colHi")
       || changed.has("colLo") || changed.has("colIn")
-      || changed.has("hideLight2") || changed.has("colorDraft")
+      || changed.has("hideLight2") || changed.has("colorDraft") || changed.has("hideTabs")
       || changed.has("outletColorMode") || changed.has("ocManual")
       || changed.has("ocSched") || changed.has("ocEnv") || changed.has("ocDrip")
       || changed.has("deviceColorMode") || changed.has("dcManual")
@@ -2230,6 +2304,8 @@ export class SpiderFarmerCard extends LitElement {
       || changed.has("showVpd") || changed.has("vpdLeaf") || changed.has("showLeafVpd") || changed.has("_colorOpen") || changed.has("vpdStage")
       || changed.has("vpdView") || changed.has("vpdHighlight") || changed.has("vpdPlanSource")
       || changed.has("showDeviceLog") || changed.has("showDeviceQuick")
+      || changed.has("showTimelapseTab") || changed.has("tlCam")
+      || changed.has("tlInterval") || changed.has("tlDailyAt")
       || changed.has("deviceQuickRemember") || changed.has("dlogOpen")
       || changed.has("planDraft") || changed.has("planEditStage") || changed.has("planShowAll")
       || changed.has("planDelArm") || changed.has("envSubView") || changed.has("_planPending")
@@ -2257,6 +2333,7 @@ export class SpiderFarmerCard extends LitElement {
       || changed.has("_setOverviewOpen") || changed.has("_setExtrasOpen")
       || changed.has("_setConnOpen") || changed.has("_setVpdOpen")
       || changed.has("_setDevOpen") || changed.has("_setOutletOpen") || changed.has("_setLayoutOpen")
+      || changed.has("_setSoilOpen")
       || changed.has("tempSource") || changed.has("extTemp") || changed.has("extHumi")
       || changed.has("_tsOpen") || changed.has("smart") || changed.has("_smartOpen");
   }
@@ -2311,6 +2388,13 @@ export class SpiderFarmerCard extends LitElement {
         if (s.showLeafVpd !== undefined) this.showLeafVpd = s.showLeafVpd;
         if (s.vpdLeaf !== undefined) this.vpdLeaf = s.vpdLeaf;
         if (s.showDeviceLog !== undefined) this.showDeviceLog = s.showDeviceLog;
+        if (s.hideTabs !== undefined) this.hideTabs = s.hideTabs;
+        if (s.soilMode !== undefined) this.soilMode = s.soilMode;
+        if (s.soilKeep !== undefined) this.soilKeep = s.soilKeep;
+        if (s.showTimelapseTab !== undefined) this.showTimelapseTab = s.showTimelapseTab;
+        if (s.tlCam !== undefined) this.tlCam = s.tlCam;
+        if (s.tlInterval !== undefined) this.tlInterval = s.tlInterval;
+        if (s.tlDailyAt !== undefined) this.tlDailyAt = s.tlDailyAt;
         if (s.showDeviceQuick !== undefined) this.showDeviceQuick = s.showDeviceQuick;
         if (s.deviceQuickRemember !== undefined) this.deviceQuickRemember = s.deviceQuickRemember;
         if (s.hi) this.colHi = s.hi;
@@ -2763,6 +2847,129 @@ export class SpiderFarmerCard extends LitElement {
             </div>`
         )}
       </div>`;
+  }
+
+  // ── Per-sensor soil tiles (soilMode "sensor" / "split") ──────────────────
+  // The three soil metrics, with the short tile label, icon and alarm/colour key.
+  private static readonly SOIL_METRICS: {
+    key: "temperature" | "moisture" | "ec"; short: string; icon: string; ck: string;
+  }[] = [
+    { key: "temperature", short: "Temp", icon: "mdi:thermometer", ck: "tempSoil" },
+    { key: "moisture", short: "Moisture", icon: "mdi:water", ck: "humiSoil" },
+    { key: "ec", short: "EC", icon: "mdi:flash", ck: "ECSoil" },
+  ];
+  // Formatted value + unit + colour for one probe+metric (shared by both modes).
+  private soilCell(slot: string, m: typeof SpiderFarmerCard.SOIL_METRICS[number]) {
+    const e = this.get(`sensor.sf_${this.config.panel}_${slot}_${m.key}`);
+    if (!e) return { val: "—", unit: "", color: null as string | null, mode: "off" as ColorMode, off: true, present: false };
+    const off = isOffline(e);
+    const unit = e.attributes.unit_of_measurement || "";
+    const val = off ? "Offline"
+      : this.hass?.formatEntityState ? this.hass.formatEntityState(e).replace(unit, "").trim() : e.state;
+    const rc = off ? null : this.readingColor(m.ck, e.state);
+    return { val, unit, color: rc ? rc.color : null, mode: rc ? rc.mode : ("off" as ColorMode), off, present: true };
+  }
+  // "sensor" mode: one tile per probe, showing Temp / Moisture / EC, tap for the
+  // history graph (with a metric picker since the three have different scales).
+  private soilSensorTile(slot: string) {
+    const name = this.probeNameForSlot(slot);
+    const off = this.probeOffline(slot);
+    const accent = this.accent();
+    const gOpen = this.soilTileGraph === slot;
+    const style = off ? `background:${ALARM_HI_BG};box-shadow:inset 0 0 0 1px ${ALARM_HI}`
+      : gOpen ? `box-shadow:inset 0 0 0 1px ${accent}` : "";
+    return html`
+      <div class="tile clickable ${gOpen ? "active" : ""}" style=${style || nothing}
+        role="button" @click=${() => this.toggleSoilTileGraph(slot)}>
+        <div class="tile-label"><span class="tl-name">${name}</span>
+          <span class="tl-right"><ha-icon class="tile-more"
+            icon=${gOpen ? "mdi:chevron-up" : "mdi:chart-line"}></ha-icon></span>
+        </div>
+        <div class="soil-rows">
+          ${SpiderFarmerCard.SOIL_METRICS.map((m) => {
+            const c = this.soilCell(slot, m);
+            return html`<div class="sr">
+              <span class="k">${m.short}</span>
+              <span class="v" style=${off ? `color:${ALARM_HI}` : (c.color ? `color:${c.color}` : nothing)}>${
+                c.off ? "Offline" : html`${c.val}<span class="unit">${c.unit}</span>`}</span>
+            </div>`;
+          })}
+        </div>
+      </div>`;
+  }
+  // "sensor" mode graph: a single-line history with a Temp/Moisture/EC picker.
+  private soilSensorPop(slot: string) {
+    if (this.soilTileGraph !== slot) return nothing;
+    const m = this.soilTileMetric;
+    const meta = SpiderFarmerCard.SOIL_METRICS.find((x) => x.key === m)!;
+    return this.renderParamGraph({
+      eid: `sensor.sf_${this.config.panel}_${slot}_${m}`,
+      label: `${this.probeNameForSlot(slot)} · ${meta.short}`,
+      onClose: () => { this.soilTileGraph = null; },
+      picker: {
+        options: SpiderFarmerCard.SOIL_METRICS.map((x) => ({ key: x.key, label: x.short })),
+        current: m,
+        onPick: (k) => {
+          this.soilTileMetric = k as "temperature" | "moisture" | "ec";
+          this.fetchGraph(`sensor.sf_${this.config.panel}_${slot}_${k}`);
+        },
+      },
+    });
+  }
+  // "split" mode: one tile per probe+metric — a standard single-value sensor tile.
+  private soilSplitTile(slot: string, m: typeof SpiderFarmerCard.SOIL_METRICS[number]) {
+    const e = this.get(`sensor.sf_${this.config.panel}_${slot}_${m.key}`);
+    if (!e) return nothing;
+    const key = `${slot}:${m.key}`;
+    const gOpen = this.soilTileGraph === key;
+    const c = this.soilCell(slot, m);
+    const accent = this.accent();
+    let style = gOpen ? `box-shadow:inset 0 0 0 1px ${accent}` : "";
+    let valStyle = "";
+    if (c.off) { style = `background:${ALARM_HI_BG};box-shadow:inset 0 0 0 1px ${ALARM_HI}`; valStyle = `color:${ALARM_HI}`; }
+    else if (c.color && c.mode === "text") valStyle = `color:${c.color}`;
+    else if (c.color && c.mode === "tile") style = `background:${tint(c.color)};box-shadow:inset 0 0 0 1px ${c.color}`;
+    return html`
+      <div class="tile clickable ${gOpen ? "active" : ""}" style=${style || nothing}
+        role="button" @click=${() => this.toggleSoilTileGraph(key)}>
+        <div class="tile-label"><span class="tl-name">${this.probeNameForSlot(slot)} ${m.short}</span>
+          <span class="tl-right"><ha-icon class="tile-more"
+            icon=${gOpen ? "mdi:chevron-up" : "mdi:chart-line"}></ha-icon></span>
+        </div>
+        <ha-icon icon="${m.icon}" style="color:${c.off ? ALARM_HI : accent}"></ha-icon>
+        <div class="tile-val" style=${valStyle || nothing}>${
+          c.off ? "Offline" : html`${c.val}<span class="unit">${c.unit}</span>`}</div>
+      </div>`;
+  }
+  private soilSplitPop(slot: string, metricKey: string) {
+    if (this.soilTileGraph !== `${slot}:${metricKey}`) return nothing;
+    const meta = SpiderFarmerCard.SOIL_METRICS.find((x) => x.key === metricKey)!;
+    return this.renderParamGraph({
+      eid: `sensor.sf_${this.config.panel}_${slot}_${metricKey}`,
+      label: `${this.probeNameForSlot(slot)} · ${meta.short}`,
+      onClose: () => { this.soilTileGraph = null; },
+    });
+  }
+  // Toggle a per-sensor graph open/closed + keep it refreshing (mirrors the device
+  // graph timer). `key` is "soil1" (sensor mode) or "soil1:temperature" (split).
+  private toggleSoilTileGraph(key: string): void {
+    const open = this.soilTileGraph === key;
+    this.soilTileGraph = open ? null : key;
+    this._graphSel = null; this._graphPin = null;
+    if (this._graphTimer != null) { clearInterval(this._graphTimer); this._graphTimer = null; }
+    if (!open) {
+      const [slot, metric] = key.split(":");
+      const m = metric || this.soilTileMetric;
+      this.fetchGraph(`sensor.sf_${this.config.panel}_${slot}_${m}`);
+      this._graphTimer = window.setInterval(() => {
+        if (this.soilTileGraph == null && this.deviceGraphOpen == null
+            && this.soilGraphOpen == null && this.paramOpen == null) {
+          if (this._graphTimer != null) { clearInterval(this._graphTimer); this._graphTimer = null; }
+          return;
+        }
+        this._graphVer++;
+      }, 10000);
+    }
   }
 
   // ── Overview device tiles ────────────────────────────────────────────────
@@ -6281,6 +6488,72 @@ export class SpiderFarmerCard extends LitElement {
   }
 
   // ── Device Log tab (on/off timeline per device, reuses the olog machinery) ──
+  // Built-in Time-lapse tab: pick a camera for this panel, then embed the
+  // standalone Spider Time-lapse card bound to a panel-scoped instance. (v0.21.117)
+  private renderTimelapseTab() {
+    const cams = Object.keys(this.hass?.states || {})
+      .filter((id) => id.startsWith("camera.")).sort();
+    const cam = this.tlCam;
+    const tlId = `${this.config.panel}_main`;
+    // Once the panel's time-lapse instance exists (set up / capturing), hide the
+    // camera picker — it's only for initial setup. (v0.21.118)
+    const configured = !!this.hass?.states[`sensor.sf_timelapse_${this.config.panel}_main`];
+    const pick = html`
+      <div class="toggle-row" style="margin-top:8px">
+        <span>Camera</span>
+        <select style="max-width:60%" .value=${live(cam || "")}
+          @change=${(e: any) => { this.tlCam = e.target.value;
+            this.persistColorOption("tl_cam", e.target.value); }}>
+          <option value="">— choose camera —</option>
+          ${cams.map((id) => html`<option value=${id} ?selected=${id === cam}>${
+            (this.hass?.states[id]?.attributes?.friendly_name as string) || id}</option>`)}
+        </select>
+      </div>`;
+    // Snapshot-interval picker — shown only at SETUP (before the instance exists).
+    // Once configured it's hidden here and lives in the embedded card's ⚙ settings,
+    // so the main tab isn't cluttered while capturing. (v0.21.123)
+    const IVS: Array<[number, string]> = [[300, "5 min"], [600, "10 min"],
+      [900, "15 min"], [1200, "20 min"], [1800, "30 min"], [3600, "1 hour"],
+      [86400, "1 day"]];
+    const reconfigure = () => {
+      if (!configured || !cam) return;
+      const data: any = { tl_id: tlId, interval: this.tlInterval };
+      if (this.tlInterval === 86400) data.daily_at = this.tlDailyAt;
+      this.hass?.callService("sf", "timelapse_configure", data);
+    };
+    const ivPick = html`
+      <div class="toggle-row" style="margin-top:8px">
+        <span>Snapshot interval</span>
+        <select style="max-width:60%" .value=${live(String(this.tlInterval))}
+          @change=${(e: any) => { this.tlInterval = Number(e.target.value) || 300;
+            this.persistColorOption("tl_interval", String(this.tlInterval));
+            reconfigure(); }}>
+          ${IVS.map(([v, lbl]) => html`<option value=${v} ?selected=${v === this.tlInterval}>${lbl}</option>`)}
+        </select>
+      </div>
+      ${this.tlInterval === 86400 ? html`
+        <div class="toggle-row" style="margin-top:8px">
+          <span>Capture daily at</span>
+          <input type="time" style="max-width:60%" .value=${live(this.tlDailyAt)}
+            @change=${(e: any) => { this.tlDailyAt = e.target.value || "00:00";
+              this.persistColorOption("tl_daily_at", this.tlDailyAt);
+              reconfigure(); }}>
+        </div>` : nothing}`;
+    if (!cam) {
+      return html`<div style="padding:4px 2px">
+        <div class="set-note">Pick a camera to start this panel's time-lapse.</div>
+        ${pick}${ivPick}</div>`;
+    }
+    const cfg: any = { type: "custom:spider-timelapse-card", panel: this.config.panel,
+      camera: cam, title: (this.config.title || "Grow") + " Time-lapse",
+      tl_id: tlId, interval: this.tlInterval };
+    if (this.tlInterval === 86400) cfg.daily_at = this.tlDailyAt;
+    return html`<div style="padding:2px">
+      ${configured ? nothing : html`${pick}${ivPick}`}
+      <spider-timelapse-card .hass=${this.hass} .config=${cfg}></spider-timelapse-card>
+    </div>`;
+  }
+
   private renderDeviceLog() {
     const devs = this.overviewDevices();
     if (!devs.length) return html`<div class="set-note">No devices on this controller.</div>`;
@@ -7720,10 +7993,11 @@ export class SpiderFarmerCard extends LitElement {
     if (tab === "olog" && !(showOutlets && this.showOutletsLog)) tab = "overview";
     if (tab === "vpd" && !showVpdTab) tab = fallback;
     if (tab === "dlog" && !(this.showDeviceLog && this.overviewDevices().length > 0)) tab = fallback;
-    const hasTabs = true;
+    if (tab === "tlapse" && !this.showTimelapseTab) tab = fallback;
+    const hasTabs = !this.hideTabs;
     const accent = this.accent();
     const tabBtn = (
-      id: "overview" | "env" | "outlets" | "olog" | "dlog" | "vpd" | "cali" | "alerts" | "log" | "settings",
+      id: "overview" | "env" | "outlets" | "olog" | "dlog" | "tlapse" | "vpd" | "cali" | "alerts" | "log" | "settings",
       label: string
     ) => html`<button class="tab ${tab === id ? "active" : ""}"
         style=${tab === id ? `color:${accent};border-color:${accent}` : ""}
@@ -7739,7 +8013,7 @@ export class SpiderFarmerCard extends LitElement {
     return html`
       <ha-card class=${taScope || nothing} style=${this.layoutStyle() || nothing}>
         <div class="header">
-          <span class="title">${this.config.title || "Spider Farmer"}</span>
+          <span class="title" style="cursor:pointer" title=${hasTabs ? "Hide the tabs" : "Show the tabs"} @click=${() => this.toggleTabs()}>${this.config.title || "Spider Farmer"}</span>
           ${devName ? html`<span class="device">${devName}</span>` : nothing}
           ${this.renderConn()}
         </div>
@@ -7750,6 +8024,7 @@ export class SpiderFarmerCard extends LitElement {
               ${showOutlets ? tabBtn("outlets", "Outlets") : nothing}
               ${showOutlets && this.showOutletsLog ? tabBtn("olog", "Outlets Log") : nothing}
               ${this.showDeviceLog && this.overviewDevices().length > 0 ? tabBtn("dlog", "Device Log") : nothing}
+              ${this.showTimelapseTab ? tabBtn("tlapse", "Time-lapse") : nothing}
               ${showVpdTab ? tabBtn("vpd", "VPD") : nothing}
               ${showCali ? tabBtn("cali", "Calibration") : nothing}
               ${showAlerts ? tabBtn("alerts", "Alerts") : nothing}
@@ -7765,6 +8040,8 @@ export class SpiderFarmerCard extends LitElement {
           ? this.renderOutletsLog()
           : tab === "dlog"
           ? this.renderDeviceLog()
+          : tab === "tlapse"
+          ? this.renderTimelapseTab()
           : tab === "vpd"
           ? this.renderVpdTab()
           : tab === "cali"
@@ -8109,6 +8386,10 @@ export class SpiderFarmerCard extends LitElement {
     const vpdLeaf = d?.vpdLeaf ?? this.vpdLeaf;
     const showLeafVpd = d?.showLeafVpd ?? this.showLeafVpd;
     const showDeviceLog = d?.showDeviceLog ?? this.showDeviceLog;
+    const hideTabs = d?.hideTabs ?? this.hideTabs;
+    const soilMode = d?.soilMode ?? this.soilMode;
+    const soilKeep = d?.soilKeep ?? this.soilKeep;
+    const showTimelapseTab = d?.showTimelapseTab ?? this.showTimelapseTab;
     const showDeviceQuick = d?.showDeviceQuick ?? this.showDeviceQuick;
     const deviceQuickRemember = d?.deviceQuickRemember ?? this.deviceQuickRemember;
     const customNames = d?.customNames ?? this.customOutletNames;
@@ -8166,6 +8447,10 @@ export class SpiderFarmerCard extends LitElement {
       || (d.showVpd !== undefined && d.showVpd !== this.showVpd)
       || (d.showLeafVpd !== undefined && d.showLeafVpd !== this.showLeafVpd)
       || (d.showDeviceLog !== undefined && d.showDeviceLog !== this.showDeviceLog)
+      || (d.hideTabs !== undefined && d.hideTabs !== this.hideTabs)
+      || (d.soilMode !== undefined && d.soilMode !== this.soilMode)
+      || (d.soilKeep !== undefined && d.soilKeep !== this.soilKeep)
+      || (d.showTimelapseTab !== undefined && d.showTimelapseTab !== this.showTimelapseTab)
       || (d.showDeviceQuick !== undefined && d.showDeviceQuick !== this.showDeviceQuick)
       || (d.deviceQuickRemember !== undefined && d.deviceQuickRemember !== this.deviceQuickRemember)
       || (d.vpdLeaf !== undefined && d.vpdLeaf !== this.vpdLeaf)
@@ -8303,6 +8588,22 @@ export class SpiderFarmerCard extends LitElement {
         if (dr.showDeviceLog !== undefined && dr.showDeviceLog !== this.showDeviceLog) {
           this.showDeviceLog = dr.showDeviceLog;
           this.persistColorOption("device_log", dr.showDeviceLog ? "1" : "0");
+        }
+        if (dr.hideTabs !== undefined && dr.hideTabs !== this.hideTabs) {
+          this.hideTabs = dr.hideTabs;
+          this.persistColorOption("hide_tabs", dr.hideTabs ? "1" : "0");
+        }
+        if (dr.soilMode !== undefined && dr.soilMode !== this.soilMode) {
+          this.soilMode = dr.soilMode;
+          this.persistColorOption("soil_mode", dr.soilMode);
+        }
+        if (dr.soilKeep !== undefined && dr.soilKeep !== this.soilKeep) {
+          this.soilKeep = dr.soilKeep;
+          this.persistColorOption("soil_keep", dr.soilKeep);
+        }
+        if (dr.showTimelapseTab !== undefined && dr.showTimelapseTab !== this.showTimelapseTab) {
+          this.showTimelapseTab = dr.showTimelapseTab;
+          this.persistColorOption("timelapse_tab", dr.showTimelapseTab ? "1" : "0");
         }
         if (dr.showDeviceQuick !== undefined && dr.showDeviceQuick !== this.showDeviceQuick) {
           this.showDeviceQuick = dr.showDeviceQuick;
@@ -8711,6 +9012,16 @@ export class SpiderFarmerCard extends LitElement {
       </div>
       <div class="set-note">
         Show tile schedule times as 5:00am–11:00pm instead of 05:00–23:00.
+      </div>
+      <div class="toggle-row" style="margin-top:8px">
+        <span>Hide the tab bar</span>
+        <button class="toggle ${hideTabs ? "on" : ""}"
+          style=${hideTabs ? `background:${accent}` : nothing}
+          @click=${() => stage({ hideTabs: !hideTabs })}></button>
+      </div>
+      <div class="set-note">
+        Collapse the row of tabs for a compact card. Tap the card title (its name in
+        the header) to show or hide the tabs again at any time.
       </div>` : nothing}`;
 
     const secHeader = html`
@@ -8797,6 +9108,17 @@ export class SpiderFarmerCard extends LitElement {
         Adds a "Device Log" tab with a 24h/7d on-off timeline per device (lights,
         fan, blower, heater, humidifier, dehumidifier) from Home Assistant's
         recorder history. Tap a row for its recent events.
+      </div>
+      <div class="toggle-row" style="margin-top:8px">
+        <span>Show Time-lapse tab</span>
+        <button class="toggle ${showTimelapseTab ? "on" : ""}"
+          style=${showTimelapseTab ? `background:${accent}` : nothing}
+          @click=${() => stage({ showTimelapseTab: !showTimelapseTab })}></button>
+      </div>
+      <div class="set-note">
+        Adds a "Time-lapse" tab to this panel's card for a grow time-lapse. Pick its
+        camera in the tab; it reuses the Spider Time-lapse card (frames, scrub/play,
+        MP4 export, env overlay).
       </div>
       <div class="toggle-row" style="margin-top:8px">
         <span>Quick-toggle devices row</span>
@@ -8950,6 +9272,37 @@ export class SpiderFarmerCard extends LitElement {
           <span style="margin-left:6px">Rearrange / Hide Tiles</span>
         </button>` : nothing}` : nothing}` : nothing}`;
 
+    // Soil sensors — tile layout (averaged / per-sensor / split). Only when probes
+    // are present. (soil modes)
+    const secSoil = this.soilProbeSlots().length > 0 ? html`
+      ${this.setHead(this._setSoilOpen, "Soil sensors", () => (this._setSoilOpen = !this._setSoilOpen))}
+      ${this._setSoilOpen ? html`
+      <div class="set-note">
+        How the soil probes appear on Overview. <b>Averaged</b> keeps one tile per
+        metric (averaged across probes). <b>Per sensor</b> shows one tile per probe
+        with Temp, Moisture and EC on it, tap for its graph. <b>Split</b> gives each
+        probe three separate tiles.
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        ${(([["avg", "Averaged"], ["sensor", "Per sensor"], ["split", "Split (3 tiles)"]]) as [typeof soilMode, string][]).map(([v, l]) => html`
+          <button class="seg ${soilMode === v ? "on" : ""}"
+            style=${soilMode === v ? `border-color:${accent};color:${accent}` : nothing}
+            @click=${() => stage({ soilMode: v })}>${l}</button>`)}
+      </div>
+      ${soilMode !== "avg" ? html`
+        <div class="toggle-row" style="margin-top:12px"><span>Averaged tiles &amp; stats</span></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+          ${(([["replace", "Replace"], ["keep", "Keep"], ["stats", "Stats only"]]) as [typeof soilKeep, string][]).map(([v, l]) => html`
+            <button class="seg ${soilKeep === v ? "on" : ""}"
+              style=${soilKeep === v ? `border-color:${accent};color:${accent}` : nothing}
+              @click=${() => stage({ soilKeep: v })}>${l}</button>`)}
+        </div>
+        <div class="set-note">
+          <b>Replace</b>: show only the per-sensor tiles. <b>Keep</b>: also keep the
+          averaged tiles and All Soil Stats. <b>Stats only</b>: keep just the All Soil
+          Stats summary tile above the per-sensor tiles.
+        </div>` : nothing}` : nothing}` : nothing;
+
     // Collapsible Settings sections, rendered in alphabetical order by label.
     const sections: { label: string; tpl: unknown }[] = [
       { label: "Colours & tile appearance", tpl: secColour },
@@ -8960,6 +9313,7 @@ export class SpiderFarmerCard extends LitElement {
       { label: "Outlets", tpl: secOutlets },
       { label: "Overview", tpl: secOverview },
       { label: "Smart control", tpl: secSmart },
+      { label: "Soil sensors", tpl: secSoil },
       { label: "Temperature source", tpl: secTemp },
       { label: "Tile extras", tpl: secExtras },
       { label: "VPD graph", tpl: secVpd },
@@ -9313,6 +9667,13 @@ export class SpiderFarmerCard extends LitElement {
     .tile.clickable { cursor: pointer; }
     .tile.clickable:hover { box-shadow: inset 0 0 0 1px var(--divider-color, #555); }
     .tile-more { --mdc-icon-size: 14px; opacity: 0.55; margin: 0; }
+    /* Per-sensor soil tile ("sensor" mode): the three metric rows under the label. */
+    .soil-rows { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+    .soil-rows .sr { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0; }
+    .soil-rows .sr .k { font-size: 11px; color: var(--secondary-text-color); flex: 0 0 auto; }
+    .soil-rows .sr .v { font-size: 15px; font-weight: 600; color: var(--primary-text-color);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .soil-rows .sr .v .unit { font-size: 11px; font-weight: 400; }
     .soil-pop {
       background: var(--secondary-background-color); border-radius: 12px;
       padding: 10px 12px; margin-top: 8px;
@@ -10460,8 +10821,8 @@ export class SpiderLightCard extends LitElement {
       padding: 8px 4px; cursor: pointer;
     }
     .mode.active { background: var(--card-background-color, rgba(0,0,0,0.2)); }
-    /* Read-only (linked): a controller drives the light, so the card reflects its
-       state — dim the controls and show they can't be changed. */
+    /* Read-only (linked): a paired controller drives the light, so the card just
+       reflects its state — dim the controls and show they can't be changed. */
     .mode.ro { cursor: default; }
     .mode.ro:not(.active) { opacity: .4; }
     .power.ro { cursor: default; opacity: .5; }
@@ -11796,6 +12157,7 @@ export class SpiderTimelapseCard extends LitElement {
     super.disconnectedCallback();
     this._stopPlay();
     if (this._refresh) { clearInterval(this._refresh); this._refresh = null; }
+    if (this._waitTick) { clearInterval(this._waitTick); this._waitTick = null; }
   }
 
   private _statusEntity() {
@@ -12105,6 +12467,11 @@ export class SpiderTimelapseCard extends LitElement {
   private _dragGrabX = 0;   // px offset of the cursor from the box's left edge at grab
   private _dragGrabY = 0;   // px offset of the cursor from the box's top edge at grab
   private _dragW = 0;       // box width in px (captured at grab; text width is stable mid-drag)
+  private _dragH = 0;       // box height in px (for overlap checks)
+  private _dragEl: HTMLElement | null = null;  // the box being dragged (excluded from overlap)
+  private _dragSibs: DOMRect[] = [];  // the OTHER boxes' rects, captured once at grab (they don't move)
+  private _dragLastX = 0;    // last NON-overlapping box left (px) — base for axis-by-axis sliding
+  private _dragLastY = 0;    // last NON-overlapping box top (px)
   private _ovDown(e: PointerEvent, key: string) {
     e.preventDefault(); e.stopPropagation();
     this._drag = key;
@@ -12115,9 +12482,16 @@ export class SpiderTimelapseCard extends LitElement {
       const b = el.getBoundingClientRect();
       this._dragGrabX = e.clientX - b.left;
       this._dragGrabY = e.clientY - b.top;
-      this._dragW = b.width;
+      this._dragW = b.width; this._dragH = b.height; this._dragEl = el;
+      this._dragLastX = b.left; this._dragLastY = b.top;
+      // Snapshot the other boxes' rects now; they stay put while we drag this one, and
+      // reading them live each pointermove races Lit's async re-render (stale rects).
+      this._dragSibs = Array.from(this.renderRoot.querySelectorAll(".tl-ov"))
+        .filter((x) => x !== el)
+        .map((x) => (x as HTMLElement).getBoundingClientRect());
     } else {
-      this._dragGrabX = 0; this._dragGrabY = 0; this._dragW = 0;
+      this._dragGrabX = 0; this._dragGrabY = 0; this._dragW = 0; this._dragH = 0; this._dragEl = null;
+      this._dragSibs = [];
     }
     window.addEventListener("pointermove", this._ovMove);
     window.addEventListener("pointerup", this._ovUp);
@@ -12128,19 +12502,60 @@ export class SpiderTimelapseCard extends LitElement {
     if (!stage) return;
     const r = stage.getBoundingClientRect();
     const boxW = this._dragW || 0;
+    const boxH = this._dragH || 0;
     // Keep the grabbed point under the cursor: position the box's left/top from the cursor
-    // minus the grab offset, then clamp the whole box inside the stage.
+    // minus the grab offset, then clamp the WHOLE box inside the image — clamp the bottom to
+    // the image bottom (r.bottom - boxH), not the top to a fixed %, so a tall box (big text)
+    // can't spill below the image onto the card content underneath.
     let leftX = e.clientX - this._dragGrabX;
     let topY = e.clientY - this._dragGrabY;
     leftX = Math.max(r.left, Math.min(leftX, r.right - boxW));
-    topY = Math.max(r.top, Math.min(topY, r.top + r.height * 0.92));
+    topY = Math.max(r.top, Math.min(topY, r.bottom - boxH));
+    // Treat the OTHER overlay boxes as SOLID so this one can never overlap them. Resolve one
+    // axis at a time from the last clear position (classic wall-sliding): move X only as far as
+    // it stays clear, then Y only as far as it stays clear. A sideways push into a packed column
+    // just slides flush against it instead of wedging (which vertical-only resolution couldn't).
+    const sibs = this._dragSibs;
+    const hits = (x: number, y: number) =>
+      sibs.some((sb) => x < sb.right && x + boxW > sb.left && y < sb.bottom && y + boxH > sb.top);
+    let gx = this._dragLastX, gy = this._dragLastY;
+    // X axis, with Y held at the last clear row:
+    if (!hits(leftX, gy)) { gx = leftX; }
+    else {
+      let x = leftX;
+      for (const sb of sibs) {
+        if (gy < sb.bottom && gy + boxH > sb.top) {            // shares this box's rows
+          if (gx + boxW <= sb.left + 0.5) x = Math.min(x, sb.left - boxW);  // approaching from left
+          else if (gx >= sb.right - 0.5) x = Math.max(x, sb.right);         // approaching from right
+        }
+      }
+      if (!hits(x, gy)) gx = x;
+    }
+    // Y axis, with X held at the resolved column:
+    if (!hits(gx, topY)) { gy = topY; }
+    else {
+      let y = topY;
+      for (const sb of sibs) {
+        if (gx < sb.right && gx + boxW > sb.left) {            // shares this box's columns
+          if (gy + boxH <= sb.top + 0.5) y = Math.min(y, sb.top - boxH);    // approaching from above
+          else if (gy >= sb.bottom - 0.5) y = Math.max(y, sb.bottom);       // approaching from below
+        }
+      }
+      if (!hits(gx, y)) gy = y;
+    }
+    this._dragLastX = gx; this._dragLastY = gy;
+    leftX = gx; topY = gy;
     // Anchor to the nearer side so long readings never run off: if the box CENTRE is past
     // the midline, store the RIGHT-edge % (render reads x>50 as right-anchored), else the
     // LEFT-edge %. Both describe the same pixel box, so crossing the midline doesn't jump.
     const centerPct = ((leftX + boxW / 2 - r.left) / r.width) * 100;
     const edgeX = centerPct > 50 ? (leftX + boxW) : leftX;
-    const x = Math.max(0, Math.min(100, Math.round(((edgeX - r.left) / r.width) * 100)));
-    const y = Math.max(0, Math.min(92, Math.round(((topY - r.top) / r.height) * 100)));
+    // Store to 0.1% precision (not whole %) so a box snapped flush against another doesn't
+    // land ~1-2px off from integer rounding, which would leave a hairline seam between them.
+    const x = Math.max(0, Math.min(100, Math.round(((edgeX - r.left) / r.width) * 1000) / 10));
+    // Cap y so the box BOTTOM lands at most at the image bottom (height-aware, not a fixed 92%).
+    const yMax = r.height > 0 ? Math.max(0, (1 - boxH / r.height) * 100) : 92;
+    const y = Math.max(0, Math.min(yMax, Math.round(((topY - r.top) / r.height) * 1000) / 10));
     const pos = { ...(this._cfg.overlay_pos || {}) };
     pos[this._drag] = [x, y];
     this._setCfg({ overlay_pos: pos });
@@ -12216,18 +12631,36 @@ export class SpiderTimelapseCard extends LitElement {
   private _settingsPanel() {
     const c = this._cfg || {};
     const fields = [["timestamp", "Timestamp"], ["day", "Day"], ["temp", "Temp"], ["humidity", "Humidity"], ["vpd", "VPD"], ["co2", "CO2"], ["ppfd", "PPFD"]];
-    // Camera, Title, Interval and Storage folder are set at card SETUP (the editor:
-    // ⋮ → Edit) — this ⚙ panel is operational settings only. The interval comes from
-    // the live status so the "Capture daily at" row knows when it's a 1-day lapse.
-    const curIv = Number(this._statusEntity()?.attributes?.interval_s) || 300;
+    // Camera, Title and Storage folder are set at card SETUP (the editor: ⋮ → Edit).
+    // The Snapshot interval lives HERE in the ⚙ panel (staged into _cfg, applied on
+    // Apply) so it's not always on screen once the time-lapse is running. (v0.21.123)
+    const curIv = Number(c.interval ?? this._statusEntity()?.attributes?.interval_s) || 300;
+    const IVS: Array<[number, string]> = [[300, "5 min"], [600, "10 min"],
+      [900, "15 min"], [1200, "20 min"], [1800, "30 min"], [3600, "1 hour"],
+      [86400, "1 day"]];
+    // Approx disk this retention will use: THIS lapse's own average frame size ×
+    // frames/day (at the chosen interval) × Keep days. Uses real captured data
+    // (folder bytes ÷ frame count); shows a hint until the first frames land. (v0.21.129)
+    const _st = this._statusEntity();
+    const _frames = _st ? Number(_st.attributes.frame_count) || 0 : 0;
+    const _keep = Math.max(1, Number(c.retention ?? 7) || 7);
+    const _perDay = 86400 / curIv;
+    const _estNote = (this._sizeBytes > 0 && _frames > 0)
+      ? `≈ ${this._fmtSize((this._sizeBytes / _frames) * _perDay * _keep)} at full retention`
+      : "size estimate appears after the first frames";
     return html`<div class="tl-settings">
-      <div class="tl-grid">
+      <div class="tl-grid" style="grid-template-columns:${curIv === 86400 ? "1fr 1fr 1fr" : "1fr 1fr"}">
+        <label class="tl-field"><span>Snapshot interval</span>
+          <select .value=${live(String(curIv))} @change=${(e: any) => this._setCfg({ interval: Number(e.target.value) })}>
+            ${IVS.map(([v, lbl]) => html`<option value=${v} ?selected=${v === curIv}>${lbl}</option>`)}
+          </select></label>
         <label class="tl-field"><span>Keep (days)</span>
-          <input type="number" min="1" .value=${String(c.retention ?? 7)} @change=${(e: any) => this._setCfg({ retention: Number(e.target.value) })} /></label>
+          <input type="number" min="1" .value=${String(c.retention ?? 7)} @change=${(e: any) => this._setCfg({ retention: Number(e.target.value) })} />
+          <span style="font-size:.68em;color:var(--secondary-text-color);margin-top:3px;line-height:1.2">${_estNote}</span></label>
+        ${curIv === 86400 ? html`<label class="tl-field"><span>Capture daily at</span>
+          <input type="time" .value=${live(c.daily_at || "00:00")}
+            @change=${(e: any) => this._setCfg({ daily_at: e.target.value })} /></label>` : nothing}
       </div>
-      ${curIv === 86400 ? html`<label class="tl-row"><span>Capture daily at</span>
-        <input type="time" class="tl-narrow" .value=${live(c.daily_at || "00:00")}
-          @change=${(e: any) => this._setCfg({ daily_at: e.target.value })} /></label>` : nothing}
       <div class="tl-checks">
         <label class="tl-check"><input type="checkbox" .checked=${!!c.enabled} @change=${(e: any) => this._setCfg({ enabled: e.target.checked })} />Enable capture</label>
         <label class="tl-check"><input type="checkbox" .checked=${!!c.overlay} @change=${(e: any) => this._setCfg({ overlay: e.target.checked })} />Env overlay</label>
@@ -12247,15 +12680,6 @@ export class SpiderTimelapseCard extends LitElement {
             ${Array.from({ length: 16 }, (_, i) => i + 5).map((f) => html`<option value=${String(f)} ?selected=${(Number(c.overlay_font) || 12) === f}>${f}</option>`)}
           </select>
         </div>
-        <div class="tl-fields">${fields.map(([k, lab]) => html`
-          <button class="tl-chip ${(c.overlay_fields || []).includes(k) ? "on" : ""}"
-            @click=${() => this._toggleField(k)}>${lab}</button>`)}</div>
-        <label class="tl-row"><span>Text colour</span>
-          <span class="tl-wheelwrap">
-            <canvas class="tl-wheel" width="104" height="104"
-              @pointerdown=${(e: any) => this._wheelDown(e)}></canvas>
-            <span class="tl-swatch" style="background:${c.overlay_color || '#ffffff'}"></span>
-          </span></label>
         <div class="tl-checks">
           <label class="tl-check"><input type="checkbox" .checked=${c.overlay_grouped !== false}
             @change=${(e: any) => this._setCfg({ overlay_grouped: e.target.checked })} />All together</label>
@@ -12270,8 +12694,17 @@ export class SpiderTimelapseCard extends LitElement {
             </select></span>` : nothing}
         </div>
         <div class="tl-hint">${c.overlay_grouped !== false
-          ? "Readings stack in one box, in the order selected above. Drag the box on the image to place it."
-          : "Drag each reading on the image to place it independently."}</div>` : nothing}
+          ? "Readings stack in one box, in the order selected. Drag the box on the image to place it."
+          : "Drag each reading on the image to place it independently."}</div>
+        <div class="tl-fields">${fields.map(([k, lab]) => html`
+          <button class="tl-chip ${(c.overlay_fields || []).includes(k) ? "on" : ""}"
+            @click=${() => this._toggleField(k)}>${lab}</button>`)}</div>
+        <label class="tl-row"><span>Text colour</span>
+          <span class="tl-wheelwrap">
+            <canvas class="tl-wheel" width="104" height="104"
+              @pointerdown=${(e: any) => this._wheelDown(e)}></canvas>
+            <span class="tl-swatch" style="background:${c.overlay_color || '#ffffff'}"></span>
+          </span></label>` : nothing}
       ${this._instances.length ? html`
         <div class="tl-manage">
           <div class="tl-manage-h">Time-lapses (tap 🗑, then confirm, to delete — images included)</div>
@@ -12403,10 +12836,10 @@ export class SpiderTimelapseCard extends LitElement {
     .tl-right { display: inline-flex; align-items: center; gap: 8px; }
     .tl-gear { cursor: pointer; color: var(--secondary-text-color); --mdc-icon-size: 18px; }
     .tl-gear:hover { color: var(--primary-text-color); }
-    .tl-stage { position: relative; }
+    .tl-stage { position: relative; overflow: hidden; }
     .tl-overlay { position: absolute; left: 10px; bottom: 10px; background: rgba(0,0,0,.55); color: #fff; padding: 6px 9px; border-radius: 5px; font-size: .85em; line-height: 1.3; white-space: pre; pointer-events: none; }
-    .tl-ov { position: absolute; background: rgba(0,0,0,.5); padding: 3px 7px; border-radius: 4px; font-family: "SF Overlay", var(--primary-font-family, sans-serif); font-size: .8em; line-height: 1.25; white-space: pre; width: max-content; max-width: 96%; pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,.85); }
-    .tl-ov.drag { pointer-events: auto; cursor: move; outline: 1px dashed rgba(255,255,255,.65); touch-action: none; }
+    .tl-ov { position: absolute; background: rgba(0,0,0,.5); padding: 3px 7px; border-radius: 0; font-family: "SF Overlay", var(--primary-font-family, sans-serif); font-size: .8em; line-height: 1.25; white-space: pre; width: max-content; max-width: 96%; pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,.85); }
+    .tl-ov.drag { pointer-events: auto; cursor: move; outline: 1px dashed rgba(255,255,255,.65); outline-offset: -1px; touch-action: none; }
     .tl-wheelwrap { display: inline-flex; align-items: center; gap: 10px; }
     .tl-wheel { border-radius: 50%; cursor: crosshair; touch-action: none; }
     .tl-swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--divider-color); display: inline-block; }
@@ -12422,9 +12855,9 @@ export class SpiderTimelapseCard extends LitElement {
       border: 1px solid var(--error-color, #db4437); border-radius: 6px; padding: 2px 8px; }
     .tl-settings { padding: 8px 14px 12px; border-bottom: 1px solid var(--divider-color); }
     .tl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; padding: 2px 0 4px; }
-    .tl-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .tl-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; align-items: flex-start; }
     .tl-field > span { color: var(--secondary-text-color); font-size: .8em; }
-    .tl-field select, .tl-field input { width: 100%; box-sizing: border-box; }
+    .tl-field select, .tl-field input { width: 7rem; max-width: 100%; box-sizing: border-box; }
     .tl-field input.tl-text { padding: 4px 6px; border: 1px solid var(--divider-color);
       border-radius: 4px; background: var(--card-background-color);
       color: var(--primary-text-color); font: inherit; }
@@ -12566,10 +12999,31 @@ export class SpiderPpfdCardEditor extends LitElement {
       id.startsWith("light.sf_") || (id.startsWith("number.sf_") && /schedule_brightness/i.test(id)))
       .sort().map((id) => ({ id, name: h.states[id].attributes.friendly_name || id }));
   }
+  // Effective metric flag for the Defaults/Tent fields — mirrors the card's own
+  // resolveMetric so the editor inputs follow the chosen Units (values stay stored
+  // in imperial internally: height_inches / plant_height_inches / tent *_ft).
+  private _metric(): boolean {
+    const u = (this._config?.unit_system || "auto").toLowerCase();
+    if (u === "metric") return true;
+    if (u === "imperial") return false;
+    const us = (this.hass as any)?.config?.unit_system;
+    if (us && us.length) return us.length !== "mi";
+    return false;
+  }
   render() {
     const c = this._config || {};
     const d = c.defaults || {}, tent = c.tent || {};
     const n = (v: any, dv: number) => (v == null ? dv : v);
+    // Units-aware display for the length/tent inputs. Storage stays imperial
+    // (inches / feet); these convert only what the field shows and what the user
+    // types back. (units fix)
+    const metric = this._metric();
+    const lenU = metric ? "cm" : "in", tentU = metric ? "m" : "ft";
+    const inDisp = (inch: number) => metric ? Math.round(inch * 2.54) : inch;
+    const toIn = (v: number) => metric ? +(v / 2.54).toFixed(2) : v;
+    const ftDisp = (ft: number) => metric ? +(ft * 0.3048).toFixed(2) : +(+ft).toFixed(1);
+    const toFt = (v: number) => metric ? +(v / 0.3048).toFixed(3) : v;
+    const tentStep = metric ? "0.05" : "0.1";
     return html`<div class="ped">
       <div class="ped-note">Set up the PPFD visualizer. Each card keeps its own settings.</div>
       <label class="pf"><span>Title</span>
@@ -12599,17 +13053,17 @@ export class SpiderPpfdCardEditor extends LitElement {
         (target). This is the card's default — the card's own Settings tab can change it live.</div>
       <div class="ped-h">Defaults</div>
       <div class="pgrid">
-        <label class="pf"><span>Light height (in)</span><input type="number" min="0" .value=${String(n(d.height_inches, 18))} @change=${(e: any) => this._setDefault("height_inches", Number(e.target.value))}></label>
-        <label class="pf"><span>Plant height (in)</span><input type="number" min="0" .value=${String(n(d.plant_height_inches, 12))} @change=${(e: any) => this._setDefault("plant_height_inches", Number(e.target.value))}></label>
+        <label class="pf"><span>Light height (${lenU})</span><input type="number" min="0" .value=${String(inDisp(n(d.height_inches, 18)))} @change=${(e: any) => this._setDefault("height_inches", toIn(Number(e.target.value)))}></label>
+        <label class="pf"><span>Plant height (${lenU})</span><input type="number" min="0" .value=${String(inDisp(n(d.plant_height_inches, 12)))} @change=${(e: any) => this._setDefault("plant_height_inches", toIn(Number(e.target.value)))}></label>
         <label class="pf"><span>Plants</span><input type="number" min="1" .value=${String(n(d.num_plants, 2))} @change=${(e: any) => this._setDefault("num_plants", Number(e.target.value))}></label>
         <label class="pf"><span>Brightness (%)</span><input type="number" min="0" max="100" .value=${String(n(d.dimmer_percent, 100))} @change=${(e: any) => this._setDefault("dimmer_percent", Number(e.target.value))}></label>
         <label class="pf"><span>Photoperiod (h)</span><input type="number" min="0" max="24" .value=${String(n(d.photoperiod_hours, 18))} @change=${(e: any) => this._setDefault("photoperiod_hours", Number(e.target.value))}></label>
       </div>
-      <div class="ped-h">Tent size (ft)</div>
+      <div class="ped-h">Tent size (${tentU})</div>
       <div class="pgrid">
-        <label class="pf"><span>Width</span><input type="number" min="0" step="0.1" .value=${String(n(tent.width_ft, 2))} @change=${(e: any) => this._setTent("width_ft", Number(e.target.value))}></label>
-        <label class="pf"><span>Length</span><input type="number" min="0" step="0.1" .value=${String(n(tent.length_ft, 4))} @change=${(e: any) => this._setTent("length_ft", Number(e.target.value))}></label>
-        <label class="pf"><span>Height</span><input type="number" min="0" step="0.1" .value=${String(n(tent.height_ft, 6.5))} @change=${(e: any) => this._setTent("height_ft", Number(e.target.value))}></label>
+        <label class="pf"><span>Width</span><input type="number" min="0" step=${tentStep} .value=${String(ftDisp(n(tent.width_ft, 2)))} @change=${(e: any) => this._setTent("width_ft", toFt(Number(e.target.value)))}></label>
+        <label class="pf"><span>Length</span><input type="number" min="0" step=${tentStep} .value=${String(ftDisp(n(tent.length_ft, 4)))} @change=${(e: any) => this._setTent("length_ft", toFt(Number(e.target.value)))}></label>
+        <label class="pf"><span>Height</span><input type="number" min="0" step=${tentStep} .value=${String(ftDisp(n(tent.height_ft, 6.5)))} @change=${(e: any) => this._setTent("height_ft", toFt(Number(e.target.value)))}></label>
       </div>
     </div>`;
   }
@@ -12734,7 +13188,7 @@ _sfRegisterCard({
 _sfRegisterCard({
   type: "spider-timelapse-card",
   name: "Spider Time-lapse Card",
-  description: "Play back a grow time-lapse captured by the Spider Farmer Bridge integration",
+  description: "Camera time-lapse for the Spider Farmer Bridge — capture, scrub, env overlay, export",
   preview: true,
   documentationURL: "https://github.com/cobragt2000/spider_farmer_bridge",
 });

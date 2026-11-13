@@ -25,7 +25,7 @@ This repo ships three things:
 
 | Path | What it is |
 |------|------------|
-| `custom_components/sf/` | The Home Assistant integration (this is what HACS installs). |
+| `custom_components/sf/` | The Home Assistant integration (this is what Marketplace/HACS installs). |
 | `spider-farmer-card/` | The Lovelace dashboard card (TypeScript/Lit, built with rollup). The built bundle lives at `custom_components/sf/cards/spider-farmer-card.js`. |
 | `spider_farmer_hotspot/` | The optional Wi-Fi hotspot add-on (a Home Assistant add-on). |
 

@@ -984,3 +984,73 @@ async def test_async_start_rejects_unsafe_session(hass, tmp_path, monkeypatch):
     assert re.match(r"^\d{8}-\d{6}$", ctrl.status()["session"] or "")
     assert ctrl.status()["session"] != "/config/www/evil"
     await ctrl.async_stop()
+
+
+async def test_same_camera_captures_are_serialized():
+    """Multiple lapses sharing one camera must not pull `async_get_image`
+    concurrently, or the camera answers one and the rest get "Unable to get image"
+    and silently skip the frame (v3.19.407). Different cameras still run in
+    parallel."""
+    import asyncio
+
+    tl._CAMERA_LOCKS.clear()
+    live = 0
+    peak = 0
+
+    async def crit(cam):
+        nonlocal live, peak
+        async with tl._camera_lock(cam):
+            live += 1
+            peak = max(peak, live)
+            await asyncio.sleep(0.02)
+            live -= 1
+
+    # Five instances on the same camera -> fully serialized (peak concurrency 1).
+    await asyncio.gather(*[crit("camera.bench") for _ in range(5)])
+    assert peak == 1
+
+    # Two different cameras -> run in parallel (peak concurrency 2).
+    tl._CAMERA_LOCKS.clear()
+    live = 0
+    peak = 0
+    await asyncio.gather(crit("camera.a"), crit("camera.b"))
+    assert peak == 2
+
+
+async def test_timelapse_sensor_readded_after_remove(hass, tmp_path, enable_custom_integrations):
+    """Regression (v3.19.408): deleting a time-lapse then creating the SAME tl_id
+    again must get a fresh status sensor. The sensor platform used to track created
+    ids in a set it never pruned, so a re-added id was skipped forever and the
+    card's 'Set up' did nothing."""
+    from homeassistant.helpers import entity_registry as er
+
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Spider Farmer Bridge", unique_id=DOMAIN,
+        data={"listen_port": 18991, "upstream_host": "sf.mqtt.spider-farmer.com",
+              "upstream_port": 8883, "allow_control": True},
+        options={CONF_TIMELAPSE_INSTANCES: {
+            "tent": {TL_CAMERA: "camera.tent", TL_DIR: str(tmp_path / "tent")}}},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    ent_id = "sensor.sf_timelapse_tent"
+    assert hass.states.get(ent_id) is not None, "sensor should exist after initial create"
+
+    mgr = hass.data[DOMAIN][entry.entry_id]["timelapse"]
+
+    # Remove the instance → sensor (and its registry entry) should go away.
+    hass.config_entries.async_update_entry(entry, options={CONF_TIMELAPSE_INSTANCES: {}})
+    mgr.sync()
+    mgr.notify_instances()
+    await hass.async_block_till_done()
+    assert hass.states.get(ent_id) is None, "sensor should be gone after remove"
+
+    # Re-create the SAME tl_id → sensor must come back (this is the regression).
+    hass.config_entries.async_update_entry(entry, options={CONF_TIMELAPSE_INSTANCES: {
+        "tent": {TL_CAMERA: "camera.tent", TL_DIR: str(tmp_path / "tent")}}})
+    mgr.sync()
+    mgr.notify_instances()
+    await hass.async_block_till_done()
+    assert hass.states.get(ent_id) is not None, "sensor must be re-added for a reused tl_id"

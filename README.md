@@ -319,7 +319,8 @@ accordingly.
 | SE Lights | Standalone SE-series (SE4500 etc.): dimmable light, Manual/Automatic mode, schedule start/end, schedule brightness, sunrise/sunset fade (0-30 min, one setting drives both ends of the schedule), plus Brightness/Mode/Active sensors |
 | Climate | Humidifier / Dehumidifier / Heater: manual On/Off switch, Level control (heater 1-10, humidifier 1-4, dehumidifier Low/High), Active, Level, Mode, Tank / Status |
 | Power | Power (W), Voltage (V), Current (A), Energy (kWh) — on metered plugs (the S-Station), matching the SF app's Energy Usage |
-| Controls | **Reboot** button (Diagnostic) per controller; **Display Off** auto-screen-off timer on devices with a screen |
+| Controls | **Reboot** button (Diagnostic) per controller; **Display Off** auto-screen-off timer (minutes, 0 = off) on devices with a screen |
+| Diagnostics | **Firmware Version** + **Hardware Version** per controller (including the AC5 / AC10 power strips); Uptime, Wi-Fi / Ethernet link on controllers that report it |
 | Soil probes | Temperature, Moisture, EC per probe (auto-discovered), plus per-device **Soil Avg** Temperature / Moisture / EC across a controller's probes |
 
 📋 **Full entity reference:** every entity the integration creates — grouped by
@@ -346,15 +347,6 @@ is *reset* (session severed, entities rebuilt fresh on reconnect); power a
 device off first for permanent removal. Devices are never auto-removed — a
 tent packed away for months is dormant, not gone.
 
-**Availability done right.** Per-device availability (one unit dropping
-doesn't grey out the rest), a 120-second startup grace window, and a restore
-ownership check (`sf_device` attribute) so a device can never resurrect
-another device's cached values after a slot change.
-
-**Near-real-time config.** The proxy watches app→device commands and
-confirm-polls the affected module seconds later — change fan oscillation in
-the SF app and HA reflects it in ~2–4 s instead of the 10-minute poll.
-
 **Customization preservation.** "Preserve on removal" (default on) snapshots
 entity renames, icons, areas, and hidden/disabled flags to
 `config/sf/preserved_registry.json` — outside the integration folder, so it
@@ -371,12 +363,6 @@ and contained errors.
 > **Sharing diagnostic logs?** They contain your devices' MAC addresses,
 > account UID, and timezone/locale. Redact those before posting a log to a
 > public GitHub issue (search-and-replace the MACs with e.g. `aabbccddeeff`).
-
-**Robustness.** Frame-processing errors are contained (they can never sever a
-device's cloud connection), reloads sever sessions so devices reconnect to
-the new instance (no reboot needed after options changes), a misdetected
-device type self-repairs in place, and Settings saves can't clobber stored
-mappings.
 
 **Device control** (HA → device) is gated behind an options checkbox,
 **default off**, toggleable live. With control off the integration is
@@ -450,13 +436,14 @@ Home Assistant:
 ### Firmware compatibility
 
 The bridge speaks the devices' own cloud protocol, so it isn't tied to one firmware
-build — but these are the firmware versions it is **currently verified against** (the
-versions on the author's rig). Each device reports its firmware in the Spider Farmer app
-under the device's **Device info / About** screen.
+build — but these are the firmware versions it has been **verified against**: the version
+each device currently runs, with earlier builds it also ran shown in parentheses. Each
+device reports its firmware in the Spider Farmer app under the device's **Device info /
+About** screen.
 
 | Device | Hardware rev | Verified firmware |
 | --- | --- | --- |
-| Display controller (DP-series, e.g. the panel controllers) | 2.x | **3.20** |
+| Display controller (DP-series, e.g. the panel controllers) | 2.x | **3.20** (also 3.14) |
 | Power Strip **AC5** | S-ZC5 | **3.14** |
 | Power Strip **AC10** | S-ZC10 | **3.14** |
 | **SE-series** light (SE 4500) | S-TG-A | **1.7** |
@@ -666,9 +653,6 @@ identity or history.
   in Settings
 
 ## Credits
-
-This integration is an independent implementation written from its own packet
-captures of the Spider Farmer GGS protocol.
 
 Development assistance — integration refactoring, test suite, the bundled
 dashboard cards, and packaging — by **Claude (Anthropic)**.

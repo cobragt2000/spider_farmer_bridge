@@ -333,7 +333,7 @@ def translate_command(
 
     if field == "display_off":
         # Auto Screen Off (the app's "Display off") — ["system","scroff"] in
-        # seconds. The HA select is "Off" or 1-10 (minutes). (v3.19.259)
+        # seconds. The HA control is a number 0-10 (minutes; 0 = off). (v3.19.416)
         s = str(value).strip().lower()
         if s in ("off", "0", ""):
             secs = 0
@@ -1379,6 +1379,13 @@ def _cmd_climate_config(mac, uid, field, value, subfield, state):
         result["level"] = gear
         # mLevel stays the real manual setpoint, not the gear echo.
         result["mLevel"] = int(cur.get("mLevel", 1) or 1)
+    elif field == "dehumidifier" and "mLevel" in result:
+        # The dehumidifier has no separate Automatic gear — Low/High is a single
+        # setting — so the dedicated "Dehumidifier Gear" select was removed
+        # (v3.19.419). Keep the Humidity-mode gear (config `level`, dropped by
+        # _strip_live) in sync with the manual level (`mLevel`) so the one Low/High
+        # control drives Humidity mode too, not just Manual.
+        result["level"] = int(result["mLevel"])
     return _config_field(mac, uid, "device", field, result)
 
 

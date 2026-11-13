@@ -445,6 +445,9 @@ def _decode_sys(out, e, sys_block):
     ver = sys_block.get("ver")
     if ver not in (None, ""):
         out[f"ggs/ha/{e}/fw_version/state"] = str(ver)
+    hwver = sys_block.get("hwver")
+    if hwver not in (None, ""):
+        out[f"ggs/ha/{e}/hw_version/state"] = str(hwver)
     if "upTime" in sys_block:
         try:
             out[f"ggs/ha/{e}/uptime/state"] = str(int(sys_block["upTime"]))

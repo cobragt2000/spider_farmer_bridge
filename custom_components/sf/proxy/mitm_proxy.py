@@ -630,6 +630,21 @@ class MITMProxy:
                 })
             except Exception as exc:
                 _LOGGER.debug("env target poll failed: %s", exc)
+        # Display Off / Auto Screen Off (system.scroff) — S-STATION ONLY. It has no
+        # system block in its getConfigFile and answers only a TARGETED read, so it
+        # must be polled or Display Off stays "unknown". Display panels already carry
+        # system.scroff in the getConfigFile we poll above, so they need NO extra
+        # read here — polling them would just be redundant traffic. (v3.19.415,
+        # trimmed to st-only v3.19.418)
+        if sess.device_type == "st":
+            try:
+                await sess.inject({
+                    "method": "getConfigField", "pid": sess.mac_raw,
+                    "params": {"keyPath": ["system", "scroff"]},
+                    "msgId": str(int(time.time() * 1000)), "uid": sess.uid,
+                })
+            except Exception as exc:
+                _LOGGER.debug("display-off poll failed: %s", exc)
         # Alarm/notification history (v3.19.41): the device only reports the
         # log when asked (the app's Notification screen). Poll it so HA's
         # Alarms sensor backfills without the app.
@@ -1924,6 +1939,21 @@ def _process_publish(
                     except Exception:
                         pass
                     await asyncio.sleep(0.5)
+                # Display Off / Auto Screen Off (system.scroff) — S-STATION ONLY,
+                # at connect, so its control populates right away instead of waiting
+                # for the periodic poll. It's the only screen device whose
+                # getConfigFile omits scroff; panels already get it from the
+                # getConfigFile pulled below. (v3.19.415, st-only v3.19.418)
+                if session.device_type == "st":
+                    try:
+                        await session.inject({
+                            "method": "getConfigField", "pid": session.mac_raw,
+                            "params": {"keyPath": ["system", "scroff"]},
+                            "msgId": str(int(time.time() * 1000)), "uid": session.uid,
+                        })
+                    except Exception:
+                        pass
+                    await asyncio.sleep(0.5)
                 # Pull the full config file once at connect so air/soil
                 # calibration, substrate and soil names populate promptly
                 # instead of waiting up to config_poll_interval (~10 min).
@@ -2055,6 +2085,24 @@ def _process_publish(
     # detection finishes would assign it from an unknown-type guess. Both PS
     # strips and CBs can carry soil probes, so there's no safe type guess —
     # wait until detection has set device_type (device_display is populated).
+    # Display Off / Auto Screen Off — the S-Station answers a targeted
+    # getConfigField ["system","scroff"] with a BARE data.scroff (it has no
+    # configFile.system block, so the getConfigFile path below never fires for it).
+    # Published here, OUTSIDE the device_type gate, so it lands whenever the value
+    # is read/set — otherwise the control sits "unknown". A display panel's
+    # getConfigFile nests scroff under configFile.system (d.get("scroff") is None
+    # there), so this only matches the bare form. Seconds -> HA minutes. (v3.19.414)
+    if method in ("getConfigField", "getConfigFile"):
+        _scroff = d.get("scroff") if isinstance(d, dict) else None
+        if isinstance(_scroff, (int, float)):
+            try:
+                _mins = max(0, min(10, int(_scroff) // 60))
+            except (ValueError, TypeError):
+                _mins = 0
+            mqtt_client.publish(
+                f"ggs/ha/{session.mac}/display_off/state",
+                str(_mins), retain=True, qos=0)   # number: 0 = off, 1-10 min
+
     if method in ("getConfigField", "getConfigFile") and session.device_type:
         _sen = _senconfig_from(d)
         if _sen:
@@ -2111,8 +2159,8 @@ def _process_publish(
                 except (ValueError, TypeError):
                     _mins = 0
                 mqtt_client.publish(
-                    f"ggs/ha/{session.mac_raw}/display_off/state",
-                    "Off" if _mins == 0 else str(_mins), retain=True, qos=0)
+                    f"ggs/ha/{session.mac}/display_off/state",
+                    str(_mins), retain=True, qos=0)   # number: 0 = off, 1-10 min
         # Environment target block also arrives inside getConfigFile (not just a
         # targeted getConfigField ["target"]). Cache it for the manual Environment
         # editor. Publish it to the env tiles ONLY when no plan is active: while a

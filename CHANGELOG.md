@@ -3,7 +3,17 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
-## 3.20.35 — Adaptive climate: clean/profile actions refresh the card instantly
+## 3.20.36 — Adaptive climate: intake-air (ventilation) term
+
+### Added
+- **The model now learns how the blower's effect scales with the intake air.** When an
+  intake reference (lung-room / outside temp & humidity) is configured, the fit adds a
+  ventilation term — `blower × (intake − tent)` — for temperature and humidity. So instead
+  of one flat blower gain, it separates the blower's constant effect from its air-exchange
+  effect, which is what actually matters in a small tent: pulling in cold, dry winter air
+  cools and dries far faster than mild air. The learned exchange rate shows on the AI card
+  under each metric ("Intake · blower"). It activates once enough aligned intake data has
+  been captured; with no intake reference, nothing changes.
 
 ### Fixed
 - **"Clean learning data" now updates the card immediately.** The wipe always took effect

@@ -23,7 +23,7 @@ output that reaches a target fastest and to pre-act on predicted cross-effects.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Mapping, Sequence
 
 import numpy as np
@@ -74,9 +74,16 @@ class MetricModel:
     n: int                           # training rows used
     r2: float                        # fit quality on those rows
     confidence: float                # 0..1
+    # Ventilation gains (v3.20.36): device -> Δmetric/min per (output-% × intake-gap),
+    # where intake-gap = intake(ambient) metric − tent metric. Captures how the blower's
+    # effect scales with how far the incoming air sits from the tent (a cold-dry intake
+    # cools/dries faster than a warm-humid one). Empty when no intake reference is set or
+    # the term couldn't be identified. NOT in predict_rate yet (needs the live gap).
+    vent: Mapping[str, float] = field(default_factory=dict)
 
     def predict_rate(self, outputs: Mapping[str, float]) -> float:
-        """Predicted Δmetric/min for a given set of device outputs."""
+        """Predicted Δmetric/min for a given set of device outputs (ventilation excluded —
+        it needs the live intake gap, supplied by the caller in P1 control)."""
         return self.drift + sum(g * float(outputs.get(d, 0.0)) for d, g in self.gains.items())
 
 
@@ -126,22 +133,49 @@ def _time_smooth(times: Sequence[float], vals: Sequence[float], half_sec: float)
     return out
 
 
+def _ffill(vals: Sequence[float]) -> list[float]:
+    """Carry the last non-NaN value forward (leading NaNs stay NaN). Used so a slowly-
+    sampled intake reference, or a brief dropout, still has a value at every row once it
+    has started reporting — without dropping rows from the base fit."""
+    out = list(vals)
+    last = float("nan")
+    for i, v in enumerate(out):
+        if v == v:
+            last = v
+        else:
+            out[i] = last
+    return out
+
+
 def _rows(samples: Sequence[Sample], metric: str, devices: Sequence[str],
-          smooth_sec: float = 0.0):
-    """Build the regression rows (X, y) from consecutive usable sample pairs.
-    y = per-minute rate of `metric`; X = each device's output during the interval
-    plus an intercept column (for drift). When `smooth_sec` > 0, the metric and device
-    channels are first run through the same centered time-window average (denoising a
-    noise-limited metric without biasing its gains). Returns (X, y) as float arrays."""
+          smooth_sec: float = 0.0, vent_devices: Sequence[str] = ()):
+    """Build the regression rows from consecutive usable sample pairs.
+    y = per-minute rate of `metric`; X columns are [each device's output], then [a
+    ventilation column output × (intake − tent) for each device in `vent_devices` that has
+    an intake reference captured], then an intercept (drift). When `smooth_sec` > 0 the
+    metric, device and intake channels are run through the same centered time-window
+    average. Returns (X, y, vdevs): vdevs is the ordered list of devices that actually got
+    a ventilation column (empty when no intake reference is present / coverage too thin)."""
     ordered = sorted(samples, key=lambda s: s.t)
     n = len(ordered)
     times = [s.t for s in ordered]
     mv = [float(s.metrics[metric]) if s.metrics.get(metric) is not None else float("nan")
           for s in ordered]
     dv = {d: [float(s.outputs.get(d, 0.0)) for s in ordered] for d in devices}
+    # Intake (ambient) reference for THIS metric, stored alongside the tent sample as an
+    # ambient_<metric> "output". Ventilation needs it; enable only with decent coverage.
+    amb_key = f"ambient_{metric}"
+    av = [float(s.outputs[amb_key]) if s.outputs.get(amb_key) is not None else float("nan")
+          for s in ordered]
+    coverage = (sum(1 for v in av if v == v) / n) if n else 0.0
+    vdevs = [d for d in vent_devices if d in devices] if coverage >= 0.5 else []
     if smooth_sec > 0 and n:
         mv = _time_smooth(times, mv, smooth_sec)
         dv = {d: _time_smooth(times, dv[d], smooth_sec) for d in devices}
+        if vdevs:
+            av = _time_smooth(times, av, smooth_sec)
+    if vdevs:
+        av = _ffill(av)                 # one value per row once intake has started
     xs: list[list[float]] = []
     ys: list[float] = []
     for i in range(n - 1):
@@ -154,9 +188,15 @@ def _rows(samples: Sequence[Sample], metric: str, devices: Sequence[str],
         row = [dv[d][i] for d in devices]
         if any(x != x for x in row):    # NaN device at a smoothing edge
             continue
+        vent: list[float] = []
+        if vdevs:
+            gap = av[i] - mv[i]         # intake − tent at interval start
+            if gap != gap:              # intake not yet reporting at this (old) row → no exchange info
+                gap = 0.0
+            vent = [dv[d][i] * gap for d in vdevs]
         ys.append((cv - pv) / (dt / 60.0))
-        xs.append(row + [1.0])          # output in effect = level at interval start
-    return np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
+        xs.append(row + vent + [1.0])   # output in effect = level at interval start
+    return np.asarray(xs, dtype=float), np.asarray(ys, dtype=float), vdevs
 
 
 def _confidence(n: int, r2: float, full_samples: float = FULL_SAMPLES) -> float:
@@ -179,6 +219,18 @@ def _confidence(n: int, r2: float, full_samples: float = FULL_SAMPLES) -> float:
 # and dropped from the fit, with its gain pinned to 0.
 MIN_OUTPUT_VAR = 1.0
 
+# Ventilation term (v3.20.36). An air-exchange device driven at `output` pulls intake
+# (lung-room / outside) air through the tent; its effect on a metric scales with how far
+# the intake sits from the tent — the gradient (intake − tent). For each of these devices,
+# when an intake reference (ambient_<metric>) is captured, the fit adds a feature column
+# output × (intake − tent), so the blower's learned effect separates into a constant part
+# (its plain gain) and this gradient-driven exchange part. Only the blower exchanges with
+# outside air; the internal circulation fan is already excluded entirely.
+VENT_DEVICES = ("blower",)
+# A ventilation column (output × gap, so its scale is ~output×degrees) needs more raw
+# variance than a plain 0..100 effort column before it's trusted, else it's dropped.
+MIN_VENT_VAR = 25.0
+
 
 def fit_metric_model(
     samples: Sequence[Sample], metric: str, devices: Sequence[str],
@@ -192,14 +244,25 @@ def fit_metric_model(
     scales it to the capture cadence so it never flattens fast swings)."""
     devices = list(devices)
     smooth = denoise_sec if metric in DENOISE_METRICS else 0.0
-    X, y = _rows(samples, metric, devices, smooth_sec=smooth)
+    X, y, vdevs = _rows(samples, metric, devices, smooth_sec=smooth, vent_devices=VENT_DEVICES)
+    nd, nv = len(devices), len(vdevs)
     if X.shape[0] < 2:
         return MetricModel(metric, 0.0, {d: 0.0 for d in devices}, int(X.shape[0]), 0.0, 0.0)
 
-    # Keep only device columns with real variance; always keep the intercept (last).
-    dev_cols = X[:, :len(devices)]
-    keep = [i for i in range(len(devices)) if float(dev_cols[:, i].var()) > MIN_OUTPUT_VAR]
-    Xk = np.column_stack([dev_cols[:, keep], np.ones(X.shape[0])]) if keep else np.ones((X.shape[0], 1))
+    # Keep only columns with real variance (a constant column just absorbs noise); the
+    # ventilation columns use their own, larger threshold since they're on an output×gap
+    # scale. The intercept (drift) is always kept.
+    dev_cols = X[:, :nd]
+    vent_cols = X[:, nd:nd + nv]
+    keep = [i for i in range(nd) if float(dev_cols[:, i].var()) > MIN_OUTPUT_VAR]
+    keep_v = [j for j in range(nv) if float(vent_cols[:, j].var()) > MIN_VENT_VAR]
+    parts = []
+    if keep:
+        parts.append(dev_cols[:, keep])
+    if keep_v:
+        parts.append(vent_cols[:, keep_v])
+    parts.append(np.ones((X.shape[0], 1)))
+    Xk = np.column_stack(parts)
     if Xk.shape[0] <= Xk.shape[1]:
         return MetricModel(metric, 0.0, {d: 0.0 for d in devices}, int(X.shape[0]), 0.0, 0.0)
 
@@ -211,9 +274,13 @@ def fit_metric_model(
     gains = {d: 0.0 for d in devices}            # dropped (constant) devices → 0
     for j, i in enumerate(keep):
         gains[devices[i]] = float(beta[j])
+    vent = {}                                    # device -> ventilation gain (gradient effect)
+    for j, i in enumerate(keep_v):
+        vent[vdevs[i]] = float(beta[len(keep) + j])
     drift = float(beta[-1])
     n = int(X.shape[0])
-    return MetricModel(metric, drift, gains, n, round(r2, 4), _confidence(n, r2, full_samples))
+    return MetricModel(metric, drift, gains, n, round(r2, 4),
+                       _confidence(n, r2, full_samples), vent)
 
 
 def fit_models(

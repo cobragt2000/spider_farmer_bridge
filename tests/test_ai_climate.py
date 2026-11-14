@@ -131,8 +131,8 @@ def test_temperature_denoising_lifts_r2_and_keeps_gain():
         pred = X @ beta
         return 1 - float(np.sum((y - pred) ** 2)) / float(np.sum((y - np.mean(y)) ** 2))
 
-    Xr, yr = _rows(samples, "temperature", ["heater"], smooth_sec=0.0)
-    Xs, ys = _rows(samples, "temperature", ["heater"], smooth_sec=DENOISE_HALF_SEC)
+    Xr, yr, _ = _rows(samples, "temperature", ["heater"], smooth_sec=0.0)
+    Xs, ys, _ = _rows(samples, "temperature", ["heater"], smooth_sec=DENOISE_HALF_SEC)
     assert _r2(Xs, ys) > _r2(Xr, yr) + 0.05              # denoising measurably lifts R²
     m = fit_metric_model(samples, "temperature", ["heater"])   # real path is denoised
     assert m.gains["heater"] > 0                         # true warming gain preserved
@@ -157,9 +157,36 @@ def test_denoise_window_is_tunable_and_preserves_fast_ramp():
     m_slow = fmm(samples, "temperature", ["blower"], denoise_sec=300.0)
     assert m_fast.gains["blower"] < 0 and m_slow.gains["blower"] < 0
     # denoise_sec is actually honoured: the big window flattens the swing's derivative more.
-    _, y60 = _rows(samples, "temperature", ["blower"], smooth_sec=60.0)
-    _, y300 = _rows(samples, "temperature", ["blower"], smooth_sec=300.0)
+    _, y60, _ = _rows(samples, "temperature", ["blower"], smooth_sec=60.0)
+    _, y300, _ = _rows(samples, "temperature", ["blower"], smooth_sec=300.0)
     assert float(np.var(y60)) > float(np.var(y300))
+
+
+def test_ventilation_term_recovers_intake_gradient_effect():
+    # v3.20.36: when an intake (ambient) reference is captured, the blower's effect on a
+    # metric is modelled as output × (intake − tent). Synthesize a tent where the ONLY
+    # dynamics are a gentle warm drift plus blower-driven exchange with a varying intake;
+    # the fit should recover a positive ventilation gain (cooler intake + blower → cooling).
+    import math
+    rng = np.random.default_rng(11)
+    K_TRUE = 0.0008
+    t, temp, samples = 0.0, 72.0, []
+    for i in range(1600):
+        blower = 100.0 if (i // 5) % 2 else 0.0              # 0/100 %, toggles
+        amb = 60.0 + 8.0 * math.sin(i / 20.0)               # intake 52..68, below the tent
+        rate = 0.1 + K_TRUE * blower * (amb - temp)          # °/min: warm drift + exchange
+        temp += rate * 0.5 + rng.normal(0, 0.03)            # 30 s step
+        samples.append(Sample(t, {"temperature": temp},
+                              {"blower": blower, "ambient_temperature": amb}))
+        t += 30.0
+    m = fit_metric_model(samples, "temperature", ["blower"])
+    assert "blower" in m.vent                                # term identified
+    assert m.vent["blower"] > 0                              # cooler intake + blower = cooling
+    assert abs(m.vent["blower"] - K_TRUE) < 0.0006          # roughly the true exchange rate
+
+    # No intake reference captured → no ventilation term at all.
+    bare = [Sample(s.t, s.metrics, {"blower": s.outputs["blower"]}) for s in samples]
+    assert fit_metric_model(bare, "temperature", ["blower"]).vent == {}
 
 
 def test_confidence_calibration_volume_and_quality():

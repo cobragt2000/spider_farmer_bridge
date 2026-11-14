@@ -323,6 +323,9 @@ def _summarize(models, nsamples: int) -> dict:
         m: {
             "drift": round(md.drift, 5),
             "gains": {d: round(g, 5) for d, g in md.gains.items()},
+            # Ventilation gains (device -> Δmetric/min per output-% per intake-gap unit),
+            # present only where an intake reference let the term be identified.
+            "vent": {d: round(g, 6) for d, g in (md.vent or {}).items()},
             "n": md.n, "r2": md.r2, "confidence": md.confidence,
         }
         for m, md in models.items()

@@ -15,20 +15,21 @@ permissions:
 jobs:
   tests:
     runs-on: ubuntu-latest
-    # Pinned to 3.12 for now. Ideally this matches the Python our users run
-    # (HA requires 3.14 since 2026.3), and 3.11+ is where GHSA-h3xj-44pw-qmj9
-    # manifests — but moving the matrix to 3.14 pulls in the newest HA, which
-    # turns several deprecated test-only calls (e.g. device_registry.async_get_device)
-    # into hard errors and changes some registry behaviour the suite asserts on.
-    # Production is unaffected (bus.py is already version-guarded, and the live
-    # 2026.11 deployment works), so this is a test-suite modernization task, not a
-    # user issue. On 3.12 `pip install homeassistant` resolves to the last HA that
-    # supported it, where the suite is green. TODO: modernize the tests for the
-    # newest HA, then move this back to "3.14". See _backlog_private.
+    # 3.14 tests the Home Assistant users run today: HA ships its own test
+    # package since 2026.11 (pytest-homeassistant, pinned to the matching HA),
+    # so pip always resolves the current release. 3.12 resolves to the last HA
+    # that supported it (2025.1) via the community pytest-homeassistant-custom-
+    # component, which keeps the conftest compat shims and the older-core code
+    # paths (e.g. bus._dev_by_ident's async_get_device fallback) exercised.
+    # tests/ha_compat.py and conftest.py work with either plugin.
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12"]
+        include:
+          - python-version: "3.12"
+            packages: homeassistant pytest pytest-asyncio pytest-homeassistant-custom-component
+          - python-version: "3.14"
+            packages: pytest-homeassistant
     name: tests (py${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@v4
@@ -38,7 +39,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install homeassistant pytest pytest-asyncio pytest-homeassistant-custom-component
+          pip install ${{ matrix.packages }}
       - name: Run test suite
         run: pytest tests/ -q
 

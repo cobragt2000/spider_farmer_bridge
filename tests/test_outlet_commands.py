@@ -10,7 +10,7 @@ but the outlet never switched (app capture 2026-07-31, v3.19.93).
 import json
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from ha_compat import MockConfigEntry
 
 from homeassistant.core import HomeAssistant
 

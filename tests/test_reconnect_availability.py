@@ -41,7 +41,7 @@ class _FakeWriter:
 
 
 async def _setup(hass):
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    from ha_compat import MockConfigEntry
     entry = MockConfigEntry(
         domain=DOMAIN, title="Spider Farmer Bridge",
         data={"listen_port": 18991, "upstream_host": "sf.mqtt.spider-farmer.com",

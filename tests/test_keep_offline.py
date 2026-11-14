@@ -11,13 +11,14 @@ automations keep resolving. OFF restores the old phantom-cleanup.
 import json
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from ha_compat import MockConfigEntry
 
 from homeassistant.core import HomeAssistant
 
 from custom_components.sf.const import DOMAIN, DATA_BUS
 from custom_components.sf.proxy.mitm_proxy import ProxySession, _process_publish
 from custom_components.sf.proxy.mqtt_parser import MQTTPacket, MQTT_PUBLISH
+from ha_compat import device_by_ident
 
 CB_MAC = "0A1B2C3D4E01"
 CB_MAC_LC = "0a1b2c3d4e01"
@@ -227,10 +228,10 @@ async def test_offline_whole_device_pruned_when_option_off(hass: HomeAssistant):
 
     assert removed == 1
     # The gone SE device and its entity are removed…
-    assert dev_reg.async_get_device(identifiers={(DOMAIN, f"ggs_{SE_MAC_LC}")}) is None
+    assert device_by_ident(hass, f"ggs_{SE_MAC_LC}") is None
     assert ent_reg.async_get_entity_id("light", DOMAIN, f"ggs_{SE_MAC_LC}_light_1") is None
     # …while the connected controller is untouched.
-    assert dev_reg.async_get_device(identifiers={(DOMAIN, f"ggs_{CONN_MAC_LC}")}) is not None
+    assert device_by_ident(hass, f"ggs_{CONN_MAC_LC}") is not None
     assert ent_reg.async_get_entity_id(
         "sensor", DOMAIN, f"ggs_{CONN_MAC_LC}_temperature") is not None
 
@@ -264,7 +265,7 @@ async def test_offline_whole_device_kept_when_option_on(hass: HomeAssistant):
     bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
     assert bus.prune_offline_devices() == 0
     await hass.async_block_till_done()
-    assert dev_reg.async_get_device(identifiers={(DOMAIN, f"ggs_{SE_MAC_LC}")}) is not None
+    assert device_by_ident(hass, f"ggs_{SE_MAC_LC}") is not None
 
     await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()

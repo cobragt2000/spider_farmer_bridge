@@ -1,6 +1,6 @@
 """Cleanup migration for the 3.18.0-3.18.2 phantom soil-cal fallout."""
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from ha_compat import MockConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 

@@ -3,13 +3,14 @@ import json
 import re
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from ha_compat import MockConfigEntry
 
 from homeassistant.core import HomeAssistant
 
 from custom_components.sf.const import DOMAIN, DATA_BUS
 from custom_components.sf.proxy.mitm_proxy import ProxySession, _process_publish
 from custom_components.sf.proxy.mqtt_parser import MQTTPacket, MQTT_PUBLISH
+from ha_compat import device_by_ident
 
 CB_MAC = "0A1B2C3D4E01"
 CB_MAC_LC = "0a1b2c3d4e01"
@@ -153,7 +154,7 @@ async def test_naming_scheme_migration(hass: HomeAssistant):
     assert entry.options.get("naming_scheme_dp_ac") is True
 
     # Device renamed; entity id migrated but unique_id (history) preserved
-    dev = dev_reg.async_get_device({(DOMAIN, "ggs_0a1b2c3d4e01")})
+    dev = device_by_ident(hass, "ggs_0a1b2c3d4e01")
     assert dev.name == "SF Display Panel 4E01"
     assert dev.model == "Display Panel"
     assert reg.async_get_entity_id("sensor", DOMAIN,
@@ -186,7 +187,7 @@ async def test_new_install_uses_dp_ac_slots(hass: HomeAssistant):
 
     assert hass.states.get("sensor.sf_dp1_temperature") is not None
     from homeassistant.helpers import device_registry as dr
-    dev = dr.async_get(hass).async_get_device({(DOMAIN, f"ggs_{CB_MAC_LC}")})
+    dev = device_by_ident(hass, f"ggs_{CB_MAC_LC}")
     assert dev.name == "SF Display Panel 4E01"
 
     await hass.config_entries.async_unload(entry.entry_id)

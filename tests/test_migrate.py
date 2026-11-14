@@ -2,7 +2,7 @@
 import json
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from ha_compat import MockConfigEntry
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
@@ -13,6 +13,7 @@ from custom_components.sf.const import DOMAIN, DATA_BUS, DATA_PROXY
 from custom_components.sf.migrate import migrate_device
 from custom_components.sf.proxy.mitm_proxy import ProxySession, _process_publish
 from custom_components.sf.proxy.mqtt_parser import MQTTPacket, MQTT_PUBLISH
+from ha_compat import device_by_ident
 
 OLD_MAC_RAW, OLD_MAC = "0A1B2C3D4E01", "0a1b2c3d4e01"
 NEW_MAC_RAW, NEW_MAC = "0A1B2C3FF9AB", "0a1b2c3ff9ab"
@@ -79,8 +80,8 @@ async def test_migrate_device_moves_identity(hass: HomeAssistant):
 
     ent_reg = er.async_get(hass)
     dev_reg = dr.async_get(hass)
-    old_dev = dev_reg.async_get_device({(DOMAIN, f"ggs_{OLD_MAC}")})
-    new_dev = dev_reg.async_get_device({(DOMAIN, f"ggs_{NEW_MAC}")})
+    old_dev = device_by_ident(hass, f"ggs_{OLD_MAC}")
+    new_dev = device_by_ident(hass, f"ggs_{NEW_MAC}")
     assert old_dev and new_dev
 
     # Sanity: both twins exist pre-migration
@@ -109,7 +110,7 @@ async def test_migrate_device_moves_identity(hass: HomeAssistant):
     # The new device's auto-created twin was consumed
     assert ent_reg.async_get("sensor.sf_dp2_temperature") is None
     # Old device gone from the registry
-    assert dev_reg.async_get_device({(DOMAIN, f"ggs_{OLD_MAC}")}) is None
+    assert device_by_ident(hass, f"ggs_{OLD_MAC}") is None
 
     # Guard: migrating a device onto itself refuses
     migrated, errors = migrate_device(hass, new_dev.id, new_dev.id)
@@ -121,7 +122,7 @@ async def test_migrate_device_moves_identity(hass: HomeAssistant):
     for _ in range(3):
         _frame(ps_session, bus, "0A1B2C3D4E04", ps_frame)
     await hass.async_block_till_done()
-    ps_dev = dev_reg.async_get_device({(DOMAIN, "ggs_0a1b2c3d4e04")})
+    ps_dev = device_by_ident(hass, "ggs_0a1b2c3d4e04")
     assert ps_dev is not None
     migrated, errors = migrate_device(hass, new_dev.id, ps_dev.id)
     assert migrated == 0
@@ -150,7 +151,7 @@ async def test_delete_device_gating(hass: HomeAssistant):
     await hass.async_block_till_done()
 
     dev_reg = dr.async_get(hass)
-    device = dev_reg.async_get_device({(DOMAIN, f"ggs_{OLD_MAC}")})
+    device = device_by_ident(hass, f"ggs_{OLD_MAC}")
 
     # Active session → deletion ALLOWED with reset semantics (v3.2.4):
     # session severed, runtime state forgotten
@@ -653,7 +654,7 @@ async def test_soil_probes_on_power_strip(hass: HomeAssistant):
     # Typed PS5, not CB
     assert s.device_type == "ps5"
     from homeassistant.helpers import device_registry as dr
-    dev = dr.async_get(hass).async_get_device({(DOMAIN, f"ggs_{PS}")})
+    dev = device_by_ident(hass, f"ggs_{PS}")
     assert dev.model == "Power Strip AC5"
 
     # Probe entities scoped to the strip's slot

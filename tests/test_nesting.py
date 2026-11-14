@@ -1,6 +1,6 @@
 """Power-strip device nesting under its host display panel (via_device)."""
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from ha_compat import MockConfigEntry
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr

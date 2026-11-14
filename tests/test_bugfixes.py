@@ -2,7 +2,7 @@
 import json
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from ha_compat import MockConfigEntry
 
 from homeassistant.core import HomeAssistant
 
@@ -585,7 +585,7 @@ async def test_air_sensors_field_level_evidence(hass: HomeAssistant):
 async def test_restore_rejects_foreign_device_state(hass: HomeAssistant):
     """After a slot swap, an entity_id's cached state may belong to the
     OTHER device — restore must reject it (the cb2 co2 bleed)."""
-    from pytest_homeassistant_custom_component.common import mock_restore_cache
+    from ha_compat import mock_restore_cache
     from homeassistant.core import State
 
     OTHER_MAC = "0a1b2c3d4e02"

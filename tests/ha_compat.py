@@ -1,4 +1,11 @@
-"""Version-independent registry helpers for the test suite.
+"""Version-independent helpers for the test suite.
+
+Test plugin: Home Assistant 2026.11+ ships its own ``pytest-homeassistant``
+(module ``pytest_homeassistant``); older cores use the community
+``pytest-homeassistant-custom-component``. Tests import MockConfigEntry and
+mock_restore_cache from here, so the suite runs with either.
+
+Registry lookups:
 
 ``DeviceRegistry.async_get_device`` is deprecated on newer HA cores (device
 identifiers are only unique per config entry) and raises when called from test
@@ -11,6 +18,16 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
 from custom_components.sf.const import DOMAIN
+
+try:  # Home Assistant 2026.11+
+    from pytest_homeassistant.common import MockConfigEntry, mock_restore_cache
+except ImportError:  # older cores: community plugin
+    from pytest_homeassistant_custom_component.common import (  # type: ignore[no-redef]
+        MockConfigEntry,
+        mock_restore_cache,
+    )
+
+__all__ = ["MockConfigEntry", "device_by_ident", "mock_restore_cache"]
 
 
 def device_by_ident(hass: HomeAssistant, identifier: str):

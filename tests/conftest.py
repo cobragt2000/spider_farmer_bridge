@@ -1,6 +1,21 @@
 import pytest
 
-pytest_plugins = "pytest_homeassistant_custom_component"
+# Test plugin: HA 2026.11+ ships pytest-homeassistant, which registers itself
+# (entry point); older cores use pytest-homeassistant-custom-component, loaded here.
+try:
+    import pytest_homeassistant  # noqa: F401
+    _OFFICIAL_PLUGIN = True
+except ImportError:
+    _OFFICIAL_PLUGIN = False
+    pytest_plugins = "pytest_homeassistant_custom_component"
+
+if _OFFICIAL_PLUGIN:
+    @pytest.fixture
+    def hass_config_dir(hass_tmp_config_dir):
+        """The official plugin defaults to tests/testing_config inside the repo;
+        the integration writes there (preserved registry, hotspot map), so give
+        each test its own temporary config dir instead."""
+        return hass_tmp_config_dir
 
 # ---------------------------------------------------------------------------
 # Compat shims for running the suite on older HA cores. Both are strict

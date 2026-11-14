@@ -1,7 +1,7 @@
 """3.19.0 migration: old read-only calibration/substrate SENSORS are removed
 so the new editable number/select entities (same unique_ids) take over."""
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from ha_compat import MockConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 

@@ -4,7 +4,7 @@ import json
 from unittest.mock import AsyncMock
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from ha_compat import MockConfigEntry
 
 from homeassistant.core import HomeAssistant
 
@@ -459,7 +459,7 @@ async def test_lc_entities(hass: HomeAssistant):
 
 async def test_restore_after_restart(hass: HomeAssistant):
     """RestoreEntity replaces MQTT retained topics across HA restarts."""
-    from pytest_homeassistant_custom_component.common import mock_restore_cache
+    from ha_compat import mock_restore_cache
     from homeassistant.core import State
 
     mock_restore_cache(

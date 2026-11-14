@@ -15,15 +15,21 @@ permissions:
 jobs:
   tests:
     runs-on: ubuntu-latest
-    # 3.14 is what current HA requires (since 2026.3), so it tests the core our
-    # users actually run: pip resolves the newest pytest-homeassistant-custom-component
-    # and the HA release it pins. 3.12 resolves to the last HA that supported it
-    # (2025.1), which keeps the conftest compat shims and the older-core code
+    # 3.14 tests the Home Assistant users run today: HA ships its own test
+    # package since 2026.11 (pytest-homeassistant, pinned to the matching HA),
+    # so pip always resolves the current release. 3.12 resolves to the last HA
+    # that supported it (2025.1) via the community pytest-homeassistant-custom-
+    # component, which keeps the conftest compat shims and the older-core code
     # paths (e.g. bus._dev_by_ident's async_get_device fallback) exercised.
+    # tests/ha_compat.py and conftest.py work with either plugin.
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.14"]
+        include:
+          - python-version: "3.12"
+            packages: homeassistant pytest pytest-asyncio pytest-homeassistant-custom-component
+          - python-version: "3.14"
+            packages: pytest-homeassistant
     name: tests (py${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +39,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install homeassistant pytest pytest-asyncio pytest-homeassistant-custom-component
+          pip install ${{ matrix.packages }}
       - name: Run test suite
         run: pytest tests/ -q
 

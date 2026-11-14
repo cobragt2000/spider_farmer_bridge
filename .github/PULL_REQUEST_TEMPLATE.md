@@ -20,7 +20,7 @@ Closes #<!-- issue number, if any -->
 ## Component
 
 - [ ] Integration (`custom_components/sf/`)
-- [ ] Dashboard card (`spider-farmer-card/`)
+- [ ] Dashboard card (`card-src/`)
 - [ ] Hotspot add-on (`spider_farmer_hotspot/`)
 - [ ] Docs / CI only
 

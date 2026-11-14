@@ -2,11 +2,11 @@
 import json
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from ha_compat import MockConfigEntry
 
 from homeassistant.core import HomeAssistant
 
-from custom_components.sf.const import DOMAIN, DATA_BUS
+from custom_components.sf.const import CONF_KEEP_OFFLINE, DOMAIN, DATA_BUS
 from custom_components.sf.proxy.mitm_proxy import ProxySession, _process_publish
 from custom_components.sf.proxy.mqtt_parser import MQTTPacket, MQTT_PUBLISH
 from custom_components.sf.proxy.normalizer import (
@@ -28,7 +28,10 @@ def enable_sockets(socket_enabled):
     yield
 
 
-async def _setup(hass: HomeAssistant) -> MockConfigEntry:
+async def _setup(hass: HomeAssistant, keep_offline: bool = True) -> MockConfigEntry:
+    # keep_offline goes into the entry, not onto the bus: the options update
+    # listener re-applies it from the entry whenever the integration saves its
+    # own options (e.g. device slots), which would undo a direct bus override.
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="Spider Farmer Bridge",
@@ -37,6 +40,7 @@ async def _setup(hass: HomeAssistant) -> MockConfigEntry:
             "upstream_host": "sf.mqtt.spider-farmer.com",
             "upstream_port": 8883,
             "allow_control": False,
+            CONF_KEEP_OFFLINE: keep_offline,
         },
         unique_id=DOMAIN,
     )
@@ -529,9 +533,10 @@ async def test_air_sensors_field_level_evidence(hass: HomeAssistant):
     from homeassistant.helpers import device_registry as dr
     from homeassistant.helpers import entity_registry as er
 
-    entry = await _setup(hass)
+    # this test exercises the pruning path (option off)
+    entry = await _setup(hass, keep_offline=False)
     bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
-    bus.keep_offline = False  # this test exercises the pruning path (option off)
+    assert bus.keep_offline is False
 
     # Pre-existing phantom co2 from a pre-3.2.3 install
     dev_reg = dr.async_get(hass)
@@ -580,7 +585,7 @@ async def test_air_sensors_field_level_evidence(hass: HomeAssistant):
 async def test_restore_rejects_foreign_device_state(hass: HomeAssistant):
     """After a slot swap, an entity_id's cached state may belong to the
     OTHER device — restore must reject it (the cb2 co2 bleed)."""
-    from pytest_homeassistant_custom_component.common import mock_restore_cache
+    from ha_compat import mock_restore_cache
     from homeassistant.core import State
 
     OTHER_MAC = "0a1b2c3d4e02"

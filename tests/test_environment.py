@@ -2,7 +2,7 @@
 import json
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from ha_compat import MockConfigEntry
 
 from homeassistant.core import HomeAssistant
 
@@ -13,6 +13,7 @@ from custom_components.sf.proxy.mitm_proxy import ProxySession, _process_publish
 from custom_components.sf.proxy.mqtt_parser import (
     MQTTPacket, MQTT_PUBLISH, parse_packets,
 )
+from ha_compat import device_by_ident
 
 CB_MAC = "0A1B2C3D4E01"
 CB_MAC_LC = "0a1b2c3d4e01"
@@ -138,10 +139,10 @@ async def test_env_device_created_and_synced(hass: HomeAssistant):
 
     from homeassistant.helpers import device_registry as dr
     reg = dr.async_get(hass)
-    env_dev = reg.async_get_device({(DOMAIN, f"ggs_{CB_MAC_LC}_env")})
+    env_dev = device_by_ident(hass, f"ggs_{CB_MAC_LC}_env")
     assert env_dev is not None and env_dev.name == "SF Display Panel 4E01 Environment"
     # Separate from the display panel device
-    panel = reg.async_get_device({(DOMAIN, f"ggs_{CB_MAC_LC}")})
+    panel = device_by_ident(hass, f"ggs_{CB_MAC_LC}")
     assert panel is not None and panel.id != env_dev.id
     # env nests under the panel via via_device
     assert env_dev.via_device_id == panel.id
@@ -265,8 +266,7 @@ async def test_env_entities_always_created(hass: HomeAssistant):
 
     assert hass.states.get("number.sf_dp1_env_temp_day") is not None
     from homeassistant.helpers import device_registry as dr
-    assert dr.async_get(hass).async_get_device(
-        {(DOMAIN, f"ggs_{CB_MAC_LC}_env")}) is not None
+    assert device_by_ident(hass, f"ggs_{CB_MAC_LC}_env") is not None
 
     await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()

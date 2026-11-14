@@ -6,7 +6,7 @@ the switch was already registered, leaving it "no longer provided" after a
 restart. It must now be created independently of the switch.
 """
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from ha_compat import MockConfigEntry
 from homeassistant.core import HomeAssistant
 from custom_components.sf.const import DOMAIN, DATA_BUS
 

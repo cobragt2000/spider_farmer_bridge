@@ -37,8 +37,13 @@ dependencies:
 
 ```bash
 python -m pip install --upgrade pip
-pip install homeassistant pytest pytest-asyncio pytest-homeassistant-custom-component
+# Python 3.14: Home Assistant's own test package, pinned to the matching HA release
+pip install pytest-homeassistant
+# Python 3.12 (last HA for 3.12): the community test plugin instead
+# pip install homeassistant pytest pytest-asyncio pytest-homeassistant-custom-component
 ```
+
+The suite runs with either; install only one of them.
 
 Run the test suite from the repository root:
 

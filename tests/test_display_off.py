@@ -49,7 +49,7 @@ def test_firmware_hardware_sensors_on_all_controllers():
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from ha_compat import MockConfigEntry
 from custom_components.sf.const import DOMAIN
 
 

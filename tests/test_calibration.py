@@ -2,7 +2,7 @@
 (number/select), plus their reported values from senConfig/calibration."""
 import json
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from ha_compat import MockConfigEntry
 from homeassistant.core import HomeAssistant
 
 from custom_components.sf.const import DOMAIN, DATA_BUS

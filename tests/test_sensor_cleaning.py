@@ -6,7 +6,7 @@ The integration exposes an on/off flag + remaining seconds so the card can badge
 the Air tiles like the SF app.
 """
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from ha_compat import MockConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 

@@ -1,6 +1,7 @@
 import { LitElement, html, svg, css, nothing, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
+import { loc, setLanguage } from "./i18n";
 
 // Bundled overlay font — a renamed subset of DejaVu Sans (Basic Latin + Latin-1), so the
 // live time-lapse overlay renders µ/°/² identically on every host regardless of installed
@@ -382,9 +383,9 @@ const commitButtons = (
 ) => html`
   <button class="save-btn" ?disabled=${!dirty || saving}
     style=${dirty && !saving ? `background:${accent}` : ""}
-    @click=${onApply}>${saving ? html`<span class="save-spin"></span>Saving…` : "Apply"}</button>
+    @click=${onApply}>${saving ? html`<span class="save-spin"></span>${loc("Saving…")}` : loc("Apply")}</button>
   <button class="discard-btn" ?disabled=${!dirty || saving}
-    @click=${onDiscard}>Discard</button>`;
+    @click=${onDiscard}>${loc("Discard")}</button>`;
 const commitBar = (
   accent: string, dirty: boolean, onApply: () => void, onDiscard: () => void,
   extraClass = "", saving = false
@@ -1062,13 +1063,13 @@ export class SpiderFarmerCard extends LitElement {
     const c = this.connInfo();
     const stColor = c.online ? "#54c06a" : "#e2544f";
     const st = html`<span class="conn-st" style="color:${stColor}">
-        <span class="conn-dot" style="background:${stColor}"></span>${c.online ? "Online" : "Offline"}
+        <span class="conn-dot" style="background:${stColor}"></span>${c.online ? loc("Online") : loc("Offline")}
       </span>`;
     // Hard-wired: show an Ethernet icon instead of Wi-Fi bars.
     if (c.wired) {
       return html`<span class="conn">${st}
         <ha-icon class="conn-eth" icon="mdi:ethernet"
-          style="color:${stColor}" title="Wired (Ethernet)"></ha-icon>
+          style="color:${stColor}" title=${loc("Wired (Ethernet)")}></ha-icon>
       </span>`;
     }
     const off = "var(--divider-color, #3a3e44)";
@@ -1078,7 +1079,7 @@ export class SpiderFarmerCard extends LitElement {
         fill=${i <= c.bars ? c.color : off}></rect>`;
     });
     return html`<span class="conn">${st}
-      <svg width="15" height="12" viewBox="0 0 15 12" aria-label="signal">${bars}</svg>
+      <svg width="15" height="12" viewBox="0 0 15 12" aria-label=${loc("signal")}>${bars}</svg>
     </span>`;
   }
 
@@ -1339,8 +1340,8 @@ export class SpiderFarmerCard extends LitElement {
   }
   // The eye toggle shown on each tile (and tray tile) in Rearrange mode.
   private hideBtn(id: string, hidden: boolean) {
-    return html`<button class="rhide" title=${hidden ? "Show tile" : "Hide tile"}
-      aria-label=${hidden ? "Show tile" : "Hide tile"}
+    return html`<button class="rhide" title=${hidden ? loc("Show tile") : loc("Hide tile")}
+      aria-label=${hidden ? loc("Show tile") : loc("Hide tile")}
       @pointerdown=${(e: Event) => e.stopPropagation()}
       @click=${(e: Event) => { e.stopPropagation(); this.toggleHide(id); }}>
       <ha-icon icon=${hidden ? "mdi:eye-off-outline" : "mdi:eye-outline"}></ha-icon>
@@ -1485,7 +1486,7 @@ export class SpiderFarmerCard extends LitElement {
       if (lm !== "PPFD" && lm !== "PPFD - Plan") continue;
       const tgt = Number(this.get(`number.sf_${p}_${s}_ppfd_target`)?.state);
       if (Number.isFinite(tgt) && tgt > 0) {
-        return html`<div class="tile-target">target ${Math.round(tgt)} µmol</div>`;
+        return html`<div class="tile-target">${loc("target")} ${Math.round(tgt)} µmol</div>`;
       }
     }
     return nothing;
@@ -1631,7 +1632,7 @@ export class SpiderFarmerCard extends LitElement {
     if (!this.showTargets) return nothing;
     const ti = this.targetInfo(suffix);
     if (this.colorSource !== "alarms" && ti)
-      return html`<div class="tile-target">target ${ti.target}${unit} · ±${ti.dead}</div>`;
+      return html`<div class="tile-target">${loc("target")} ${ti.target}${unit} · ±${ti.dead}</div>`;
     const b = this.metricBand(suffix);
     if (!b) return nothing;
     const word = this.colorSource !== "alarms" || suffix === "leaf_vpd" ? "target" : "range";
@@ -1643,7 +1644,7 @@ export class SpiderFarmerCard extends LitElement {
       : /ms\/cm/i.test(u) ? 1
       : /°|%|ppm|µmol/.test(u) ? 0
       : (mid < 10 ? 2 : mid < 100 ? 1 : 0);
-    return html`<div class="tile-target">${word} ${b.lo.toFixed(dec)}–${b.hi.toFixed(dec)} ${unit}</div>`;
+    return html`<div class="tile-target">${loc(word)} ${b.lo.toFixed(dec)}–${b.hi.toFixed(dec)} ${unit}</div>`;
   }
 
   // ── Overview extras: recent-history sampling, trend, dead-zone band, graph ──
@@ -1864,15 +1865,15 @@ export class SpiderFarmerCard extends LitElement {
     const metricSel = isPower ? html`<select class="pg-range" @change=${(e: Event) =>
         this.setPowerMetric((e.target as HTMLSelectElement).value)}>
       ${SpiderFarmerCard.POWER_METRICS.map((m) => html`
-        <option value=${m.key} ?selected=${this.powerMetric === m.key}>${m.label}</option>`)}
+        <option value=${m.key} ?selected=${this.powerMetric === m.key}>${loc(m.label)}</option>`)}
     </select>`
       : src?.picker ? html`<select class="pg-range" @change=${(e: Event) =>
           src.picker!.onPick((e.target as HTMLSelectElement).value)}>
       ${src.picker.options.map((o) => html`
-        <option value=${o.key} ?selected=${src!.picker!.current === o.key}>${o.label}</option>`)}
+        <option value=${o.key} ?selected=${src!.picker!.current === o.key}>${loc(o.label)}</option>`)}
     </select>` : nothing;
     if (this._graphLoading[key])
-      return html`<div class="param-graph"><div class="pg-head"><span>${label}</span>${metricSel}${rangeSel}<span class="pg-now">…</span><ha-icon icon="mdi:close" @click=${closeGraph}></ha-icon></div><span class="pg-note">Loading history…</span></div>`;
+      return html`<div class="param-graph"><div class="pg-head"><span>${loc(label)}</span>${metricSel}${rangeSel}<span class="pg-now">…</span><ha-icon icon="mdi:close" @click=${closeGraph}></ha-icon></div><span class="pg-note">${loc("Loading history…")}</span></div>`;
     // Keep the open graph current — re-fetches only when the cache is stale.
     this.fetchGraph(eid);
     const raw = this._graph[key];
@@ -1889,7 +1890,7 @@ export class SpiderFarmerCard extends LitElement {
       ? [...raw, { t: nowMs, v: liveV }]
       : (raw || []);
     if (pts.length < 2)
-      return html`<div class="param-graph"><div class="pg-head"><span>${label}</span>${metricSel}${rangeSel}<span class="pg-now"></span><ha-icon icon="mdi:close" @click=${closeGraph}></ha-icon></div><span class="pg-note">Not enough history yet for ${label} at this range.</span></div>`;
+      return html`<div class="param-graph"><div class="pg-head"><span>${loc(label)}</span>${metricSel}${rangeSel}<span class="pg-now"></span><ha-icon icon="mdi:close" @click=${closeGraph}></ha-icon></div><span class="pg-note">${loc("Not enough history yet for {name} at this range.", { name: loc(label) })}</span></div>`;
 
     const vals = pts.map((p) => p.v);
     const vmin = Math.min(...vals), vmax = Math.max(...vals);
@@ -1978,15 +1979,15 @@ export class SpiderFarmerCard extends LitElement {
 
     return html`<div class="param-graph">
       <div class="pg-head">
-        <span>${label}</span>${metricSel}${rangeSel}
+        <span>${loc(label)}</span>${metricSel}${rangeSel}
         <span class="pg-now" style="color:${sel != null ? "var(--primary-text-color)" : nowCol}">
           ${sel != null ? html`<span class="pg-at">${fmtT(sel.t)}</span> ` : nothing}${f(headVal)}<span class="pg-u">${unit}</span></span>
         <ha-icon icon="mdi:close" @click=${closeGraph}></ha-icon>
       </div>
       <div class="pg-stats">
-        <span>min <b>${f(vmin)}</b></span><span>avg <b>${f(avg)}</b></span>
-        <span>max <b>${f(vmax)}</b></span>
-        ${b ? html`<span>band <b>${f(b.bandLo)}–${f(b.bandHi)}</b> ${unit}</span>` : nothing}
+        <span>${loc("min")} <b>${f(vmin)}</b></span><span>${loc("avg")} <b>${f(avg)}</b></span>
+        <span>${loc("max")} <b>${f(vmax)}</b></span>
+        ${b ? html`<span>${loc("band")} <b>${f(b.bandLo)}–${f(b.bandHi)}</b> ${unit}</span>` : nothing}
       </div>
       <div class="pg-plot">
         <div class="pg-yax"><span>${f(hi)}</span><span>${f(lo)}</span></div>
@@ -2039,7 +2040,7 @@ export class SpiderFarmerCard extends LitElement {
     const ls = this.deviceLevelSensor(d.suffix);
     if (!ls) return nothing;
     return this.renderParamGraph({
-      eid: ls.eid, label: `${d.label} · ${ls.word}`,
+      eid: ls.eid, label: `${loc(d.label)} · ${loc(ls.word)}`,
       onClose: () => { this.deviceGraphOpen = null; },
     });
   }
@@ -2088,7 +2089,7 @@ export class SpiderFarmerCard extends LitElement {
     const close = html`<ha-icon icon="mdi:close" @click=${() => {
       this.soilGraphOpen = null; this._graphSel = null; this._graphPin = null; }}></ha-icon>`;
     const head = (mid: unknown) => html`<div class="pg-head">
-      <span>${label} · By Probe</span>${rangeSel}<span class="pg-now">${mid}</span>${close}</div>`;
+      <span>${loc(label)} · By Probe</span>${rangeSel}<span class="pg-now">${mid}</span>${close}</div>`;
 
     // Build one series per probe + the average. Each series extends to NOW with
     // its live value so the lines reach the present (matches the param graph).
@@ -2122,10 +2123,10 @@ export class SpiderFarmerCard extends LitElement {
     });
 
     if (anyLoading && series.every((s) => !s.pts.length))
-      return html`<div class="param-graph">${head(html`…`)}<span class="pg-note">Loading history…</span></div>`;
+      return html`<div class="param-graph">${head(html`…`)}<span class="pg-note">${loc("Loading history…")}</span></div>`;
     const drawable = series.filter((s) => s.pts.length >= 2);
     if (!drawable.length)
-      return html`<div class="param-graph">${head(nothing)}<span class="pg-note">Not enough history yet at this range.</span></div>`;
+      return html`<div class="param-graph">${head(nothing)}<span class="pg-note">${loc("Not enough history yet at this range.")}</span></div>`;
 
     const allV = drawable.flatMap((s) => s.pts.map((p) => p.v));
     const vmin = Math.min(...allV), vmax = Math.max(...allV);
@@ -2196,7 +2197,7 @@ export class SpiderFarmerCard extends LitElement {
           const txt = s.off && selC == null ? "offline"
             : (Number.isFinite(sampled) ? `${f(sampled)}${unit}` : "—");
           return html`<span class="pg-leg ${s.name === "Average" ? "avg" : ""}">
-            <i style="background:${s.color}"></i>${s.name} <b>${txt}</b></span>`;
+            <i style="background:${s.color}"></i>${loc(s.name)} <b>${txt}</b></span>`;
         })}
       </div>
     </div>`;
@@ -2547,7 +2548,7 @@ export class SpiderFarmerCard extends LitElement {
     return this.get(`sensor.sf_${this.config.panel}_sensor_cleaning_phase`)?.state === "2";
   }
   private cleaningLabel(): string {
-    return this.cleaningCooling() ? "Cooling" : "Cleaning";
+    return loc(this.cleaningCooling() ? "Cooling" : "Cleaning");
   }
   private setCleaning(on: boolean) {
     this.hass?.callService("sf", "set_sensor_heating", {
@@ -2567,24 +2568,22 @@ export class SpiderFarmerCard extends LitElement {
     const icon = active && cooling ? "mdi:thermometer-chevron-down" : "mdi:broom";
     const btn = "flex:1;border-radius:8px;padding:9px;font-size:13px;font-weight:500;";
     return html`
-      <div class="section-label">Sensor Cleaning</div>
+      <div class="section-label">${loc("Sensor Cleaning")}</div>
       <div style="font-size:12px;color:var(--secondary-text-color);line-height:1.5;margin:0 0 10px;">
-        Runs a self-clean heat cycle on the air temp/humidity probe (~2&nbsp;hours). The
-        probe's device turns off during it, then a 5-minute cooldown follows — Air Temp,
-        Humidity and VPD pause until it finishes.
+        ${loc("Runs a self-clean heat cycle on the air temp/humidity probe (~2 hours). The probe's device turns off during it, then a 5-minute cooldown follows — Air Temp, Humidity and VPD pause until it finishes.")}
       </div>
       <div style="display:flex;align-items:center;gap:8px;background:var(--secondary-background-color);border-radius:8px;padding:9px 11px;margin-bottom:10px;">
         <ha-icon icon=${icon}
           style="color:${active ? acc : "var(--secondary-text-color)"}"></ha-icon>
-        <span style="font-size:13px;">${word}</span>
+        <span style="font-size:13px;">${loc(word)}</span>
         <span style="margin-left:auto;font-size:13px;font-weight:500;color:${acc};">${
-          active && rem ? rem + " left" : ""}</span>
+          active && rem ? loc("{time} left", { time: rem }) : ""}</span>
       </div>
       <div style="display:flex;gap:10px;">
         <button ?disabled=${active} @click=${() => this.setCleaning(true)}
-          style="${btn}border:none;cursor:${active ? "not-allowed" : "pointer"};opacity:${active ? ".45" : "1"};background:${acc};color:#fff;">Start cleaning</button>
+          style="${btn}border:none;cursor:${active ? "not-allowed" : "pointer"};opacity:${active ? ".45" : "1"};background:${acc};color:#fff;">${loc("Start cleaning")}</button>
         <button ?disabled=${!active} @click=${() => this.setCleaning(false)}
-          style="${btn}background:transparent;cursor:${active ? "pointer" : "not-allowed"};opacity:${active ? "1" : ".45"};color:${acc};border:1px solid ${acc};">Stop cleaning</button>
+          style="${btn}background:transparent;cursor:${active ? "pointer" : "not-allowed"};opacity:${active ? "1" : ".45"};color:${acc};border:1px solid ${acc};">${loc("Stop cleaning")}</button>
       </div>`;
   }
 
@@ -2658,15 +2657,15 @@ export class SpiderFarmerCard extends LitElement {
           ? () => this.toggleGraph(suffix)
           : undefined}>
         <div class="tile-label">
-          <span class="tl-name">${label}</span>
+          <span class="tl-name">${loc(label)}</span>
           <span class="tl-right">
-            ${cleaning ? html`<ha-icon icon="mdi:broom" title="Sensor cleaning"
+            ${cleaning ? html`<ha-icon icon="mdi:broom" title=${loc("Sensor cleaning")}
               style="--mdc-icon-size:15px;color:var(--warning-color,#ff9800)"></ha-icon>` : nothing}
             ${this.trendIcon(suffix)}
             ${expandable && metric
               ? html`<ha-icon class="tile-more soil-graph-btn"
-                  icon="mdi:chart-line" title="History graph"
-                  role="button" aria-label="History graph"
+                  icon="mdi:chart-line" title=${loc("History graph")}
+                  role="button" aria-label=${loc("History graph")}
                   style=${this.soilGraphOpen === metric ? `color:${this.accent()}` : nothing}
                   @click=${(ev: Event) => { ev.stopPropagation(); this.toggleSoilGraph(metric); }}></ha-icon>`
               : nothing}
@@ -2735,7 +2734,7 @@ export class SpiderFarmerCard extends LitElement {
       <div class="soil-pop">
         <div class="soil-pop-head sph-tc">
           <span>${this.soilMetricLabel(metric)} · By Probe</span>
-          <ha-icon icon="mdi:close" role="button" aria-label="Close"
+          <ha-icon icon="mdi:close" role="button" aria-label=${loc("Close")}
             @click=${() => (this.soilOpen = null)}></ha-icon>
         </div>
         ${rows.map(({ name, e }) => {
@@ -2749,7 +2748,7 @@ export class SpiderFarmerCard extends LitElement {
           const rc = off ? null : this.readingColor(key, e.state);
           return html`
             <div class="soil-pop-row ${off ? "offline" : ""}">
-              <span class="spn">${name}</span>
+              <span class="spn">${loc(name)}</span>
               <span class="spv" style=${rc ? `color:${rc.color}` : nothing}>${off
                 ? html`Offline`
                 : html`${val}<span class="unit">${unit}</span>`}</span>
@@ -2817,12 +2816,12 @@ export class SpiderFarmerCard extends LitElement {
       <div class="tile clickable ${open ? "active" : ""}" style=${tileStyle || nothing}
         role="button" aria-expanded=${open ? "true" : "false"}
         @click=${() => (this.soilAllOpen = !open)}>
-        <div class="tile-label">All Soil Stats
+        <div class="tile-label">${loc("All Soil Stats")}
           <ha-icon class="tile-more"
             icon=${open ? "mdi:chevron-up" : "mdi:chevron-down"}></ha-icon>
         </div>
         <ha-icon icon="mdi:sprout" style="color:${offline ? ALARM_HI : accent}"></ha-icon>
-        <div class="tile-val" style=${offline ? `color:${ALARM_HI}` : nothing}>${valText}</div>
+        <div class="tile-val" style=${offline ? `color:${ALARM_HI}` : nothing}>${loc(valText)}</div>
       </div>`;
   }
 
@@ -2832,8 +2831,8 @@ export class SpiderFarmerCard extends LitElement {
     return html`
       <div class="soil-all">
         <div class="soil-all-row soil-all-hd">
-          <span class="sa-name">Probe</span>
-          <span class="sa-v">Temp</span>
+          <span class="sa-name">${loc("Probe")}</span>
+          <span class="sa-v">${loc("Temp")}</span>
           <span class="sa-v">WC</span>
           <span class="sa-v">EC</span>
         </div>
@@ -2881,7 +2880,7 @@ export class SpiderFarmerCard extends LitElement {
     return html`
       <div class="tile clickable ${gOpen ? "active" : ""}" style=${style || nothing}
         role="button" @click=${() => this.toggleSoilTileGraph(slot)}>
-        <div class="tile-label"><span class="tl-name">${name}</span>
+        <div class="tile-label"><span class="tl-name">${loc(name)}</span>
           <span class="tl-right"><ha-icon class="tile-more"
             icon=${gOpen ? "mdi:chevron-up" : "mdi:chart-line"}></ha-icon></span>
         </div>
@@ -2889,9 +2888,9 @@ export class SpiderFarmerCard extends LitElement {
           ${SpiderFarmerCard.SOIL_METRICS.map((m) => {
             const c = this.soilCell(slot, m);
             return html`<div class="sr">
-              <span class="k">${m.short}</span>
+              <span class="k">${loc(m.short)}</span>
               <span class="v" style=${off ? `color:${ALARM_HI}` : (c.color ? `color:${c.color}` : nothing)}>${
-                c.off ? "Offline" : html`${c.val}<span class="unit">${c.unit}</span>`}</span>
+                c.off ? loc("Offline") : html`${c.val}<span class="unit">${c.unit}</span>`}</span>
             </div>`;
           })}
         </div>
@@ -2904,10 +2903,10 @@ export class SpiderFarmerCard extends LitElement {
     const meta = SpiderFarmerCard.SOIL_METRICS.find((x) => x.key === m)!;
     return this.renderParamGraph({
       eid: `sensor.sf_${this.config.panel}_${slot}_${m}`,
-      label: `${this.probeNameForSlot(slot)} · ${meta.short}`,
+      label: `${this.probeNameForSlot(slot)} · ${loc(meta.short)}`,
       onClose: () => { this.soilTileGraph = null; },
       picker: {
-        options: SpiderFarmerCard.SOIL_METRICS.map((x) => ({ key: x.key, label: x.short })),
+        options: SpiderFarmerCard.SOIL_METRICS.map((x) => ({ key: x.key, label: loc(x.short) })),
         current: m,
         onPick: (k) => {
           this.soilTileMetric = k as "temperature" | "moisture" | "ec";
@@ -2932,13 +2931,13 @@ export class SpiderFarmerCard extends LitElement {
     return html`
       <div class="tile clickable ${gOpen ? "active" : ""}" style=${style || nothing}
         role="button" @click=${() => this.toggleSoilTileGraph(key)}>
-        <div class="tile-label"><span class="tl-name">${this.probeNameForSlot(slot)} ${m.short}</span>
+        <div class="tile-label"><span class="tl-name">${this.probeNameForSlot(slot)} ${loc(m.short)}</span>
           <span class="tl-right"><ha-icon class="tile-more"
             icon=${gOpen ? "mdi:chevron-up" : "mdi:chart-line"}></ha-icon></span>
         </div>
         <ha-icon icon="${m.icon}" style="color:${c.off ? ALARM_HI : accent}"></ha-icon>
         <div class="tile-val" style=${valStyle || nothing}>${
-          c.off ? "Offline" : html`${c.val}<span class="unit">${c.unit}</span>`}</div>
+          c.off ? loc("Offline") : html`${c.val}<span class="unit">${c.unit}</span>`}</div>
       </div>`;
   }
   private soilSplitPop(slot: string, metricKey: string) {
@@ -2946,7 +2945,7 @@ export class SpiderFarmerCard extends LitElement {
     const meta = SpiderFarmerCard.SOIL_METRICS.find((x) => x.key === metricKey)!;
     return this.renderParamGraph({
       eid: `sensor.sf_${this.config.panel}_${slot}_${metricKey}`,
-      label: `${this.probeNameForSlot(slot)} · ${meta.short}`,
+      label: `${this.probeNameForSlot(slot)} · ${loc(meta.short)}`,
       onClose: () => { this.soilTileGraph = null; },
     });
   }
@@ -3193,10 +3192,10 @@ export class SpiderFarmerCard extends LitElement {
     const pct = Math.max(0, Math.min(100, (cd.remaining / this.cooldownSecs) * 100));
     const warn = "var(--warning-color,#ff9800)";
     return html`
-      <div class="cd-pill ${cls}" title="Compressor lockout after turning off — it can't restart until this reaches 0:00">
+      <div class="cd-pill ${cls}" title=${loc("Compressor lockout after turning off — it can't restart until this reaches 0:00")}>
         <span class="cd-txt" style="color:${warn}">
           <ha-icon icon="mdi:timer-sand" style="--mdc-icon-size:14px"></ha-icon>
-          ${cd.waiting ? "Starts in" : "Cooldown"} ${this.fmtMMSS(cd.remaining)}
+          ${cd.waiting ? loc("Starts in") : loc("Cooldown")} ${this.fmtMMSS(cd.remaining)}
         </span>
         <div class="cd-bar"><div class="cd-fill" style="width:${pct.toFixed(1)}%;background:${warn}"></div></div>
       </div>`;
@@ -3279,11 +3278,11 @@ export class SpiderFarmerCard extends LitElement {
         style=${tileStyle || nothing}
         role="button" aria-expanded=${open ? "true" : "false"}
         @click=${() => this.toggleDevice(open ? null : key)}>
-        <div class="tile-label"><span class="tl-name">${d.label}</span>
+        <div class="tile-label"><span class="tl-name">${loc(d.label)}</span>
           <span class="tl-right">
             ${levelS ? html`<ha-icon class="tile-more device-graph-btn"
-                icon="mdi:chart-line" title="Level history"
-                role="button" aria-label="Level history"
+                icon="mdi:chart-line" title=${loc("Level history")}
+                role="button" aria-label=${loc("Level history")}
                 style=${dgOpen ? `color:${accent}` : nothing}
                 @click=${(ev: Event) => { ev.stopPropagation(); this.toggleDeviceGraph(key); }}></ha-icon>` : nothing}
             <ha-icon class="tile-more"
@@ -3293,14 +3292,14 @@ export class SpiderFarmerCard extends LitElement {
         ${this.tileSummary && !attn ? this.deviceSummaryRow(d) : nothing}
         <ha-icon icon=${d.icon} style="color:${on || attn ? fg : "var(--secondary-text-color)"}"></ha-icon>
         <div class="tile-val" style=${attn ? `color:${ALARM_HI}` : (on ? `color:${fg}` : "")}>
-          ${offline ? "Offline" : (fault ?? (on ? (optimisticOn ? "On" : this.deviceStateText(d, e)) : "Off"))}
+          ${offline ? loc("Offline") : (fault ?? (on ? (optimisticOn ? loc("On") : this.deviceStateText(d, e)) : loc("Off")))}
         </div>
         ${!on && !attn ? this.renderCooldownPill(d.suffix) : nothing}
         ${this.lightDLI(d)}
         ${this.fanBadge(d)}
         ${!on && !attn && this.dlqHas(d.suffix) ? html`<div class="tile-qta" style="color:${accent}"
-          title="Quick-toggle profile saved — quick-on restores this device's mode">
-          <div class="l1">Quick Toggle</div><div class="l2">Active</div></div>` : nothing}
+          title=${loc("Quick-toggle profile saved — quick-on restores this device's mode")}>
+          <div class="l1">${loc("Quick Toggle")}</div><div class="l2">${loc("Active")}</div></div>` : nothing}
       </div>`;
   }
   // The light's active on-schedule as [start, stop] "HH:MM". PPFD mode prefers the
@@ -3403,7 +3402,7 @@ export class SpiderFarmerCard extends LitElement {
     const lines = this.deviceSummaryLines(d);
     return lines.length
       ? html`<div class="tile-summary">
-          ${lines.map((l) => html`<span>${l}</span>`)}
+          ${lines.map((l) => html`<span>${loc(l)}</span>`)}
         </div>`
       : nothing;
   }
@@ -3457,7 +3456,7 @@ export class SpiderFarmerCard extends LitElement {
         if (a && b && (a !== "00:00" || b !== "00:00")) {
           lines.push(`${this.fmtClock(a)}–${this.fmtClock(b)}`);
           const d = this.hrsText(a, b);   // on-duration line, e.g. "LD - 18:00hrs"
-          if (d) lines.push(`LD - ${d}`);
+          if (d) lines.push(loc("LD - {duration}", { duration: d }));
         }
       }
       return lines;
@@ -3592,8 +3591,8 @@ export class SpiderFarmerCard extends LitElement {
     return html`
       <div class="soil-pop" style="--sf-accent:${this.accent()}">
         <div class="soil-pop-head">
-          <span>${dev.label}</span>
-          <ha-icon icon="mdi:close" role="button" aria-label="Close"
+          <span>${loc(dev.label)}</span>
+          <ha-icon icon="mdi:close" role="button" aria-label=${loc("Close")}
             @click=${() => this.toggleDevice(null)}></ha-icon>
         </div>
         ${body}
@@ -3618,12 +3617,12 @@ export class SpiderFarmerCard extends LitElement {
     const accent = this.accent();
     return html`
       <div class="dev-row ${k in this.draft ? "staged" : ""}">
-        <span class="dev-lbl">Power</span>
+        <span class="dev-lbl">${loc("Power")}</span>
         <span class="dev-spacer"></span>
         <button class="toggle ${cur ? "on" : ""}"
           style=${cur ? `background:${accent}` : ""}
           @click=${() => this.stage(k, cur ? "off" : "on")}
-          aria-label="Toggle ${label}"></button>
+          aria-label=${loc("Toggle {name}", { name: loc(label) })}></button>
       </div>`;
   }
   // Apply/Discard bar for a device pop. Commits staged module settings via
@@ -3743,12 +3742,12 @@ export class SpiderFarmerCard extends LitElement {
         })();
     return html`
       <div class="dev-row ${k in this.draft ? "staged" : ""}">
-        <span class="dev-lbl">Speed</span>
+        <span class="dev-lbl">${loc("Speed")}</span>
         <span class="ctl-input">
           <select .value=${live(String((options.find((o) => o.sel) || options[0] || { value: v }).value))} @change=${(ev: Event) =>
             this.stage(k, (ev.target as HTMLSelectElement).value)}>
             ${options.map((o) => html`<option value=${o.value}
-              ?selected=${o.sel}>${o.label}</option>`)}
+              ?selected=${o.sel}>${loc(o.label)}</option>`)}
           </select>
         </span>
       </div>`;
@@ -3763,7 +3762,7 @@ export class SpiderFarmerCard extends LitElement {
     for (let p = 11; p <= 100; p += 1) opts.push(p);   // 1% steps, 11–100%
     return html`
       <div class="dev-row ${k in this.draft ? "staged" : ""}">
-        <span class="dev-lbl">Brightness</span>
+        <span class="dev-lbl">${loc("Brightness")}</span>
         <span class="ctl-input">
           <select .value=${live(String(v))} @change=${(ev: Event) =>
             this.stage(k, (ev.target as HTMLSelectElement).value)}>
@@ -4008,7 +4007,7 @@ export class SpiderFarmerCard extends LitElement {
   }
   private infoRow(label: string, value: string) {
     return html`<div class="dev-row">
-      <span class="dev-lbl">${label}</span><span class="dev-spacer"></span>
+      <span class="dev-lbl">${loc(label)}</span><span class="dev-spacer"></span>
       <span class="dev-val">${value}</span>
     </div>`;
   }
@@ -4020,7 +4019,7 @@ export class SpiderFarmerCard extends LitElement {
     const control = id.split(".")[0] === "switch"
       ? this.stagedSwitch(id) : this.stagedInput(id);
     return html`<div class="dev-row ${id in this.draft ? "staged" : ""}">
-      <span class="dev-lbl">${label}</span>
+      <span class="dev-lbl">${loc(label)}</span>
       <div class="ctl-input">${control}</div>
     </div>`;
   }
@@ -4121,10 +4120,10 @@ export class SpiderFarmerCard extends LitElement {
       rows.push(this.stagedPeriodRow(startId, stopId, "Lighting period"));
       // Target PPFD (dropdown) with the current PPFD shown alongside it.
       rows.push(html`<div class="dev-row ${targetId in this.draft ? "staged" : ""}">
-        <span class="dev-lbl">Target PPFD</span>
+        <span class="dev-lbl">${loc("Target PPFD")}</span>
         <div class="ctl-input">${this.optSelect(targetId,
           this.numOpts(20, 2000, 10, (n) => `${n} µmol`))}</div>
-        <span class="dev-val" style="margin-left:8px" title="current">${ppfdTxt}</span>
+        <span class="dev-val" style="margin-left:8px" title=${loc("current")}>${ppfdTxt}</span>
       </div>`);
       rows.push(this.optSelectRow("Dimming Range Min", minId,
         this.numOpts(11, 100, 1, (n) => `${n}%`)));
@@ -4369,7 +4368,7 @@ export class SpiderFarmerCard extends LitElement {
     if (ppfd) {
       const v = Number(ppfd.state);
       return Number.isFinite(v) && v > LEAK_PPFD
-        ? { on: true, text: `Light detected · ${Math.round(v)} µmol` }
+        ? { on: true, text: loc("Light detected · {ppfd} µmol", { ppfd: Math.round(v) }) }
         : { on: false, text: "" };
     }
     const ls = this.get(`binary_sensor.sf_${p}_daytime_light_sensor`);
@@ -4390,13 +4389,13 @@ export class SpiderFarmerCard extends LitElement {
             isDay ? "rgba(224,168,58,0.14)" : "rgba(143,155,212,0.16)"}">
           <ha-icon icon=${isDay
             ? "mdi:white-balance-sunny" : "mdi:weather-night"}></ha-icon>${
-          isDay ? "Day Cycle" : "Night Cycle"}</span>`;
+          isDay ? loc("Day Cycle") : loc("Night Cycle")}</span>`;
     return html`
       <div class="params-head">
-        <span class="ph-label">Parameters</span>
+        <span class="ph-label">${loc("Parameters")}</span>
         <span class="ph-mid">${leak.on
           ? html`<span class="leak-badge">
-              <ha-icon icon="mdi:alert"></ha-icon>${leak.text}</span>`
+              <ha-icon icon="mdi:alert"></ha-icon>${loc(leak.text)}</span>`
           : nothing}</span>
         ${badge}
       </div>`;
@@ -4426,7 +4425,7 @@ export class SpiderFarmerCard extends LitElement {
         role="button" aria-expanded=${open ? "true" : "false"}
         @click=${() => this.toggleGraph("power")}>
         <div class="tile-label">
-          <span class="tl-name">Power</span>
+          <span class="tl-name">${loc("Power")}</span>
           <span class="tl-right">
             <ha-icon class="tile-more"
               icon=${open ? "mdi:chevron-up" : "mdi:chart-line"}></ha-icon>
@@ -4443,7 +4442,7 @@ export class SpiderFarmerCard extends LitElement {
     if (!this.hasEnergyTile()) return nothing;   // hidden by Settings / no power entity
     const open = this.paramOpen === "power";
     return html`
-      <div class="section-label">Energy Usage</div>
+      <div class="section-label">${loc("Energy Usage")}</div>
       <div class="grid">${this.energyTile()}</div>
       ${open ? this.renderParamGraph() : nothing}`;
   }
@@ -4486,11 +4485,11 @@ export class SpiderFarmerCard extends LitElement {
     this.unifiedNatural(nat).forEach(add);
     const hidden = all.filter((t) => hid[t.id]);
     return html`<div class="hidden-tray">
-      <div class="section-label">Hidden tiles</div>
+      <div class="section-label">${loc("Hidden tiles")}</div>
       ${hidden.length
         ? html`<div class="grid">${hidden.map((t) => html`
             <div class="rwrap rhidden">${this.hideBtn(t.id, true)}${t.tpl}</div>`)}</div>`
-        : html`<div class="ht-note">Tap the eye icon on any tile above to hide it here.</div>`}
+        : html`<div class="ht-note">${loc("Tap the eye icon on any tile above to hide it here.")}</div>`}
     </div>`;
   }
 
@@ -4502,9 +4501,9 @@ export class SpiderFarmerCard extends LitElement {
     return html`<div class="reorder-bar">
       <div class="reorder-note">
         <ha-icon icon="mdi:drag-variant"></ha-icon>
-        <span>Drag to rearrange; tap the eye to hide a tile. Changes save on Apply.</span>
+        <span>${loc("Drag to rearrange; tap the eye to hide a tile. Changes save on Apply.")}</span>
       </div>
-      <button class="reorder-reset" @click=${() => this.resetOrder()}>Reset order</button>
+      <button class="reorder-reset" @click=${() => this.resetOrder()}>${loc("Reset order")}</button>
       ${commitBar(accent, this.reorderDirty(),
         () => this.exitReorder(true), () => this.exitReorder(false), "apply-bar")}
     </div>`;
@@ -4544,19 +4543,19 @@ export class SpiderFarmerCard extends LitElement {
             ${this.renderTileGrid("params", params)}`
         : nothing}
       ${this.hasEnergyTile() && !this.isHidden("energy")
-        ? html`<div class="section-label">Energy Usage</div>
+        ? html`<div class="section-label">${loc("Energy Usage")}</div>
             <div class="grid">${ro
               ? html`<div class="rwrap">${this.hideBtn("energy", false)}${this.energyTile()}</div>`
               : this.energyTile()}</div>
             ${this.paramOpen === "power" && !ro ? this.renderParamGraph() : nothing}`
         : nothing}
       ${devices.length
-        ? html`<div class="section-label">Devices</div>
+        ? html`<div class="section-label">${loc("Devices")}</div>
             ${ro ? nothing : this.renderDeviceQuickRow()}
             ${this.renderTileGrid("devices", devices)}`
         : nothing}
       ${(this.outletsOnOverview || this.outletQuickOverview) && this.hasOutlets()
-        ? html`<div class="section-label">Outlets</div>
+        ? html`<div class="section-label">${loc("Outlets")}</div>
             ${this.outletQuickOverview && !ro
               ? this.outletSlots().map((sl) => this.renderQuickRow(sl)) : nothing}
             ${this.outletsOnOverview ? this.renderTileGrid("outlets", outlets) : nothing}`
@@ -4618,7 +4617,7 @@ export class SpiderFarmerCard extends LitElement {
       const options: string[] = e.attributes.options ?? [];
       // Display label may be prettified (e.g. title-case run modes) while the
       // option VALUE stays the entity's own string so the command is unchanged.
-      const optLabel = (o: string) => RUN_MODE_LABELS[o.toLowerCase()] ?? o;
+      const optLabel = (o: string) => loc(RUN_MODE_LABELS[o.toLowerCase()] ?? o);
       return html`<select @change=${(ev: Event) =>
         this.stage(id, (ev.target as HTMLSelectElement).value)}>
         ${options.map((o) => html`<option value=${o} .selected=${o === v}>${optLabel(o)}</option>`)}
@@ -4708,7 +4707,7 @@ export class SpiderFarmerCard extends LitElement {
     };
     return html`<select @change=${onChange}>
       ${options.map((o) => html`
-        <option value=${o.value} .selected=${String(o.value) === String(sel)}>${o.label}</option>`)}
+        <option value=${o.value} .selected=${String(o.value) === String(sel)}>${loc(o.label)}</option>`)}
     </select>`;
   }
   private optSelectRow(
@@ -4720,7 +4719,7 @@ export class SpiderFarmerCard extends LitElement {
     if (!this.get(id)) return nothing;
     const cls = !live && id in this.draft ? "dev-row staged" : "dev-row";
     return html`<div class=${cls}>
-      <span class="dev-lbl">${label}</span>
+      <span class="dev-lbl">${loc(label)}</span>
       <div class="ctl-input">${this.optSelect(id, options, live)}</div>
     </div>`;
   }
@@ -4728,7 +4727,7 @@ export class SpiderFarmerCard extends LitElement {
     if (!this.get(id)) return nothing;
     const cls = id in this.draft ? "dev-row staged" : "dev-row";
     return html`<div class=${cls}>
-      <span class="dev-lbl">${label}</span>
+      <span class="dev-lbl">${loc(label)}</span>
       <div class="ctl-input">${this.stagedInput(id, kind)}</div>
     </div>`;
   }
@@ -4748,7 +4747,7 @@ export class SpiderFarmerCard extends LitElement {
     if (!se && !ee) return nothing;
     const dirty = startId in this.draft || stopId in this.draft;
     return html`<div class="dev-row period-row ${dirty ? "staged" : ""}">
-      <span class="dev-lbl">${label}</span>
+      <span class="dev-lbl">${loc(label)}</span>
       <div class="period-times">
         ${se ? this.stagedInput(startId, "time") : nothing}
         <span class="dash">–</span>
@@ -4772,7 +4771,7 @@ export class SpiderFarmerCard extends LitElement {
     const options: string[] = optionsOverride ?? e.attributes.options ?? [];
     const cur = this.modeOf(id, e.state);
     return html`<div class="dev-row ${id in this.draft ? "staged" : ""}">
-      <span class="dev-lbl">${label}</span>
+      <span class="dev-lbl">${loc(label)}</span>
       <div class="ctl-input">
         <select @change=${(ev: Event) => {
           const val = (ev.target as HTMLSelectElement).value;
@@ -4785,7 +4784,7 @@ export class SpiderFarmerCard extends LitElement {
             : { [id]: val };
         }}>
           ${options.map((o) => html`
-            <option value=${o} .selected=${o === cur}>${o}</option>`)}
+            <option value=${o} .selected=${o === cur}>${loc(o)}</option>`)}
         </select>
       </div>
     </div>`;
@@ -4837,7 +4836,7 @@ export class SpiderFarmerCard extends LitElement {
       : (this.outPend(id)?.on ?? this.get(id)?.state === "on");
     return html`<button class="toggle ${on ? "on" : ""}"
       style=${on ? `background:${this.accent()}` : ""}
-      @click=${() => this.stage(id, on ? "off" : "on")} aria-label="Toggle"></button>`;
+      @click=${() => this.stage(id, on ? "off" : "on")} aria-label=${loc("Toggle")}></button>`;
   }
   // A staged control in the ".ctl" (label + input) layout, picking the right
   // input for the entity's domain (switch toggle, else number/select/text).
@@ -4850,7 +4849,7 @@ export class SpiderFarmerCard extends LitElement {
     const staged = id in this.draft;
     return html`
       <div class="ctl ${staged ? "staged" : ""}">
-        <div class="ctl-label">${lbl}</div>
+        <div class="ctl-label">${loc(lbl)}</div>
         <div class="ctl-input">${input}</div>
       </div>`;
   }
@@ -5002,7 +5001,7 @@ export class SpiderFarmerCard extends LitElement {
     if (!this.get(id)) return nothing;
     return html`
       <div class="ctl">
-        <div class="ctl-label">${label}</div>
+        <div class="ctl-label">${loc(label)}</div>
         <div class="ctl-input">${this.rangeSelect(id)}</div>
       </div>`;
   }
@@ -5025,7 +5024,7 @@ export class SpiderFarmerCard extends LitElement {
 
   private renderEnv() {
     if (!this.hasEnv())
-      return html`<div class="cali-empty">No environment targets reported for this device yet.</div>`;
+      return html`<div class="cali-empty">${loc("No environment targets reported for this device yet.")}</div>`;
     // Devices with no grow-plan capability keep the plain Environment view.
     if (!this.hasPlan()) return this.renderEnvBody(true);
     const plan = this.planInfo();
@@ -5038,7 +5037,7 @@ export class SpiderFarmerCard extends LitElement {
     const seg = (id: "env" | "plan", label: string) => html`
       <button class="env-seg ${sub === id ? "active" : ""}"
         style=${sub === id ? `color:${acc};border-color:${acc}` : ""}
-        @click=${() => (this.envSubView = id)}>${label}</button>`;
+        @click=${() => (this.envSubView = id)}>${loc(label)}</button>`;
     return html`
       <div class="env-seg-row">
         ${seg("env", "Environment")}
@@ -5053,7 +5052,7 @@ export class SpiderFarmerCard extends LitElement {
     const dayEnd = `text.sf_${p}_env_day_end`;
     const hasCycle = this.get(dayStart) || this.get(dayEnd);
     return html`
-      ${showLabel ? html`<div class="section-label">Environment</div>` : nothing}
+      ${showLabel ? html`<div class="section-label">${loc("Environment")}</div>` : nothing}
       ${hasCycle
         ? html`<div class="env-cycle">
             ${this.stagedCtl(dayStart, "Day Cycle Start", "time")}
@@ -5066,7 +5065,7 @@ export class SpiderFarmerCard extends LitElement {
           <div class="env-row">
             <div class="env-row-head">
               <ha-icon icon=${icon} style="color:${this.accent()}"></ha-icon>
-              <span>${label}</span>
+              <span>${loc(label)}</span>
             </div>
             <div class="env-grid">
               ${this.envControl(`number.sf_${p}_${night}`, "Night")}
@@ -5101,14 +5100,14 @@ export class SpiderFarmerCard extends LitElement {
       const curIdx = Math.max(0, stages.findIndex((s: any) => s.stageId === curId));
       const idxs = this.planShowAll ? stages.map((_: any, i: number) => i) : [curIdx];
       return html`
-        <div class="section-label">Stages</div>
+        <div class="section-label">${loc("Stages")}</div>
         ${idxs.map((i: number) => this.renderPlanStage(stages[i], curId, i))}
         ${stages.length > 1 ? html`<button class="plan-editbtn" style="margin:2px 0 6px"
           @click=${() => { this.planShowAll = !this.planShowAll; }}>
-          ${this.planShowAll ? "Show less" : `Show all ${stages.length} stages`}</button>` : nothing}
+          ${this.planShowAll ? loc("Show less") : loc("Show all {n} stages", { n: stages.length })}</button>` : nothing}
         <div style="display:flex;gap:10px">
-          <button class="plan-btn" style="flex:1" @click=${() => this.addPlanStage()}>+ Add stage</button>
-          <button class="plan-btn" style="flex:1" @click=${() => { this.planTplOpen = "append"; }}>+ From template</button>
+          <button class="plan-btn" style="flex:1" @click=${() => this.addPlanStage()}>${loc("+ Add stage")}</button>
+          <button class="plan-btn" style="flex:1" @click=${() => { this.planTplOpen = "append"; }}>${loc("+ From template")}</button>
         </div>`;
     };
     const startStop = (label: string, running: boolean) => {
@@ -5121,7 +5120,7 @@ export class SpiderFarmerCard extends LitElement {
         return html`
           <button class="plan-btn ${running ? "stop" : "start"}" disabled
             style="opacity:.7;cursor:default${running ? "" : `;background:${acc};border-color:${acc};color:#0c1f06`}">
-            ${this._planPending === "start" ? "Starting — Please Wait…" : "Stopping — Please Wait…"}
+            ${this._planPending === "start" ? loc("Starting — Please Wait…") : loc("Stopping — Please Wait…")}
           </button>`;
       }
       return html`
@@ -5142,7 +5141,7 @@ export class SpiderFarmerCard extends LitElement {
             // Plan" mode; stopping returns them to Manual. (v0.21.38)
             this.setPlanLights(!running);
           }}>
-          ${label}</button>`;
+          ${loc(label)}</button>`;
     };
 
     if (!plan.active) {
@@ -5150,23 +5149,22 @@ export class SpiderFarmerCard extends LitElement {
         return html`
           <div class="plan-empty">
             <ha-icon icon="mdi:sprout-outline"></ha-icon>
-            <div class="plan-empty-title">No planting plan running</div>
+            <div class="plan-empty-title">${loc("No planting plan running")}</div>
             <div class="plan-empty-sub">
-              Create a plan here, or in the Spider Farmer app. While a plan runs
-              the manual Environment targets pause.
+              ${loc("Create a plan here, or in the Spider Farmer app. While a plan runs the manual Environment targets pause.")}
             </div>
             <div style="display:flex;gap:10px;max-width:340px;margin:14px auto 0">
               <button class="plan-btn" style="flex:1;background:${acc};border-color:${acc};color:#0c1f06"
-                @click=${() => { this.planTplOpen = "new"; }}>From template</button>
+                @click=${() => { this.planTplOpen = "new"; }}>${loc("From template")}</button>
               <button class="plan-btn" style="flex:1"
-                @click=${() => this.startPlanEdit(true)}>Custom</button>
+                @click=${() => this.startPlanEdit(true)}>${loc("Custom")}</button>
             </div>
           </div>`;
       return html`
         <div class="plan-banner">
           <ha-icon icon="mdi:sprout-outline" style="color:var(--secondary-text-color)"></ha-icon>
           <div style="flex:1">
-            <div class="plan-banner-title">Planting plan stopped</div>
+            <div class="plan-banner-title">${loc("Planting plan stopped")}</div>
             <div class="plan-banner-sub">
               ${stages.length} stage${stages.length === 1 ? "" : "s"} · running the manual Environment targets
             </div>
@@ -5187,10 +5185,10 @@ export class SpiderFarmerCard extends LitElement {
       <div class="plan-banner">
         <ha-icon icon="mdi:sprout" style="color:${acc}"></ha-icon>
         <div style="flex:1">
-          <div class="plan-banner-title">${(cur && cur.label) || "Planting plan active"}</div>
+          <div class="plan-banner-title">${(cur && cur.label) || loc("Planting plan active")}</div>
           <div class="plan-banner-sub">
-            ${days.length ? days.join(" · ") + " days"
-              : `${stages.length} stage${stages.length === 1 ? "" : "s"} · managed by the controller`}
+            ${days.length ? loc("{days} days", { days: days.join(" · ") })
+              : loc(stages.length === 1 ? "{n} stage · managed by the controller" : "{n} stages · managed by the controller", { n: stages.length })}
           </div>
         </div>
         ${hasBar ? html`<div class="plan-pct" style="color:${acc}">${Math.round(pct)}%</div>` : nothing}
@@ -5203,9 +5201,7 @@ export class SpiderFarmerCard extends LitElement {
       ${canToggle ? html`<div class="plan-actions">${startStop("Stop Plan", true)}</div>` : nothing}
       <div class="plan-note">
         <ha-icon icon="mdi:information-outline"></ha-icon>
-        <span>While a plan is active the controller sets temperature, humidity
-        and CO₂ from the plan schedule. Switch to Environment to see the manual
-        targets used when no plan runs.</span>
+        <span>${loc("While a plan is active the controller sets temperature, humidity and CO₂ from the plan schedule. Switch to Environment to see the manual targets used when no plan runs.")}</span>
       </div>`;
   }
 
@@ -5256,7 +5252,7 @@ export class SpiderFarmerCard extends LitElement {
       ?? options.find((o) => o.value === String(cur))?.value ?? String(cur ?? "");
     return html`<select class="pe-sel" @change=${(e: any) => onChange(e.target.value)}>
       ${options.map((o) => html`<option value=${o.value}
-        .selected=${String(o.value) === String(match)}>${o.label}</option>`)}
+        .selected=${String(o.value) === String(match)}>${loc(o.label)}</option>`)}
     </select>`;
   }
   // Dropdown options from a device number entity's own min/max/step (so the plan
@@ -5314,7 +5310,7 @@ export class SpiderFarmerCard extends LitElement {
     const a = /^(\d{1,2}):(\d{2})/.exec(start || ""), b = /^(\d{1,2}):(\d{2})/.exec(stop || "");
     if (!a || !b) return "";
     const mins = ((+b[1] * 60 + +b[2]) - (+a[1] * 60 + +a[2]) + 1440) % 1440;
-    return `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, "0")}hrs`;
+    return loc("{time}hrs", { time: `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, "0")}` });
   }
 
   private startPlanEdit(fresh = false) {
@@ -5536,7 +5532,7 @@ export class SpiderFarmerCard extends LitElement {
     this._myTpl = arr;                                   // instant, same session
     this.persistColorOption("plan_templates", JSON.stringify(arr));  // durable + cross-device
     this.planTplName = "";
-    this._tplMsg = `“${nm}” saved to My templates`;
+    this._tplMsg = loc("“{name}” saved to My templates", { name: nm });
     clearTimeout(this._tplMsgT);
     this._tplMsgT = setTimeout(() => { this._tplMsg = ""; }, 3000);
   }
@@ -5571,29 +5567,29 @@ export class SpiderFarmerCard extends LitElement {
     const row = (name: string, sub: string, use: () => void, del?: () => void) => html`
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--divider-color,#2a2f31)">
         <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-          <span style="font-weight:600">${name}</span>
+          <span style="font-weight:600">${loc(name)}</span>
           <span style="font-size:12px;color:var(--secondary-text-color)">${sub}</span>
         </div>
         <span style="display:flex;gap:6px;flex:none">
-          <button class="plan-editbtn" style="border-color:${acc};color:${acc}" @click=${use}>Use</button>
-          ${del ? html`<button class="plan-editbtn" @click=${del}>Delete</button>` : nothing}
+          <button class="plan-editbtn" style="border-color:${acc};color:${acc}" @click=${use}>${loc("Use")}</button>
+          ${del ? html`<button class="plan-editbtn" @click=${del}>${loc("Delete")}</button>` : nothing}
         </span>
       </div>`;
     return html`
-      <div class="section-label">${append ? "Add a stage from a template" : "New plan from a template"}</div>
-      <div style="font-size:12px;color:var(--secondary-text-color);margin:2px 0 4px">System templates</div>
+      <div class="section-label">${append ? loc("Add a stage from a template") : loc("New plan from a template")}</div>
+      <div style="font-size:12px;color:var(--secondary-text-color);margin:2px 0 4px">${loc("System templates")}</div>
       ${SpiderFarmerCard.PLAN_PRESETS.map((p) => row(
-        `${p.emoji} ${p.label}`,
-        p.key === "dry" ? "lights off · dark · set dates on apply"
+        `${p.emoji} ${loc(p.label)}`,
+        p.key === "dry" ? loc("lights off · dark · set dates on apply")
           : `${c(p.tC)}/${c(p.tCn)}${tU} · ${p.hd}/${p.hn}% RH · PPFD ${p.ppfd}`,
         () => this.usePreset(p, append)))}
-      <div style="font-size:12px;color:var(--secondary-text-color);margin:12px 0 4px">My templates</div>
+      <div style="font-size:12px;color:var(--secondary-text-color);margin:12px 0 4px">${loc("My templates")}</div>
       ${my.length
-        ? my.map((t) => row(`💾 ${t.name}`, `${t.stages.length} stage${t.stages.length === 1 ? "" : "s"}`,
+        ? my.map((t) => row(`💾 ${t.name}`, loc(t.stages.length === 1 ? "{n} stage" : "{n} stages", { n: t.stages.length }),
             () => this.useMyTemplate(t.name, append), () => this.deleteMyTemplate(t.name)))
         : html`<div style="font-size:12px;color:var(--secondary-text-color);padding:6px 0">
-            No saved templates yet — build or edit a plan, then “Save as template”.</div>`}
-      <button class="plan-btn" style="margin-top:12px" @click=${() => { this.planTplOpen = null; }}>Cancel</button>`;
+            ${loc("No saved templates yet — build or edit a plan, then “Save as template”.")}</div>`}
+      <button class="plan-btn" style="margin-top:12px" @click=${() => { this.planTplOpen = null; }}>${loc("Cancel")}</button>`;
   }
 
   private renderStageLight(i: number, which: "light1" | "light2") {
@@ -5607,7 +5603,7 @@ export class SpiderFarmerCard extends LitElement {
       this.peSelect(L[key], opts, (v) => set(key, v));
     const modeBtn = (m: string) => html`<button class="pe-modebtn ${L.mode === m ? "on" : ""}"
       style=${L.mode === m ? `border-color:${acc};color:${acc}` : ""}
-      @click=${() => set("mode", m)}>${m}</button>`;
+      @click=${() => set("mode", m)}>${loc(m)}</button>`;
     const isPPFD = L.mode === "PPFD";
     const startK = isPPFD ? "ppfd_start" : "ts_start";
     const stopK = isPPFD ? "ppfd_stop" : "ts_stop";
@@ -5616,19 +5612,19 @@ export class SpiderFarmerCard extends LitElement {
     const ppfd = this.numOpts(20, 2000, 10, (n) => `${n} µmol`);
     const fade = this.offOpts(1, 60, 1, (n) => `${n} min`);
     const cell = (label: string, ctl: any) => html`<label class="pe-cell">
-      <span>${label}</span>${ctl}</label>`;
+      <span>${loc(label)}</span>${ctl}</label>`;
     const rowN = (cells: any[]) => html`<div class="pe-cellrow">${cells}</div>`;
     const gd = cell("Go dark", sel("go_dark", this.threshOpts()));
     const to = cell("Turn off", sel("turn_off", this.threshOpts()));
     return html`
       <div class="pe-light">
-        <div class="pe-light-head"><span>${which === "light1" ? "Light 1" : "Light 2"}</span>
+        <div class="pe-light-head"><span>${which === "light1" ? loc("Light 1") : loc("Light 2")}</span>
           <span class="pe-modes">${modeBtn("Time Slot")}${modeBtn("PPFD")}</span></div>
         <div class="pe-timesrow">
           <label>On${time(startK)}</label>
           <label>Off${time(stopK)}</label>
         </div>
-        ${dur ? html`<div class="pe-durrow">Light Duration · ${dur}</div>` : nothing}
+        ${dur ? html`<div class="pe-durrow">${loc("Light Duration · {duration}", { duration: dur })}</div>` : nothing}
         ${isPPFD ? html`
           ${rowN([cell("Target", sel("ppfd_target", ppfd)), cell("Dim min", sel("ppfd_min", bri)),
             cell("Dim max", sel("ppfd_max", bri)), cell("Sunrise/set", sel("ppfd_fade", fade))])}
@@ -5648,7 +5644,7 @@ export class SpiderFarmerCard extends LitElement {
     const date = (key: string) => html`<input type="date" class="pe-in"
       .value=${String(s[key] ?? "")} @change=${(e: any) => set(key, e.target.value)}>`;
     const trip = (label: string, base: string, valOpts: any, dzOpts: any) => html`
-      <div class="pe-row"><span class="pe-lbl">${label}</span>
+      <div class="pe-row"><span class="pe-lbl">${loc(label)}</span>
         <span class="pe-cells">
           ${this.peSelect(s[base + "_night"], valOpts, (v) => set(base + "_night", v))}
           ${this.peSelect(s[base + "_day"], valOpts, (v) => set(base + "_day", v))}
@@ -5657,9 +5653,9 @@ export class SpiderFarmerCard extends LitElement {
     return html`
       ${this.planDelArm
         ? html`<div class="pe-head pe-delrow">
-            <span class="pe-delq">Delete this stage?</span>
-            <button class="pe-del-yes" @click=${() => { this.planDelArm = false; this.removePlanStage(i); }}>Delete</button>
-            <button class="pe-del-no" @click=${() => { this.planDelArm = false; }}>Cancel</button>
+            <span class="pe-delq">${loc("Delete this stage?")}</span>
+            <button class="pe-del-yes" @click=${() => { this.planDelArm = false; this.removePlanStage(i); }}>${loc("Delete")}</button>
+            <button class="pe-del-no" @click=${() => { this.planDelArm = false; }}>${loc("Cancel")}</button>
           </div>`
         : html`<div class="pe-head">
             <ha-icon icon="mdi:arrow-left" class="pe-back"
@@ -5674,12 +5670,12 @@ export class SpiderFarmerCard extends LitElement {
         <label>End${date("end")}</label>
       </div>
       <div class="pe-alarmrow">
-        <label>Alarm<input type="datetime-local" class="pe-in"
+        <label>${loc("Alarm")}<input type="datetime-local" class="pe-in"
           .value=${String(s.alarm ?? "")}
           @change=${(e: any) => set("alarm", e.target.value)}></label>
       </div>
       <div class="pe-grid-head"><span></span><span class="pe-cells">
-        <span>Night</span><span>Day</span><span>Dead</span></span></div>
+        <span>${loc("Night")}</span><span>${loc("Day")}</span><span>${loc("Dead")}</span></span></div>
       ${this.planEnvHas("temp") ? trip("Temp " + tU, "temp", this.envOptsFor("env_temp_day"), this.envOptsFor("env_temp_deadband")) : nothing}
       ${this.planEnvHas("humi") ? trip("Humidity", "humi", this.envOptsFor("env_humi_day"), this.envOptsFor("env_humi_deadband")) : nothing}
       ${this.planEnvHas("co2") ? trip("CO₂", "co2", this.envOptsFor("env_co2_day"), this.envOptsFor("env_co2_deadband")) : nothing}
@@ -5687,17 +5683,17 @@ export class SpiderFarmerCard extends LitElement {
       ${this.planLightHas("light2") ? this.renderStageLight(i, "light2") : nothing}
       <div class="plan-actions" style="display:flex;gap:10px">
         <button class="plan-btn" style="flex:1;background:${acc};border-color:${acc};color:#0c1f06"
-          @click=${() => this.savePlanEdit(this.planInfo().active)}>${this.planInfo().active ? "Save & activate" : "Save Plan"}</button>
+          @click=${() => this.savePlanEdit(this.planInfo().active)}>${this.planInfo().active ? loc("Save & activate") : loc("Save Plan")}</button>
         <button class="plan-btn" style="flex:1"
-          @click=${() => { this.planDraft = null; this.planEditStage = null; this.planDelArm = false; }}>Cancel</button>
+          @click=${() => { this.planDraft = null; this.planEditStage = null; this.planDelArm = false; }}>${loc("Cancel")}</button>
       </div>
       <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
-        <input class="pe-name" style="flex:1;min-width:0" placeholder="Template name"
+        <input class="pe-name" style="flex:1;min-width:0" placeholder=${loc("Template name")}
           .value=${this.planTplName}
           @input=${(e: any) => { this.planTplName = e.target.value; }}>
         <button class="plan-btn" style="flex:0 0 auto;width:auto;padding:11px 14px;white-space:nowrap"
           ?disabled=${!this.planTplName.trim()}
-          @click=${() => this.saveMyTemplate(this.planTplName)}>Save as template</button>
+          @click=${() => this.saveMyTemplate(this.planTplName)}>${loc("Save as template")}</button>
       </div>
       ${this._tplMsg ? html`<div style="display:flex;align-items:center;gap:6px;margin-top:8px;
         color:#46c98a;font-size:13px;font-weight:600">
@@ -5706,7 +5702,7 @@ export class SpiderFarmerCard extends LitElement {
         <ha-icon icon="mdi:information-outline"></ha-icon>
         <span>“Save as template” stores this whole plan under My templates (on the
         controller, so it syncs across your devices) — it doesn't change the running
-        plan. Use “${this.planInfo().active ? "Save & activate" : "Save Plan"}” to apply it to the controller.</span>
+        plan. Use “${this.planInfo().active ? loc("Save & activate") : loc("Save Plan")}” to apply it to the controller.</span>
       </div>`;
   }
 
@@ -5763,7 +5759,7 @@ export class SpiderFarmerCard extends LitElement {
     const dates = this.planStageDates(s);
     const pair = (label: string, night: any, day: any, suffix = "") => html`
       <div class="plan-metric">
-        <span class="plan-metric-label">${label}</span>
+        <span class="plan-metric-label">${loc(label)}</span>
         <span class="plan-metric-vals">
           <span>N ${this.fmtNum(night)}${suffix}</span>
           <span>D ${this.fmtNum(day)}${suffix}</span>
@@ -5793,7 +5789,7 @@ export class SpiderFarmerCard extends LitElement {
       }
       return html`
         <div class="plan-metric">
-          <span class="plan-metric-label">${label}</span>
+          <span class="plan-metric-label">${loc(label)}</span>
           <span class="plan-metric-vals">
             ${a ? html`<span>${a}</span>` : nothing}
             ${b ? html`<span>${b}</span>` : nothing}
@@ -5807,9 +5803,9 @@ export class SpiderFarmerCard extends LitElement {
         style=${isCurrent ? `border-color:${acc}` : ""}>
         <div class="plan-stage-head">
           <span class="plan-stage-dot" style="background:${acc}"></span>
-          <span class="plan-stage-name">${s.label || "Stage"}</span>
+          <span class="plan-stage-name">${s.label || loc("Stage")}</span>
           ${isCurrent
-            ? html`<span class="plan-stage-badge" style="color:${acc};border-color:${acc}">Current</span>`
+            ? html`<span class="plan-stage-badge" style="color:${acc};border-color:${acc}">${loc("Current")}</span>`
             : nothing}
           ${idx >= 0 ? html`<ha-icon icon="mdi:pencil" class="plan-stage-edit"
             @click=${() => this.editStage(idx)}></ha-icon>` : nothing}
@@ -5876,18 +5872,18 @@ export class SpiderFarmerCard extends LitElement {
       <div class="env-row">
         <div class="env-row-head">
           <ha-icon icon="mdi:water-opacity" style="color:${this.accent()}"></ha-icon>
-          <span>VPD kPa</span>
+          <span>${loc("VPD kPa")}</span>
         </div>
         <div class="vpd-grid">
           ${day
             ? html`<div class="vpd-line">
-                <span class="vpd-lbl">Daytime</span>
+                <span class="vpd-lbl">${loc("Daytime")}</span>
                 <span class="vpd-val">${day}</span>
               </div>`
             : nothing}
           ${night
             ? html`<div class="vpd-line">
-                <span class="vpd-lbl">Nighttime</span>
+                <span class="vpd-lbl">${loc("Nighttime")}</span>
                 <span class="vpd-val">${night}</span>
               </div>`
             : nothing}
@@ -5909,7 +5905,7 @@ export class SpiderFarmerCard extends LitElement {
       const id = this.eid("number", suffix);
       return html`
       <div class="ctl ${id in this.draft ? "staged" : ""}">
-        <div class="ctl-label">${label}</div>
+        <div class="ctl-label">${loc(label)}</div>
         <div class="ctl-input">
           <span class="num-box">
             <input type="number" step="0.05" min="0" max="4" .value=${this.draftVal(id)}
@@ -5926,15 +5922,14 @@ export class SpiderFarmerCard extends LitElement {
       <div class="env-row">
         <div class="env-row-head">
           <ha-icon icon="mdi:leaf" style="color:${this.accent()}"></ha-icon>
-          <span>Leaf VPD target</span>
+          <span>${loc("Leaf VPD target")}</span>
         </div>
         <div class="leaf-tgt-grid">
           ${field("leaf_vpd_min", "Min")}
           ${field("leaf_vpd_max", "Max")}
         </div>
         <div class="set-note" style="margin:8px 2px 0">
-          Colours the Leaf VPD tile when it drifts outside this band, using the
-          Settings-tab highlight colours.
+          ${loc("Colours the Leaf VPD tile when it drifts outside this band, using the Settings-tab highlight colours.")}
         </div>
       </div>`;
   }
@@ -6012,11 +6007,11 @@ export class SpiderFarmerCard extends LitElement {
       const smart = mode === "Smart";
       const other = smart ? "Standalone" : "Smart";
       pills.push(html`<button class="oq-btn ${smart ? "live" : ""}"
-        title=${`Operating Mode — tap to switch to ${other}`}
+        title=${loc("Operating Mode — tap to switch to {mode}", { mode: loc(other) })}
         aria-label=${`Operating Mode: ${mode}`}
         @click=${() => this.hass?.callService("select", "select_option",
           { entity_id: modeId, option: other })}>
-        <span class="oq-dot"></span>${mode}</button>`);
+        <span class="oq-dot"></span>${loc(mode)}</button>`);
     }
     // Indicator Light — the status LED (existing switch), to the right of mode.
     const ledId = `switch.sf_${slot}_indicator_light`;
@@ -6024,9 +6019,9 @@ export class SpiderFarmerCard extends LitElement {
     if (ledE) {
       const on = ledE.state === "on";
       pills.push(html`<button class="oq-btn ${on ? "live" : ""}"
-        title="Status LED (tap to toggle)" aria-label="Status LED"
+        title=${loc("Status LED (tap to toggle)")} aria-label=${loc("Status LED")}
         @click=${() => this.hass?.callService("switch", "toggle", { entity_id: ledId })}>
-        <span class="oq-dot"></span>Status LED</button>`);
+        <span class="oq-dot"></span>${loc("Status LED")}</button>`);
     }
     return html`<span style="display:inline-flex;gap:6px">${pills}</span>`;
   }
@@ -6040,7 +6035,7 @@ export class SpiderFarmerCard extends LitElement {
           || (slot.startsWith("st") ? "S-Station" : `${slot.toUpperCase()} Power Strip`);
         return html`
           <div class="section-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-            <span>${label}</span>
+            <span>${loc(label)}</span>
             ${this.stripBarPills(slot)}
           </div>
           ${this.renderQuickRow(slot)}
@@ -6149,7 +6144,7 @@ export class SpiderFarmerCard extends LitElement {
     const onNow = this.get(eid)?.state === "on";
     const tr = this._olog[key] || [];
     const last = tr.length ? tr[tr.length - 1].t : null;
-    const cur = onNow ? "On now" : (last ? `Off · ${this.ologAgo(e - last)}` : "Off");
+    const cur = onNow ? loc("On now") : (last ? loc("Off · {ago}", { ago: this.ologAgo(e - last) }) : loc("Off"));
     const loading = !!this._ologLoading[key] && !this._olog[key];
     const segs = this.ologSegments(key, s, e);
     return html`
@@ -6157,7 +6152,7 @@ export class SpiderFarmerCard extends LitElement {
         @click=${() => { this.ologOpen = open ? null : okey; }}>
         <div class="olog-nm">${this.outletName(slot, n)}<span class="olog-cur">${cur}</span></div>
         <div class="olog-tl" style=${this.ologTickStyle()}>
-          ${loading ? html`<span class="olog-load">Loading…</span>`
+          ${loading ? html`<span class="olog-load">${loc("Loading…")}</span>`
             : segs.map((g) => html`<span class="olog-seg"
                 style="left:${g.left.toFixed(2)}%;width:${Math.max(0.4, g.width).toFixed(2)}%"></span>`)}
         </div>
@@ -6166,10 +6161,10 @@ export class SpiderFarmerCard extends LitElement {
       ${open ? html`<div class="olog-exp">
         ${(() => { const evs = this.ologEvents(key, e);
           return evs.length ? evs.map((ev) => html`<div class="olog-ev">
-              <span><span class=${ev.on ? "on" : "off"}>${ev.on ? "On" : "Off"}</span> · ${this.ologTime(ev.t)}</span>
+              <span><span class=${ev.on ? "on" : "off"}>${ev.on ? loc("On") : loc("Off")}</span> · ${this.ologTime(ev.t)}</span>
               <span class="dur">${ev.dur != null ? this.ologDur(ev.dur) : "—"}</span>
             </div>`)
-          : html`<div class="olog-ev" style="color:var(--secondary-text-color)">No switch events in this window.</div>`;
+          : html`<div class="olog-ev" style="color:var(--secondary-text-color)">${loc("No switch events in this window.")}</div>`;
         })()}
       </div>` : nothing}`;
   }
@@ -6265,26 +6260,26 @@ export class SpiderFarmerCard extends LitElement {
     const r = this.vpdReadings();
     if (!r) {
       return html`<div style="padding:24px 16px;color:var(--secondary-text-color);text-align:center">
-        Waiting for this panel's air temperature and humidity…</div>`;
+        ${loc("Waiting for this panel's air temperature and humidity…")}</div>`;
     }
     const band = this.vpdBand();
     const inRange = r.air >= band[0] && r.air <= band[1];
     const chipCol = inRange ? "#46c98a" : (r.air > band[1] ? "#e5734b" : "#52b6d6");
     const chipBg = inRange ? "rgba(70,201,138,.15)" : (r.air > band[1] ? "rgba(229,115,75,.16)" : "rgba(82,182,214,.16)");
-    const chipTxt = (inRange ? "In range" : (r.air > band[1] ? "Above target" : "Below target"))
+    const chipTxt = loc(inRange ? "In range" : (r.air > band[1] ? "Above target" : "Below target"))
       + ` · ${band[0].toFixed(1)}–${band[1].toFixed(1)} kPa`;
     const planActive = (() => { try { return !!(this as any).planInfo?.().active; } catch { return false; } })();
     const planLocked = this.vpdPlanSource && !!this.vpdPlanBand();
     const seg = (v: "grid" | "trend", label: string) => html`
       <button style="padding:4px 12px;font-size:12px;border:none;cursor:pointer;background:${this.vpdView === v ? accent : "#1a1e20"};color:${this.vpdView === v ? "#151515" : "#aeb4b9"}"
-        @click=${() => (this.vpdView = v)}>${label}</button>`;
+        @click=${() => (this.vpdView = v)}>${loc(label)}</button>`;
     const pill = (k: "prop" | "veg" | "flower" | "custom", label: string) => html`
       <button style="padding:5px 9px;border-radius:8px;font-size:12px;white-space:nowrap;cursor:${planLocked ? "default" : "pointer"};
         opacity:${planLocked ? ".45" : "1"};
         background:${this.vpdStage === k && !planLocked ? "rgba(239,139,43,.16)" : "#1e2224"};
         border:1px solid ${this.vpdStage === k && !planLocked ? accent : "#2f3538"};
         color:${this.vpdStage === k && !planLocked ? "#fff" : "#c7cccf"}"
-        @click=${() => { if (!planLocked) this.vpdStage = k; }}>${label}</button>`;
+        @click=${() => { if (!planLocked) this.vpdStage = k; }}>${loc(label)}</button>`;
     const step = (dir: -1 | 1, idx: 0 | 1) => () => {
       const c: [number, number] = [this.vpdCustom[0], this.vpdCustom[1]];
       if (idx === 0) c[0] = Math.min(c[1] - 0.1, Math.max(0.2, c[0] + dir * 0.05));
@@ -6295,10 +6290,10 @@ export class SpiderFarmerCard extends LitElement {
     return html`
       <div style="padding:10px 14px 14px">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-          <span style="font-size:12px;letter-spacing:.06em;color:var(--secondary-text-color);font-weight:600">VAPOR PRESSURE DEFICIT</span>
+          <span style="font-size:12px;letter-spacing:.06em;color:var(--secondary-text-color);font-weight:600">${loc("VAPOR PRESSURE DEFICIT")}</span>
           <div style="display:flex;gap:10px;align-items:center">
             <div style="display:flex;border:1px solid #2f3538;border-radius:8px;overflow:hidden">${seg("grid", "Grid")}${seg("trend", "Trend")}</div>
-            <span style="font-size:12px;color:#aeb4b9">Highlight</span>
+            <span style="font-size:12px;color:#aeb4b9">${loc("Highlight")}</span>
             <button class="toggle ${this.vpdHighlight ? "on" : ""}" style=${this.vpdHighlight ? `background:${accent}` : nothing}
               @click=${() => (this.vpdHighlight = !this.vpdHighlight)}></button>
           </div>
@@ -6307,30 +6302,30 @@ export class SpiderFarmerCard extends LitElement {
           ${pill("prop", "🌱 Propagation")}${pill("veg", "🌿 Vegetative")}${pill("flower", "🌸 Flowering")}${pill("custom", "⚙ Custom")}
         </div>
         <div style="font-size:12px;color:var(--secondary-text-color);margin-bottom:10px;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;align-items:center">
-          Target source:
-          <span style="color:#c7cccf">${planLocked ? `Planting plan · ${this.vpdPlanName()}` : "Growth-stage buttons"}</span>
+          ${loc("Target source:")}
+          <span style="color:#c7cccf">${planLocked ? loc("Planting plan · {name}", { name: this.vpdPlanName() }) : loc("Growth-stage buttons")}</span>
           ${this.vpdPlanSource
             ? html`<span style="color:#52b6d6;cursor:pointer;text-decoration:underline dotted"
-                @click=${() => (this.vpdPlanSource = false)}>use stage buttons instead →</span>`
+                @click=${() => (this.vpdPlanSource = false)}>${loc("use stage buttons instead →")}</span>`
             : planActive
               ? html`<span style="color:#52b6d6;cursor:pointer;text-decoration:underline dotted"
-                  @click=${() => (this.vpdPlanSource = true)}>use planting plan instead →</span>`
-              : html`<span style="color:#5a6166;cursor:default" title="No active planting plan for this device">use planting plan instead →</span>`}
+                  @click=${() => (this.vpdPlanSource = true)}>${loc("use planting plan instead →")}</span>`
+              : html`<span style="color:#5a6166;cursor:default" title=${loc("No active planting plan for this device")}>${loc("use planting plan instead →")}</span>`}
         </div>
         ${this.vpdStage === "custom" && !planLocked ? html`
           <div style="display:flex;align-items:center;gap:10px;margin:0 0 10px;font-size:13px;color:#c7cccf">
-            Custom band (kPa):
+            ${loc("Custom band (kPa):")}
             <span style="display:flex;align-items:center;gap:6px;background:#1e2224;border:1px solid #2f3538;border-radius:8px;padding:3px 8px">
-              min <b style="cursor:pointer;color:${accent}" @click=${step(-1, 0)}>−</b>${this.vpdCustom[0].toFixed(2)}<b style="cursor:pointer;color:${accent}" @click=${step(1, 0)}>+</b></span>
+              ${loc("min")} <b style="cursor:pointer;color:${accent}" @click=${step(-1, 0)}>−</b>${this.vpdCustom[0].toFixed(2)}<b style="cursor:pointer;color:${accent}" @click=${step(1, 0)}>+</b></span>
             <span style="display:flex;align-items:center;gap:6px;background:#1e2224;border:1px solid #2f3538;border-radius:8px;padding:3px 8px">
-              max <b style="cursor:pointer;color:${accent}" @click=${step(-1, 1)}>−</b>${this.vpdCustom[1].toFixed(2)}<b style="cursor:pointer;color:${accent}" @click=${step(1, 1)}>+</b></span>
+              ${loc("max")} <b style="cursor:pointer;color:${accent}" @click=${step(-1, 1)}>−</b>${this.vpdCustom[1].toFixed(2)}<b style="cursor:pointer;color:${accent}" @click=${step(1, 1)}>+</b></span>
           </div>` : nothing}
         <div style="display:flex;justify-content:center;align-items:baseline;gap:12px;margin-bottom:4px;flex-wrap:wrap">
-          <div><span style="font-size:26px;font-weight:700">${r.air.toFixed(2)}</span> <span style="font-size:13px;color:var(--secondary-text-color)">kPa air VPD</span></div>
-          ${this.vpdLeaf ? html`<div><span style="font-size:20px;font-weight:600;color:#c7cccf">${r.leaf.toFixed(2)}</span> <span style="font-size:12px;color:var(--secondary-text-color)">kPa leaf VPD</span></div>` : nothing}
+          <div><span style="font-size:26px;font-weight:700">${r.air.toFixed(2)}</span> <span style="font-size:13px;color:var(--secondary-text-color)">${loc("kPa air VPD")}</span></div>
+          ${this.vpdLeaf ? html`<div><span style="font-size:20px;font-weight:600;color:#c7cccf">${r.leaf.toFixed(2)}</span> <span style="font-size:12px;color:var(--secondary-text-color)">${loc("kPa leaf VPD")}</span></div>` : nothing}
           <span style="font-size:12px;padding:3px 9px;border-radius:20px;font-weight:600;color:${chipCol};background:${chipBg}">${chipTxt}</span>
         </div>
-        <div style="text-align:center;font-size:12px;color:var(--secondary-text-color);margin-bottom:10px">Air ${r.airT.toFixed(1)}${r.unit} · RH ${r.rh.toFixed(0)}%</div>
+        <div style="text-align:center;font-size:12px;color:var(--secondary-text-color);margin-bottom:10px">${loc("Air {temp} · RH {rh}%", { temp: `${r.airT.toFixed(1)}${r.unit}`, rh: r.rh.toFixed(0) })}</div>
         <div style="background:#121517;border:1px solid #262b2d;border-radius:10px;padding:8px 6px 4px">
           <canvas id="vpdcanvas" style="width:100%;display:block;border-radius:6px"></canvas>
           ${this.vpdView === "grid" ? html`
@@ -6343,8 +6338,8 @@ export class SpiderFarmerCard extends LitElement {
               <span><i style="display:inline-block;width:11px;height:11px;border-radius:2px;background:#ce4233;vertical-align:-1px;margin-right:4px"></i>≥2.0</span>
             </div>
             <div style="display:flex;justify-content:center;gap:16px;flex-wrap:wrap;font-size:10.5px;color:#9aa0a4;padding:0 6px 4px">
-              <span><i style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#fff;border:1px solid #151515;vertical-align:-1px;margin-right:5px"></i>air</span>
-              ${this.vpdLeaf ? html`<span><i style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#35e08a;border:1px solid #151515;vertical-align:-1px;margin-right:5px"></i>leaf</span>` : nothing}
+              <span><i style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#fff;border:1px solid #151515;vertical-align:-1px;margin-right:5px"></i>${loc("air")}</span>
+              ${this.vpdLeaf ? html`<span><i style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#35e08a;border:1px solid #151515;vertical-align:-1px;margin-right:5px"></i>${loc("leaf")}</span>` : nothing}
             </div>` : nothing}
         </div>
       </div>`;
@@ -6374,8 +6369,8 @@ export class SpiderFarmerCard extends LitElement {
       ctx.strokeStyle = "#242a2c"; ctx.fillStyle = "#8b9298"; ctx.font = "9px sans-serif"; ctx.textAlign = "end"; ctx.lineWidth = 1;
       [0.4, 0.8, 1.2, 1.6].forEach((g) => { const y = ty(g); ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(W - PR, y); ctx.stroke(); ctx.fillText(g.toFixed(1), PL - 5, y + 3); });
       if (this.vpdHighlight) { const yt = ty(Math.min(band[1], YMAX)), yb = ty(Math.max(band[0], YMIN)); ctx.fillStyle = "rgba(70,201,138,.16)"; ctx.fillRect(PL, yt, pw, yb - yt); }
-      if (!pts || !this._graph[eid]) { ctx.fillStyle = "#8b9298"; ctx.textAlign = "center"; ctx.fillText("Loading 24h history…", W / 2, H / 2); return; }
-      if (pts.length < 2) { ctx.fillStyle = "#8b9298"; ctx.textAlign = "center"; ctx.fillText("Not enough VPD history yet.", W / 2, H / 2); return; }
+      if (!pts || !this._graph[eid]) { ctx.fillStyle = "#8b9298"; ctx.textAlign = "center"; ctx.fillText(loc("Loading 24h history…"), W / 2, H / 2); return; }
+      if (pts.length < 2) { ctx.fillStyle = "#8b9298"; ctx.textAlign = "center"; ctx.fillText(loc("Not enough VPD history yet."), W / 2, H / 2); return; }
       const t0 = pts[0].t, t1 = pts[pts.length - 1].t, span = Math.max(1, t1 - t0);
       const tx = (t: number) => PL + (t - t0) / span * pw;
       ctx.beginPath();
@@ -6471,12 +6466,12 @@ export class SpiderFarmerCard extends LitElement {
   }
   private renderOutletsLog() {
     const slots = this.outletSlots().filter((sl) => this.outletNums(sl).length > 0);
-    if (!slots.length) return html`<div class="set-note">No outlets on this controller.</div>`;
+    if (!slots.length) return html`<div class="set-note">${loc("No outlets on this controller.")}</div>`;
     const e = Date.now(), s = e - this.ologRange * 3600 * 1000;
     const accent = this.accent();
     const rb = (h: number, label: string) => html`<button class="olog-rb ${this.ologRange === h ? "on" : ""}"
       style=${this.ologRange === h ? `background:${accent};border-color:transparent;color:#fff` : ""}
-      @click=${() => { this.ologRange = h; this.persistColorOption("olog_range", String(h)); }}>${label}</button>`;
+      @click=${() => { this.ologRange = h; this.persistColorOption("olog_range", String(h)); }}>${loc(label)}</button>`;
     return html`
       <div class="olog-range">${rb(1, "1h")}${rb(6, "6h")}${rb(12, "12h")}${rb(24, "24h")}${rb(168, "7d")}</div>
       ${slots.map((slot) => html`
@@ -6500,11 +6495,11 @@ export class SpiderFarmerCard extends LitElement {
     const configured = !!this.hass?.states[`sensor.sf_timelapse_${this.config.panel}_main`];
     const pick = html`
       <div class="toggle-row" style="margin-top:8px">
-        <span>Camera</span>
+        <span>${loc("Camera")}</span>
         <select style="max-width:60%" .value=${live(cam || "")}
           @change=${(e: any) => { this.tlCam = e.target.value;
             this.persistColorOption("tl_cam", e.target.value); }}>
-          <option value="">— choose camera —</option>
+          <option value="">${loc("— choose camera —")}</option>
           ${cams.map((id) => html`<option value=${id} ?selected=${id === cam}>${
             (this.hass?.states[id]?.attributes?.friendly_name as string) || id}</option>`)}
         </select>
@@ -6523,17 +6518,17 @@ export class SpiderFarmerCard extends LitElement {
     };
     const ivPick = html`
       <div class="toggle-row" style="margin-top:8px">
-        <span>Snapshot interval</span>
+        <span>${loc("Snapshot interval")}</span>
         <select style="max-width:60%" .value=${live(String(this.tlInterval))}
           @change=${(e: any) => { this.tlInterval = Number(e.target.value) || 300;
             this.persistColorOption("tl_interval", String(this.tlInterval));
             reconfigure(); }}>
-          ${IVS.map(([v, lbl]) => html`<option value=${v} ?selected=${v === this.tlInterval}>${lbl}</option>`)}
+          ${IVS.map(([v, lbl]) => html`<option value=${v} ?selected=${v === this.tlInterval}>${loc(lbl)}</option>`)}
         </select>
       </div>
       ${this.tlInterval === 86400 ? html`
         <div class="toggle-row" style="margin-top:8px">
-          <span>Capture daily at</span>
+          <span>${loc("Capture daily at")}</span>
           <input type="time" style="max-width:60%" .value=${live(this.tlDailyAt)}
             @change=${(e: any) => { this.tlDailyAt = e.target.value || "00:00";
               this.persistColorOption("tl_daily_at", this.tlDailyAt);
@@ -6541,7 +6536,7 @@ export class SpiderFarmerCard extends LitElement {
         </div>` : nothing}`;
     if (!cam) {
       return html`<div style="padding:4px 2px">
-        <div class="set-note">Pick a camera to start this panel's time-lapse.</div>
+        <div class="set-note">${loc("Pick a camera to start this panel's time-lapse.")}</div>
         ${pick}${ivPick}</div>`;
     }
     const cfg: any = { type: "custom:spider-timelapse-card", panel: this.config.panel,
@@ -6556,11 +6551,11 @@ export class SpiderFarmerCard extends LitElement {
 
   private renderDeviceLog() {
     const devs = this.overviewDevices();
-    if (!devs.length) return html`<div class="set-note">No devices on this controller.</div>`;
+    if (!devs.length) return html`<div class="set-note">${loc("No devices on this controller.")}</div>`;
     const accent = this.accent();
     const rb = (h: number, label: string) => html`<button class="olog-rb ${this.ologRange === h ? "on" : ""}"
       style=${this.ologRange === h ? `background:${accent};border-color:transparent;color:#fff` : ""}
-      @click=${() => { this.ologRange = h; this.persistColorOption("olog_range", String(h)); }}>${label}</button>`;
+      @click=${() => { this.ologRange = h; this.persistColorOption("olog_range", String(h)); }}>${loc(label)}</button>`;
     return html`
       <div class="olog-range">${rb(1, "1h")}${rb(6, "6h")}${rb(12, "12h")}${rb(24, "24h")}${rb(168, "7d")}</div>
       ${devs.map((d) => this.dlogRow(d))}
@@ -6576,15 +6571,15 @@ export class SpiderFarmerCard extends LitElement {
     const onNow = this.get(eid)?.state === "on";
     const tr = this._olog[key] || [];
     const last = tr.length ? tr[tr.length - 1].t : null;
-    const cur = onNow ? "On now" : (last ? `Off · ${this.ologAgo(e - last)}` : "Off");
+    const cur = onNow ? loc("On now") : (last ? loc("Off · {ago}", { ago: this.ologAgo(e - last) }) : loc("Off"));
     const loading = !!this._ologLoading[key] && !this._olog[key];
     const segs = this.ologSegments(key, s, e);
     return html`
       <div class="olog-row" role="button" aria-expanded=${open ? "true" : "false"}
         @click=${() => { this.dlogOpen = open ? null : dkey; }}>
-        <div class="olog-nm"><ha-icon icon=${d.icon} style="--mdc-icon-size:15px;margin-right:5px;vertical-align:-3px"></ha-icon>${d.label}<span class="olog-cur">${cur}</span></div>
+        <div class="olog-nm"><ha-icon icon=${d.icon} style="--mdc-icon-size:15px;margin-right:5px;vertical-align:-3px"></ha-icon>${loc(d.label)}<span class="olog-cur">${cur}</span></div>
         <div class="olog-tl" style=${this.ologTickStyle()}>
-          ${loading ? html`<span class="olog-load">Loading…</span>`
+          ${loading ? html`<span class="olog-load">${loc("Loading…")}</span>`
             : segs.map((g) => html`<span class="olog-seg"
                 style="left:${g.left.toFixed(2)}%;width:${Math.max(0.4, g.width).toFixed(2)}%"></span>`)}
         </div>
@@ -6593,10 +6588,10 @@ export class SpiderFarmerCard extends LitElement {
       ${open ? html`<div class="olog-exp">
         ${(() => { const evs = this.ologEvents(key, e);
           return evs.length ? evs.map((ev) => html`<div class="olog-ev">
-              <span><span class=${ev.on ? "on" : "off"}>${ev.on ? "On" : "Off"}</span> · ${this.ologTime(ev.t)}</span>
+              <span><span class=${ev.on ? "on" : "off"}>${ev.on ? loc("On") : loc("Off")}</span> · ${this.ologTime(ev.t)}</span>
               <span class="dur">${ev.dur != null ? this.ologDur(ev.dur) : "—"}</span>
             </div>`)
-          : html`<div class="olog-ev" style="color:var(--secondary-text-color)">No events in this window.</div>`;
+          : html`<div class="olog-ev" style="color:var(--secondary-text-color)">${loc("No events in this window.")}</div>`;
         })()}
       </div>` : nothing}`;
   }
@@ -6744,7 +6739,7 @@ export class SpiderFarmerCard extends LitElement {
     if (!devs.length) return nothing;
     return html`<div class="oq-row">
       <span class="oq-lab"><ha-icon icon="mdi:flash"></ha-icon>
-        <span class="oq-lab-lines"><b>Quick</b><span>Devices</span></span></span>
+        <span class="oq-lab-lines"><b>${loc("Quick")}</b><span>${loc("Devices")}</span></span></span>
       ${devs.map((d) => {
         const active = this.dlqHas(d.suffix);
         // Lit when enabled (running OR in an auto mode), so an idle auto-mode
@@ -6754,9 +6749,9 @@ export class SpiderFarmerCard extends LitElement {
         const on = pend ? pend.on : this.deviceEnabled(d);
         const cls = active ? "on" : (on ? "live" : "");
         return html`<button class="oq-btn ${cls}"
-          title=${d.label} aria-label=${d.label}
+          title=${loc(d.label)} aria-label=${loc(d.label)}
           @click=${() => this.quickToggleDevice(d)}>
-          <ha-icon icon=${d.icon} style="--mdc-icon-size:14px"></ha-icon>${d.label}</button>`;
+          <ha-icon icon=${d.icon} style="--mdc-icon-size:14px"></ha-icon>${loc(d.label)}</button>`;
       })}
     </div>`;
   }
@@ -6847,25 +6842,25 @@ export class SpiderFarmerCard extends LitElement {
     const chosen = allTargets.filter((t) => this.outletCopySel[t.key]);
     const srcMode = this.get(`select.sf_${srcSlot}_outlet_${srcN}_mode`)?.state || "Manual";
     return html`<div class="oc-panel">
-      <div class="oc-title">Apply ${this.outletName(srcSlot, srcN)}'s settings
-        (<span style="color:${this.accent()}">${srcMode}</span>) to:</div>
+      <div class="oc-title">${loc("Apply {outlet}'s settings", { outlet: this.outletName(srcSlot, srcN) })}
+        (<span style="color:${this.accent()}">${loc(srcMode)}</span>${loc(") to:")}</div>
       ${allTargets.length ? html`<div class="oc-cols">
         ${groups.map((g) => html`<div class="oc-col">
-          <div class="oc-colhd">${g.label}${g.current ? html`<span class="oc-cur">current</span>` : nothing}</div>
+          <div class="oc-colhd">${loc(g.label)}${g.current ? html`<span class="oc-cur">${loc("current")}</span>` : nothing}</div>
           ${g.items.map((t) => html`
             <label class="oc-ck">
               <input type="checkbox" .checked=${!!this.outletCopySel[t.key]}
                 @change=${(e: Event) => { this.outletCopySel = { ...this.outletCopySel, [t.key]: (e.target as HTMLInputElement).checked }; }}>
-              <span>${t.name}${t.mode ? html` <span class="oc-mode">· ${t.mode}</span>` : nothing}</span>
+              <span>${t.name}${t.mode ? html` <span class="oc-mode">· ${loc(t.mode)}</span>` : nothing}</span>
             </label>`)}
         </div>`)}
-      </div>` : html`<div class="oc-mode">No other outlets.</div>`}
+      </div>` : html`<div class="oc-mode">${loc("No other outlets.")}</div>`}
       <button class="oc-apply" ?disabled=${chosen.length === 0}
         @click=${() => {
           this.applyWithSaving(() => this.copyOutletTo(srcSlot, srcN,
             chosen.map((t) => ({ slot: t.slot, n: t.n }))));
           this.outletCopyOpen = false; this.outletCopySel = {};
-        }}>Apply to ${chosen.length} outlet${chosen.length === 1 ? "" : "s"}</button>
+        }}>${loc(chosen.length === 1 ? "Apply to {n} outlet" : "Apply to {n} outlets", { n: chosen.length })}</button>
     </div>`;
   }
   // "Copy from…": pick one source outlet (across every strip) and pull its mode +
@@ -6889,18 +6884,18 @@ export class SpiderFarmerCard extends LitElement {
     }
     const anySrc = groups.some((g) => g.items.length);
     return html`<div class="oc-panel">
-      <div class="oc-title">Copy settings into ${this.outletName(destSlot, destN)} from:</div>
+      <div class="oc-title">${loc("Copy settings into {outlet} from:", { outlet: this.outletName(destSlot, destN) })}</div>
       ${anySrc ? html`<div class="oc-cols">
         ${groups.map((g) => html`<div class="oc-col">
-          <div class="oc-colhd">${g.label}${g.current ? html`<span class="oc-cur">current</span>` : nothing}</div>
+          <div class="oc-colhd">${loc(g.label)}${g.current ? html`<span class="oc-cur">${loc("current")}</span>` : nothing}</div>
           ${g.items.map((t) => html`
             <button class="oc-fromitem"
               @click=${() => {
                 this.applyWithSaving(() => this.copyOutletTo(t.slot, t.n, [{ slot: destSlot, n: destN }]));
                 this.outletCopyFromOpen = false;
-              }}>${t.name}${t.mode ? html` <span class="oc-mode">· ${t.mode}</span>` : nothing}</button>`)}
+              }}>${t.name}${t.mode ? html` <span class="oc-mode">· ${loc(t.mode)}</span>` : nothing}</button>`)}
         </div>`)}
-      </div>` : html`<div class="oc-mode">No other outlets.</div>`}
+      </div>` : html`<div class="oc-mode">${loc("No other outlets.")}</div>`}
     </div>`;
   }
   private outletRememberKey(slot: string, n: number): string {
@@ -6975,7 +6970,7 @@ export class SpiderFarmerCard extends LitElement {
     if (!nums.length) return nothing;
     return html`<div class="oq-row">
       <span class="oq-lab"><ha-icon icon="mdi:flash"></ha-icon>
-        <span class="oq-lab-lines"><b>Quick</b><span>Outlets</span></span></span>
+        <span class="oq-lab-lines"><b>${loc("Quick")}</b><span>${loc("Outlets")}</span></span></span>
       ${nums.map((n) => {
         // "on"   = a saved quick-toggle profile is active (quick-off'd, restorable) →
         //          green dot (profile-active look).
@@ -7105,16 +7100,16 @@ export class SpiderFarmerCard extends LitElement {
         </div>
         <ha-icon icon="mdi:power-socket-us"
           style="color:${on ? fg : "var(--secondary-text-color)"}"></ha-icon>
-        <div class="tile-val" style=${on ? `color:${fg}` : nothing}>${on ? "On" : "Off"}</div>
+        <div class="tile-val" style=${on ? `color:${fg}` : nothing}>${on ? loc("On") : loc("Off")}</div>
         ${!on ? this.cooldownPill(this.outletCooldown(slot, n), "cd-outlet") : nothing}
-        <div class="tile-sub">${mode}</div>
+        <div class="tile-sub">${loc(mode)}</div>
         ${(() => {
           const det = this.outletModeDetail(slot, n, mode);
-          return det ? html`<div class="tile-sub2 ${det.cls}">${det.text}</div>` : nothing;
+          return det ? html`<div class="tile-sub2 ${det.cls}">${loc(det.text)}</div>` : nothing;
         })()}
         ${!on && this.olqHas(slot, n) ? html`<div class="tile-qta" style="color:${accent}"
-          title="Quick-toggle profile saved — quick-on restores this outlet's mode">
-          <div class="l1">Quick Toggle</div><div class="l2">Active</div></div>` : nothing}
+          title=${loc("Quick-toggle profile saved — quick-on restores this outlet's mode")}>
+          <div class="l1">${loc("Quick Toggle")}</div><div class="l2">${loc("Active")}</div></div>` : nothing}
       </div>`;
   }
 
@@ -7135,17 +7130,16 @@ export class SpiderFarmerCard extends LitElement {
     const staged = "light_device" in d && d.light_device !== (this.outletLightDir[k] ?? "Day");
     return html`
       <div class="set-note" style="margin-top:6px">
-        Follows the environment day/night cycle (from Environment/Planting Plan):
-        on during the selected phase, off in the other. The integration drives it.
+        ${loc("Follows the environment day/night cycle (from Environment/Planting Plan): on during the selected phase, off in the other. The integration drives it.")}
       </div>
       <div class="dev-row ${staged ? "staged" : ""}">
-        <span class="dev-lbl">Follows</span>
+        <span class="dev-lbl">${loc("Follows")}</span>
         <span class="ctl-input">
           <select @change=${(e: Event) =>
             (this.outletCfgDraft = { ...this.outletCfgDraft,
               [k]: { ...d, light_device: (e.target as HTMLSelectElement).value } })}>
             ${["Day", "Night"].map((o) =>
-              html`<option value=${o} ?selected=${cur === o}>${o}</option>`)}
+              html`<option value=${o} ?selected=${cur === o}>${loc(o)}</option>`)}
           </select>
         </span>
       </div>`;
@@ -7160,7 +7154,7 @@ export class SpiderFarmerCard extends LitElement {
       this.outletCfgDraft = { ...this.outletCfgDraft, [k]: { ...d, [field]: val } };
     const numRow = (label: string, field: string, def: number, unit: string) => html`
       <div class="dev-row ${field in d ? "staged" : ""}">
-        <span class="dev-lbl">${label}</span>
+        <span class="dev-lbl">${loc(label)}</span>
         <span class="num-box">
           <input type="number" min="0" max="1440" .value=${d[field] ?? String(def)}
             @change=${(e: Event) => set(field, (e.target as HTMLInputElement).value)} />
@@ -7169,7 +7163,7 @@ export class SpiderFarmerCard extends LitElement {
       </div>`;
     const timeRow = (label: string, field: string, def: string) => html`
       <div class="dev-row ${field in d ? "staged" : ""}">
-        <span class="dev-lbl">${label}</span>
+        <span class="dev-lbl">${loc(label)}</span>
         <span class="num-box">
           <input type="time" .value=${d[field] ?? def}
             @change=${(e: Event) => set(field, (e.target as HTMLInputElement).value)} />
@@ -7177,11 +7171,11 @@ export class SpiderFarmerCard extends LitElement {
       </div>`;
     const selRow = (label: string, field: string, opts: string[]) => html`
       <div class="dev-row ${field in d ? "staged" : ""}">
-        <span class="dev-lbl">${label}</span>
+        <span class="dev-lbl">${loc(label)}</span>
         <span class="ctl-input">
           <select @change=${(e: Event) => set(field, (e.target as HTMLSelectElement).value)}>
             ${opts.map((o) => html`<option value=${o}
-              ?selected=${(d[field] ?? opts[0]) === o}>${o}</option>`)}
+              ?selected=${(d[field] ?? opts[0]) === o}>${loc(o)}</option>`)}
           </select>
         </span>
       </div>`;
@@ -7307,34 +7301,33 @@ export class SpiderFarmerCard extends LitElement {
     };
     return html`
       <div class="toggle-row" style="margin-top:4px">
-        <span>Device Type</span>
+        <span>${loc("Device Type")}</span>
         <select style="max-width:60%"
           @change=${(e: Event) => set({ type: (e.target as HTMLSelectElement).value })}>
           ${ST_DEVICE_TYPES.map((t) => html`
-            <option value=${t.label} ?selected=${t.label === type}>${t.label}</option>`)}
+            <option value=${loc(t.label)} ?selected=${t.label === type}>${loc(t.label)}</option>`)}
         </select>
       </div>
       ${type === "Blower" ? html`
         <div class="toggle-row" style="margin-top:8px">
-          <span>Mode</span>
+          <span>${loc("Mode")}</span>
           <select style="max-width:60%"
             @change=${(e: Event) => set({ blower: (e.target as HTMLSelectElement).value })}>
             ${Object.keys(ST_BLOWER_MODE).map((m) => html`
-              <option value=${m} ?selected=${m === blower}>${m}</option>`)}
+              <option value=${m} ?selected=${m === blower}>${loc(m)}</option>`)}
           </select>
         </div>` : nothing}
       ${type === "Light Env" ? html`
         <div class="toggle-row" style="margin-top:8px">
-          <span>Follows</span>
+          <span>${loc("Follows")}</span>
           <select style="max-width:60%"
             @change=${(e: Event) => set({ light: (e.target as HTMLSelectElement).value })}>
             ${["Day", "Night"].map((m) => html`
-              <option value=${m} ?selected=${m === light}>${m}</option>`)}
+              <option value=${m} ?selected=${m === light}>${loc(m)}</option>`)}
           </select>
         </div>
         <div class="set-note" style="margin-top:8px">
-          Follows the environment day/night cycle (from Environment/Planting Plan):
-          on during the selected phase, off in the other. The integration drives it.
+          ${loc("Follows the environment day/night cycle (from Environment/Planting Plan): on during the selected phase, off in the other. The integration drives it.")}
         </div>` : nothing}
       ${type === "General device"
         ? this.stagedCtl(`switch.sf_${slot}_outlet_${n}`, "Power") : nothing}
@@ -7342,8 +7335,7 @@ export class SpiderFarmerCard extends LitElement {
       ${type === "Timer loop" ? this.renderOutletModeConfig(slot, n, "Cycle") : nothing}
       ${ST_APPLIANCE_NOTE.has(type) ? html`
         <div class="set-note" style="margin-top:8px">
-          Runs from your Environment day/night targets (set on the Environment tab).
-          There are no separate on/off thresholds here.
+          ${loc("Runs from your Environment day/night targets (set on the Environment tab). There are no separate on/off thresholds here.")}
         </div>` : nothing}
       ${this.saveBar(dirty, apply, discard, "apply-bar")}`;
   }
@@ -7413,15 +7405,15 @@ export class SpiderFarmerCard extends LitElement {
         <div class="soil-pop-head">
           <span>${this.outletName(slot, n)}</span>
           <span style="display:inline-flex;align-items:center;gap:8px">
-            <button class="oc-copybtn" title="Copy this outlet's settings to others"
+            <button class="oc-copybtn" title=${loc("Copy this outlet's settings to others")}
               @click=${() => { this.outletCopyOpen = !this.outletCopyOpen; this.outletCopyFromOpen = false; this.outletCopySel = {}; }}>
-              <ha-icon icon="mdi:content-copy"></ha-icon>Copy to…
+              <ha-icon icon="mdi:content-copy"></ha-icon>${loc("Copy to…")}
             </button>
-            <button class="oc-copybtn" title="Copy another outlet's settings into this one"
+            <button class="oc-copybtn" title=${loc("Copy another outlet's settings into this one")}
               @click=${() => { this.outletCopyFromOpen = !this.outletCopyFromOpen; this.outletCopyOpen = false; }}>
-              <ha-icon icon="mdi:content-duplicate"></ha-icon>Copy from…
+              <ha-icon icon="mdi:content-duplicate"></ha-icon>${loc("Copy from…")}
             </button>
-            <ha-icon icon="mdi:close" role="button" aria-label="Close"
+            <ha-icon icon="mdi:close" role="button" aria-label=${loc("Close")}
               @click=${() => this.toggleOutlet(null)}></ha-icon>
           </span>
         </div>
@@ -7429,7 +7421,7 @@ export class SpiderFarmerCard extends LitElement {
         ${this.outletCopyFromOpen ? this.renderOutletCopyFromPanel(slot, n) : nothing}
         ${this.customOutletNames ? html`
           <div class="toggle-row ${this.outletNameDirty(slot, n) ? "staged" : ""}">
-            <span>Name</span>
+            <span>${loc("Name")}</span>
             <span class="num-box">
               <input type="text" style="width:140px;text-align:left"
                 .value=${this.outletKey(slot, n) in this.outletNameDraft
@@ -7587,8 +7579,8 @@ export class SpiderFarmerCard extends LitElement {
         ${periods.map((p, i) => html`
           <div class="period">
             <div class="period-head">
-              <span class="period-name">Slot ${i + 1}</span>
-              <button class="del" aria-label="Delete slot"
+              <span class="period-name">${loc("Slot {n}", { n: i + 1 })}</span>
+              <button class="del" aria-label=${loc("Delete slot")}
                 @click=${() => this.editOutlet(slot, n, (a) => a.splice(i, 1))}>✕</button>
             </div>
             <div class="days">
@@ -7608,14 +7600,14 @@ export class SpiderFarmerCard extends LitElement {
             </div>
             <div class="sched-times">
               <div class="tf">
-                <span class="tf-lbl">Start</span>
+                <span class="tf-lbl">${loc("Start")}</span>
                 <input type="time" .value=${p.start}
                   @change=${(e: Event) =>
                     this.editOutlet(slot, n, (a) => { a[i].start = (e.target as HTMLInputElement).value; })} />
               </div>
               <span class="dash">—</span>
               <div class="tf">
-                <span class="tf-lbl">Stop</span>
+                <span class="tf-lbl">${loc("Stop")}</span>
                 <input type="time" .value=${p.end}
                   @change=${(e: Event) =>
                     this.editOutlet(slot, n, (a) => { a[i].end = (e.target as HTMLInputElement).value; })} />
@@ -7627,7 +7619,7 @@ export class SpiderFarmerCard extends LitElement {
             @click=${() =>
               this.editOutlet(slot, n, (a) =>
                 a.push({ days: [0, 1, 2, 3, 4, 5, 6], start: "08:00", end: "20:00" }))}>
-            + Add slot
+            ${loc("+ Add slot")}
           </button>
         </div>
       </div>`;
@@ -7693,17 +7685,16 @@ export class SpiderFarmerCard extends LitElement {
 
     if (!airRows.length && !soilBlocks.length && leafCal === nothing) {
       return html`<div class="cali-empty">
-        No calibration entities yet — they appear once the controller has
-        reported its configuration.
+        ${loc("No calibration entities yet — they appear once the controller has reported its configuration.")}
       </div>`;
     }
     return html`
       ${airRows.length
-        ? html`<div class="section-label">Air Calibration</div>
+        ? html`<div class="section-label">${loc("Air Calibration")}</div>
             <div class="cali-air">${airRows}</div>`
         : nothing}
       ${soilBlocks.length
-        ? html`<div class="section-label">Soil Calibration</div>${soilBlocks}`
+        ? html`<div class="section-label">${loc("Soil Calibration")}</div>${soilBlocks}`
         : nothing}
       ${leafCal}
       ${this.renderSensorCleaning()}
@@ -7735,10 +7726,10 @@ export class SpiderFarmerCard extends LitElement {
   private renderAlerts() {
     const s = this.alertsSettings();
     if (!s)
-      return html`<div class="cali-empty">No alerts reported for this device yet. Turn on alerts for it in the Spider Farmer app, and they'll appear here.</div>`;
+      return html`<div class="cali-empty">${loc("No alerts reported for this device yet. Turn on alerts for it in the Spider Farmer app, and they'll appear here.")}</div>`;
     const dirty = this.alertsDraft !== null;
     return html`
-      <div class="alert-note">Alarm when the reading leaves the set range.</div>
+      <div class="alert-note">${loc("Alarm when the reading leaves the set range.")}</div>
       ${this.renderAlertGroup(s, "climate", "Climate")}
       ${this.renderAlertGroup(s, "substrate", "Substrate")}
       ${this.renderAlertOther(s)}
@@ -7750,7 +7741,7 @@ export class SpiderFarmerCard extends LitElement {
     const metrics = (s[grp] as any[]) || [];
     if (!metrics.length) return nothing;
     return html`
-      <div class="section-label">${title}</div>
+      <div class="section-label">${loc(title)}</div>
       ${metrics.map((m, i) => this.renderAlertMetric(grp, i, m))}`;
   }
 
@@ -7794,12 +7785,12 @@ export class SpiderFarmerCard extends LitElement {
       const opts = this.numOpts(lo, key === "min" ? minHi : hi, step);
       return html`
       <label class="av">
-        <span class="av-lbl">${label}</span>
+        <span class="av-lbl">${loc(label)}</span>
         <span class="num-box">
           <select @change=${(e: Event) =>
               this.editAlert((x) => { x[grp][i][key] = Number((e.target as HTMLSelectElement).value); })}>
             ${opts.map((o) => html`
-              <option value=${o.value} .selected=${String(o.value) === String(m[key] ?? "")}>${o.label}</option>`)}
+              <option value=${o.value} .selected=${String(o.value) === String(m[key] ?? "")}>${loc(o.label)}</option>`)}
           </select>
           <span class="unit">${m.unit ?? ""}</span>
         </span>
@@ -7808,11 +7799,11 @@ export class SpiderFarmerCard extends LitElement {
     return html`
       <div class="alert-row ${m.enabled ? "" : "off"}">
         <div class="alert-head">
-          <span class="alert-name">${m.label} <span class="unit">${m.unit ?? ""}</span></span>
+          <span class="alert-name">${loc(m.label)} <span class="unit">${m.unit ?? ""}</span></span>
           <button class="toggle ${m.enabled ? "on" : ""}"
             style=${m.enabled ? `background:${accent}` : ""}
             @click=${() => this.editAlert((x) => { const mm = x[grp][i]; mm.enabled = mm.enabled ? 0 : 1; })}
-            aria-label="Toggle ${m.label} alarm"></button>
+            aria-label=${loc("Toggle {name} alarm", { name: loc(m.label) })}></button>
         </div>
         <div class="alert-vals">
           ${m.kind === "range" ? numField("Min", "min") : nothing}
@@ -7826,14 +7817,14 @@ export class SpiderFarmerCard extends LitElement {
     if (!metrics.length) return nothing;
     const accent = this.accent();
     return html`
-      <div class="section-label">Other Device</div>
+      <div class="section-label">${loc("Other Device")}</div>
       ${metrics.map(
         (m, i) => html`<div class="alert-bool">
-          <span class="alert-name">${m.label}</span>
+          <span class="alert-name">${loc(m.label)}</span>
           <button class="toggle ${m.enabled ? "on" : ""}"
             style=${m.enabled ? `background:${accent}` : ""}
             @click=${() => this.editAlert((x) => { const mm = x.other[i]; mm.enabled = mm.enabled ? 0 : 1; })}
-            aria-label="Toggle ${m.label} alarm"></button>
+            aria-label=${loc("Toggle {name} alarm", { name: loc(m.label) })}></button>
         </div>`
       )}`;
   }
@@ -7908,32 +7899,32 @@ export class SpiderFarmerCard extends LitElement {
       <div class="log-filters">
         ${sources.length > 1
           ? html`<div class="ctl">
-              <div class="ctl-label">Device</div>
+              <div class="ctl-label">${loc("Device")}</div>
               <div class="ctl-input">
                 <select @change=${(e: Event) => {
                   this.logDev = (e.target as HTMLSelectElement).value;
                 }}>
-                  <option value="all" ?selected=${dev === "all"}>All</option>
+                  <option value="all" ?selected=${dev === "all"}>${loc("All")}</option>
                   ${sources.map((src) => html`
-                    <option value=${src.slot} ?selected=${dev === src.slot}>${src.name}</option>`)}
+                    <option value=${src.slot} ?selected=${dev === src.slot}>${loc(src.name)}</option>`)}
                 </select>
               </div>
             </div>`
           : nothing}
         <div class="ctl">
-          <div class="ctl-label">Type</div>
+          <div class="ctl-label">${loc("Type")}</div>
           <div class="ctl-input">
             <select @change=${(e: Event) => {
               this.logType = (e.target as HTMLSelectElement).value;
             }}>
-              <option value="all" ?selected=${type === "all"}>All</option>
+              <option value="all" ?selected=${type === "all"}>${loc("All")}</option>
               ${types.map((t) => html`
-                <option value=${t} ?selected=${type === t}>${t}</option>`)}
+                <option value=${t} ?selected=${type === t}>${loc(t)}</option>`)}
             </select>
           </div>
         </div>
         <div class="ctl">
-          <div class="ctl-label">Date</div>
+          <div class="ctl-label">${loc("Date")}</div>
           <div class="ctl-input">
             <input type="date" .value=${date} @change=${(e: Event) => {
               this.logDate = (e.target as HTMLInputElement).value || null;
@@ -7945,7 +7936,7 @@ export class SpiderFarmerCard extends LitElement {
         ? html`
             <div class="log-count">${events.length} ${
               events.length === 1 ? "entry" : "entries"}${
-              events.length > 10 ? " — scroll for more" : ""}</div>
+              events.length > 10 ? loc(" — scroll for more") : ""}</div>
             <div class="log-list">
               ${events.map((e) => html`
                 <div class="log-row ${e.alarmType ? "raise" : "restore"}">
@@ -7955,9 +7946,10 @@ export class SpiderFarmerCard extends LitElement {
                   <div class="log-time">${e.epoch ? fmt(e.epoch) : e.time || ""}</div>
                 </div>`)}
             </div>`
-        : html`<div class="cali-empty">No log entries on this date.</div>`}`;
+        : html`<div class="cali-empty">${loc("No log entries on this date.")}</div>`}`;
   }
   protected render() {
+    setLanguage(this.hass);
     if (!this.hass || !this.config) return nothing;
     // Rebuild the read-dependency set for this render (see shouldUpdate/_used).
     this._used = new Set();
@@ -8001,7 +7993,7 @@ export class SpiderFarmerCard extends LitElement {
       label: string
     ) => html`<button class="tab ${tab === id ? "active" : ""}"
         style=${tab === id ? `color:${accent};border-color:${accent}` : ""}
-        @click=${() => (this.tab = id)}>${label}</button>`;
+        @click=${() => (this.tab = id)}>${loc(label)}</button>`;
     const devName = slotDeviceName(this.hass, this.config.panel);
     // Tile-appearance scope: exclude classes gate which tile categories pick up
     // the custom appearance vars (see .ta-x-* CSS). Absent classes = apply to all.
@@ -8013,7 +8005,7 @@ export class SpiderFarmerCard extends LitElement {
     return html`
       <ha-card class=${taScope || nothing} style=${this.layoutStyle() || nothing}>
         <div class="header">
-          <span class="title" style="cursor:pointer" title=${hasTabs ? "Hide the tabs" : "Show the tabs"} @click=${() => this.toggleTabs()}>${this.config.title || "Spider Farmer"}</span>
+          <span class="title" style="cursor:pointer" title=${hasTabs ? loc("Hide the tabs") : loc("Show the tabs")} @click=${() => this.toggleTabs()}>${this.config.title || loc("Spider Farmer")}</span>
           ${devName ? html`<span class="device">${devName}</span>` : nothing}
           ${this.renderConn()}
         </div>
@@ -8099,15 +8091,12 @@ export class SpiderFarmerCard extends LitElement {
     const stageCal = (v: number) =>
       calTarget === "night" ? stageNight(v) : stageOff(v);
     return html`
-      <div class="section-label" style="margin-top:16px">Leaf VPD</div>
+      <div class="section-label" style="margin-top:16px">${loc("Leaf VPD")}</div>
       <div class="set-note">
-        VPD referenced to the leaf surface, which runs cooler than the air. Under
-        the light leaves transpire and sit well below air; lights-off they settle
-        near air temp — so set a Day and Night offset. Calibrate the day value
-        from measurements if you like, then Apply.
+        ${loc("VPD referenced to the leaf surface, which runs cooler than the air. Under the light leaves transpire and sit well below air; lights-off they settle near air temp — so set a Day and Night offset. Calibrate the day value from measurements if you like, then Apply.")}
       </div>
       <div class="toggle-row ${staged ? "staged" : ""}">
-        <span>Leaf offset (day)</span>
+        <span>${loc("Leaf offset (day)")}</span>
         <span class="num-box">
           <input type="number" step="0.1" .value=${this.draftVal(offId)}
             @change=${(e: Event) => {
@@ -8119,7 +8108,7 @@ export class SpiderFarmerCard extends LitElement {
       </div>
       ${hasNight ? html`
       <div class="toggle-row ${stagedNight ? "staged" : ""}">
-        <span>Leaf offset (night)</span>
+        <span>${loc("Leaf offset (night)")}</span>
         <span class="num-box">
           <input type="number" step="0.1" .value=${this.draftVal(offNightId)}
             @change=${(e: Event) => {
@@ -8130,24 +8119,21 @@ export class SpiderFarmerCard extends LitElement {
         </span>
       </div>` : nothing}
       <details class="leaf-cal">
-        <summary>Calibrate from 5 readings</summary>
+        <summary>${loc("Calibrate from 5 readings")}</summary>
         <div class="set-note">
-          Point an IR thermometer at 5 leaf spots and enter each. The average
-          becomes leaf temp; the implied offset (leaf − air) fills the offset you
-          pick below — Apply to save it. Measure under the light for Day, lights-off
-          for Night.
+          ${loc("Point an IR thermometer at 5 leaf spots and enter each. The average becomes leaf temp; the implied offset (leaf − air) fills the offset you pick below — Apply to save it. Measure under the light for Day, lights-off for Night.")}
         </div>
         ${hasNight ? html`
         <div class="seg-row" style="grid-template-columns:repeat(2,1fr);margin-bottom:8px">
           <button class="seg ${calTarget === "day" ? "on" : ""}"
             style=${calTarget === "day" ? `border-color:${accent};color:${accent}` : nothing}
             @click=${() => { this.leafCalTarget = "day"; }}>
-            <ha-icon icon="mdi:white-balance-sunny"></ha-icon><span>Day</span>
+            <ha-icon icon="mdi:white-balance-sunny"></ha-icon><span>${loc("Day")}</span>
           </button>
           <button class="seg ${calTarget === "night" ? "on" : ""}"
             style=${calTarget === "night" ? `border-color:${accent};color:${accent}` : nothing}
             @click=${() => { this.leafCalTarget = "night"; }}>
-            <ha-icon icon="mdi:weather-night"></ha-icon><span>Night</span>
+            <ha-icon icon="mdi:weather-night"></ha-icon><span>${loc("Night")}</span>
           </button>
         </div>` : nothing}
         <div class="leaf-spots">
@@ -8158,12 +8144,12 @@ export class SpiderFarmerCard extends LitElement {
         </div>
         <div class="leaf-cal-foot">
           <span>
-            Avg ${avg != null ? avg.toFixed(1) + unit : "—"}
+            ${loc("Avg {value}", { value: avg != null ? avg.toFixed(1) + unit : "—" })}
             · offset ${derived != null ? sign(derived) + unit : "—"}
           </span>
           <button class="leaf-apply" ?disabled=${derived == null}
             @click=${() => derived != null && stageCal(derived)}>
-            Use for ${calTarget === "night" ? "night" : "day"}</button>
+            ${loc(calTarget === "night" ? "Use for night" : "Use for day")}</button>
         </div>
       </details>`;
   }
@@ -8221,17 +8207,17 @@ export class SpiderFarmerCard extends LitElement {
     const seg = (val: string, label: string) => html`
       <button class="seg ${source === val ? "on" : ""}"
         style=${source === val ? `border-color:${accent};color:${accent}` : nothing}
-        @click=${() => stage({ tsSource: val })}>${label}</button>`;
+        @click=${() => stage({ tsSource: val })}>${loc(label)}</button>`;
     // Same block as the Settings "Signal entity" select: a toggle-row with the
     // label on the left and a <select> capped at 60% on the right.
     const picker = (val: string, dc: string, key: "tsTemp" | "tsHumi", label: string) => html`
       <div class="toggle-row" style="margin-top:8px">
-        <span>${label}</span>
+        <span>${loc(label)}</span>
         <select style="max-width:60%"
           @change=${(e: Event) => stage({ [key]: (e.target as HTMLSelectElement).value })}>
-          <option value="" ?selected=${!val}>— choose —</option>
+          <option value="" ?selected=${!val}>${loc("— choose —")}</option>
           ${this._sensorOptions(dc).map((o) => html`
-            <option value=${o.id} ?selected=${o.id === val}>${o.name}</option>`)}
+            <option value=${o.id} ?selected=${o.id === val}>${loc(o.name)}</option>`)}
           ${val && !this._sensorOptions(dc).some((o) => o.id === val)
             ? html`<option value=${val} selected>${val}</option>` : nothing}
         </select>
@@ -8239,22 +8225,16 @@ export class SpiderFarmerCard extends LitElement {
     return html`
       <div class="section-label set-collapse-h"
         @click=${() => (this._tsOpen = !this._tsOpen)}>
-        <span>Temperature source</span>
+        <span>${loc("Temperature source")}</span>
         <ha-icon icon=${this._tsOpen ? "mdi:chevron-up" : "mdi:chevron-down"}></ha-icon>
       </div>
       ${this._tsOpen ? html`
       <div class="set-note">
-        This strip has no Spider Farmer air sensor. Use a 3rd-party Home Assistant
-        temperature/humidity sensor as its reference — the readings appear on the
-        card (and as <code>sensor.sf_${this.config.panel}_temperature</code> /
-        <code>_humidity</code>) so you can drive the outlets from your own
-        automations.
+        ${loc("This strip has no Spider Farmer air sensor. Use a 3rd-party Home Assistant temperature/humidity sensor as its reference — the readings appear on the card (and as")} <code>sensor.sf_${this.config.panel}_temperature</code> /
+        <code>_humidity</code>${loc(") so you can drive the outlets from your own automations.")}
       </div>
       <div class="set-note" style="font-weight:700;color:var(--warning-color,#ff9800);margin-top:6px">
-        ⚠ Important: while a 3rd-party (External) sensor is in use, control this
-        device from Home Assistant only — you CANNOT use the Spider Farmer app.
-        The app has no access to your 3rd-party sensor and will fight the
-        integration's control.
+        ${loc("⚠ Important: while a 3rd-party (External) sensor is in use, control this device from Home Assistant only — you CANNOT use the Spider Farmer app. The app has no access to your 3rd-party sensor and will fight the integration's control.")}
       </div>
       <div style="display:flex;gap:8px;margin-top:4px">
         ${seg("sf", "SF sensor")}
@@ -8299,14 +8279,14 @@ export class SpiderFarmerCard extends LitElement {
     const num = (v: any, dflt: number) => (Number.isFinite(Number(v)) ? Number(v) : dflt);
     const pctRow = (label: string, key: string, dflt: number, step = 1) => html`
       <div class="toggle-row" style="margin-top:8px">
-        <span>${label}</span>
+        <span>${loc(label)}</span>
         <input type="number" style="max-width:90px" step=${step}
           .value=${String(num(cur[key], dflt))}
           @change=${(e: Event) => scStage({ [key]: Number((e.target as HTMLInputElement).value) })} />
       </div>`;
     const minRow = (label: string, key: string, dfltSec: number) => html`
       <div class="toggle-row" style="margin-top:8px">
-        <span>${label} <span style="color:var(--secondary-text-color)">(min)</span></span>
+        <span>${loc(label)} <span style="color:var(--secondary-text-color)">${loc("(min)")}</span></span>
         <input type="number" style="max-width:90px" step="0.5" min="0"
           .value=${String(Math.round((num(cur[key], dfltSec) / 60) * 10) / 10)}
           @change=${(e: Event) => scStage({ [key]: Math.round(Number((e.target as HTMLInputElement).value) * 60) })} />
@@ -8314,30 +8294,27 @@ export class SpiderFarmerCard extends LitElement {
     return html`
       <div class="section-label set-collapse-h"
         @click=${() => (this._smartOpen = !this._smartOpen)}>
-        <span>Smart control</span>
+        <span>${loc("Smart control")}</span>
         <ha-icon icon=${this._smartOpen ? "mdi:chevron-up" : "mdi:chevron-down"}></ha-icon>
       </div>
       ${this._smartOpen ? html`
       <div class="set-note" style="color:var(--warning-color,#ff9800)">
-        ⚠ When enabled, the integration drives the dehumidifier itself (full Manual)
-        to hold your humidity target — this overrides Spider Farmer's own automation.
-        It runs continuously in Home Assistant (works with no dashboard open). On an
-        HA restart the gear holds its last state until HA is back.
+        ${loc("⚠ When enabled, the integration drives the dehumidifier itself (full Manual) to hold your humidity target — this overrides Spider Farmer's own automation. It runs continuously in Home Assistant (works with no dashboard open). On an HA restart the gear holds its last state until HA is back.")}
       </div>
       <div class="toggle-row">
-        <span>Enable smart humidity control</span>
+        <span>${loc("Enable smart humidity control")}</span>
         <button class="toggle ${enabled ? "on" : ""}"
           style=${enabled ? `background:${accent}` : nothing}
           @click=${() => scStage({ enabled: !enabled })}></button>
       </div>
       ${enabled ? html`
         <div class="toggle-row" style="margin-top:8px">
-          <span>Humidity sensor</span>
+          <span>${loc("Humidity sensor")}</span>
           <select style="max-width:60%"
             @change=${(e: Event) => scStage({ humidity: (e.target as HTMLSelectElement).value })}>
-            <option value="" ?selected=${!cur.humidity}>Strip sensor (default)</option>
+            <option value="" ?selected=${!cur.humidity}>${loc("Strip sensor (default)")}</option>
             ${this._sensorOptions("humidity").map((o) => html`
-              <option value=${o.id} ?selected=${o.id === cur.humidity}>${o.name}</option>`)}
+              <option value=${o.id} ?selected=${o.id === cur.humidity}>${loc(o.name)}</option>`)}
             ${cur.humidity && !this._sensorOptions("humidity").some((o) => o.id === cur.humidity)
               ? html`<option value=${cur.humidity} selected>${cur.humidity}</option>` : nothing}
           </select>
@@ -8356,7 +8333,7 @@ export class SpiderFarmerCard extends LitElement {
   private setHead(open: boolean, label: string, onClick: () => void) {
     return html`
       <div class="section-label set-collapse-h" style="margin-top:16px" @click=${onClick}>
-        <span>${label}</span>
+        <span>${loc(label)}</span>
         <ha-icon icon=${open ? "mdi:chevron-up" : "mdi:chevron-down"}></ha-icon>
       </div>`;
   }
@@ -8499,18 +8476,18 @@ export class SpiderFarmerCard extends LitElement {
       <button class="seg ${cur === m ? "on" : ""}"
         style=${cur === m ? `border-color:${accent};color:${accent}` : nothing}
         @click=${pick}>
-        <ha-icon icon=${icon}></ha-icon><span>${label}</span>
+        <ha-icon icon=${icon}></ha-icon><span>${loc(label)}</span>
       </button>`;
     const src = d?.source ?? this.colorSource;
     const srcSeg = (m: ColorSource, label: string, icon: string) => html`
       <button class="seg ${src === m ? "on" : ""}"
         style=${src === m ? `border-color:${accent};color:${accent}` : nothing}
         @click=${() => stage({ source: m })}>
-        <ha-icon icon=${icon}></ha-icon><span>${label}</span>
+        <ha-icon icon=${icon}></ha-icon><span>${loc(label)}</span>
       </button>`;
     const swatch = (label: string, value: string, oninput: (v: string) => void) => html`
       <label class="color-field">
-        <span>${label}</span>
+        <span>${loc(label)}</span>
         <input class="pinwheel" type="color" .value=${value}
           @input=${(ev: Event) => oninput((ev.target as HTMLInputElement).value)} />
       </label>`;
@@ -8739,21 +8716,17 @@ export class SpiderFarmerCard extends LitElement {
     const secColour = html`
       <div class="section-label set-collapse-h"
         @click=${() => (this._colorOpen = !this._colorOpen)}>
-        <span>Colours &amp; tile appearance</span>
+        <span>${loc("Colours & tile appearance")}</span>
         <ha-icon icon=${this._colorOpen ? "mdi:chevron-up" : "mdi:chevron-down"}></ha-icon>
       </div>
       ${this._colorOpen ? html`
       ${outletOnly ? nothing : html`
-      <div class="section-label">Colour by</div>
+      <div class="section-label">${loc("Colour by")}</div>
       <div class="set-note">
-        What drives the tile highlight —
-        <span style="color:${this.accent()}">Alarms</span> (the controller's alarm
-        limits on the Alerts tab),
-        <span style="color:${this.accent()}">Targets</span> (the environment
-        day/night target ± dead zone), or
-        <span style="color:${this.accent()}">Both</span> (an active alarm wins;
-        targets colour everything else). Targets add a small “target …” line to
-        Temp / Humidity / CO2 tiles.
+        ${loc("What drives the tile highlight —")}
+        <span style="color:${this.accent()}">${loc("Alarms")}</span> ${loc("(the controller's alarm limits on the Alerts tab),")}
+        <span style="color:${this.accent()}">${loc("Targets")}</span> ${loc("(the environment day/night target ± dead zone), or")}
+        <span style="color:${this.accent()}">${loc("Both")}</span> ${loc("(an active alarm wins; targets colour everything else). Targets add a small “target …” line to Temp / Humidity / CO2 tiles.")}
       </div>
       <div class="seg-row">
         ${srcSeg("alarms", "Alarms", "mdi:bell-outline")}
@@ -8761,12 +8734,11 @@ export class SpiderFarmerCard extends LitElement {
         ${srcSeg("both", "Both", "mdi:set-center")}
       </div>
 
-      <div class="section-label" style="margin-top:16px">Out-of-range highlight</div>
+      <div class="section-label" style="margin-top:16px">${loc("Out-of-range highlight")}</div>
       <div class="set-note">
-        Colour an Overview reading when it crosses its alarm limits —
-        <span style="color:${hi}">above max</span>,
-        <span style="color:${lo}">below min</span>. Saved to the controller, so
-        it sticks across upgrades and your other devices.
+        ${loc("Colour an Overview reading when it crosses its alarm limits —")}
+        <span style="color:${hi}">${loc("above max")}</span>,
+        <span style="color:${lo}">${loc("below min")}</span>${loc(". Saved to the controller, so it sticks across upgrades and your other devices.")}
       </div>
       <div class="seg-row">
         ${seg(mode, "off", "No color", "mdi:circle-off-outline", () => stage({ mode: "off" }))}
@@ -8779,10 +8751,9 @@ export class SpiderFarmerCard extends LitElement {
         ${swatch("Near edge", warn, (v) => stage({ warn: v }))}
       </div>
 
-      <div class="section-label" style="margin-top:16px">In-range highlight</div>
+      <div class="section-label" style="margin-top:16px">${loc("In-range highlight")}</div>
       <div class="set-note">
-        Colour a reading that's <span style="color:${inC}">within</span> its
-        limits. Applies to every reading; off by default.
+        ${loc("Colour a reading that's")} <span style="color:${inC}">${loc("within")}</span> ${loc("its limits. Applies to every reading; off by default.")}
       </div>
       <div class="seg-row">
         ${seg(modeIn, "off", "No color", "mdi:circle-off-outline", () => stage({ modeIn: "off" }))}
@@ -8796,24 +8767,21 @@ export class SpiderFarmerCard extends LitElement {
 
       ${hasLight2
         ? html`
-            <div class="section-label" style="margin-top:16px">Devices</div>
+            <div class="section-label" style="margin-top:16px">${loc("Devices")}</div>
             <div class="set-note">
-              A phantom Light 2 or Fan tile? Manage per-device accessories in the
-              integration: Settings → Devices &amp; services → Spider Farmer
-              Bridge → Configure → “Device accessories”. HA then skips the
-              entity entirely.
+              ${loc("A phantom Light 2 or Fan tile? Manage per-device accessories in the integration: Settings → Devices & services → Spider Farmer Bridge → Configure → “Device accessories”. HA then skips the entity entirely.")}
             </div>`
         : nothing}
 
       ${hasOutlets
         ? html`
-            <div class="section-label" style="margin-top:16px">Outlet active color</div>
+            <div class="section-label" style="margin-top:16px">${loc("Outlet active color")}</div>
             <div class="set-note">
-              Colour an outlet tile while it's on, by its mode —
-              <span style="color:${ocM}">Manual</span>,
-              <span style="color:${ocS}">Scheduled</span>,
-              <span style="color:${ocE}">Environment</span>,
-              <span style="color:${ocD}">Drip</span>. Off outlets stay neutral.
+              ${loc("Colour an outlet tile while it's on, by its mode —")}
+              <span style="color:${ocM}">${loc("Manual")}</span>,
+              <span style="color:${ocS}">${loc("Scheduled")}</span>,
+              <span style="color:${ocE}">${loc("Environment")}</span>,
+              <span style="color:${ocD}">${loc("Drip")}</span>${loc(". Off outlets stay neutral.")}
             </div>
             <div class="seg-row">
               ${seg(omode, "off", "No color", "mdi:circle-off-outline", () => stage({ omode: "off" }))}
@@ -8832,13 +8800,13 @@ export class SpiderFarmerCard extends LitElement {
 
       ${hasDevices
         ? html`
-            <div class="section-label" style="margin-top:16px">Device active color</div>
+            <div class="section-label" style="margin-top:16px">${loc("Device active color")}</div>
             <div class="set-note">
-              Colour a device tile while it's on, by its mode —
-              <span style="color:${dcM}">Manual</span>,
-              <span style="color:${dcS}">Scheduled</span>,
-              <span style="color:${dcA}">Auto</span> (Environment / PPFD). A
-              <span style="color:${ALARM_HI}">fault</span> always overrides.
+              ${loc("Colour a device tile while it's on, by its mode —")}
+              <span style="color:${dcM}">${loc("Manual")}</span>,
+              <span style="color:${dcS}">${loc("Scheduled")}</span>,
+              <span style="color:${dcA}">${loc("Auto")}</span> ${loc("(Environment / PPFD). A")}
+              <span style="color:${ALARM_HI}">${loc("fault")}</span> ${loc("always overrides.")}
             </div>
             <div class="seg-row">
               ${seg(dmode, "off", "No color", "mdi:circle-off-outline", () => stage({ dmode: "off" }))}
@@ -8852,15 +8820,15 @@ export class SpiderFarmerCard extends LitElement {
             </div>`
         : nothing}
 
-      <div class="section-label" style="margin-top:16px">Tile appearance</div>
-      <div class="set-note">Edges, border, and background for every tile.</div>
+      <div class="section-label" style="margin-top:16px">${loc("Tile appearance")}</div>
+      <div class="set-note">${loc("Edges, border, and background for every tile.")}</div>
       <div class="set-note" style="margin-top:6px;display:flex;justify-content:space-between">
-        <span>Corner radius</span><span style="color:${accent};font-weight:500">${tileRadius}px</span>
+        <span>${loc("Corner radius")}</span><span style="color:${accent};font-weight:500">${tileRadius}px</span>
       </div>
       <input type="range" min="0" max="20" step="1" .value=${String(tileRadius)} style="width:100%"
         @input=${(e: Event) => stage({ tileRadius: Number((e.target as HTMLInputElement).value) })} />
       <div class="set-note" style="margin-top:8px;display:flex;justify-content:space-between">
-        <span>Border width</span><span style="color:${accent};font-weight:500">${tileBorderW}px</span>
+        <span>${loc("Border width")}</span><span style="color:${accent};font-weight:500">${tileBorderW}px</span>
       </div>
       <input type="range" min="0" max="4" step="1" .value=${String(tileBorderW)} style="width:100%"
         @input=${(e: Event) => stage({ tileBorderW: Number((e.target as HTMLInputElement).value) })} />
@@ -8870,29 +8838,29 @@ export class SpiderFarmerCard extends LitElement {
       </div>
       <div class="ta-preview"
         style="border-radius:${tileRadius}px;border:${tileBorderW}px solid ${tileBorderCol || "transparent"};background:${tileBg || "var(--secondary-background-color)"}">
-        <span style="color:${tileBg ? "#fff" : "var(--secondary-text-color)"}">Heater</span>
+        <span style="color:${tileBg ? "#fff" : "var(--secondary-text-color)"}">${loc("Heater")}</span>
         <b style="color:${tileBg ? "#fff" : "var(--primary-text-color)"}">L4</b>
-        <span style="font-size:10px;color:var(--secondary-text-color)">preview</span>
+        <span style="font-size:10px;color:var(--secondary-text-color)">${loc("preview")}</span>
       </div>
       <div class="toggle-row" style="margin-top:6px">
-        <span style="font-size:13px;color:var(--secondary-text-color)">Reset background &amp; border to theme</span>
-        <button class="olog-rb" @click=${() => stage({ tileBg: "", tileBorderCol: "", tileBorderW: 1 })}>Reset</button>
+        <span style="font-size:13px;color:var(--secondary-text-color)">${loc("Reset background & border to theme")}</span>
+        <button class="olog-rb" @click=${() => stage({ tileBg: "", tileBorderCol: "", tileBorderW: 1 })}>${loc("Reset")}</button>
       </div>
-      <div class="set-note" style="margin-top:12px">Apply appearance to</div>
+      <div class="set-note" style="margin-top:12px">${loc("Apply appearance to")}</div>
       <div class="toggle-row">
-        <span>Sensor tiles</span>
+        <span>${loc("Sensor tiles")}</span>
         <button class="toggle ${taTiles ? "on" : ""}"
           style=${taTiles ? `background:${accent}` : nothing}
           @click=${() => stage({ taTiles: !taTiles })}></button>
       </div>
       <div class="toggle-row" style="margin-top:8px">
-        <span>Device tiles</span>
+        <span>${loc("Device tiles")}</span>
         <button class="toggle ${taDevices ? "on" : ""}"
           style=${taDevices ? `background:${accent}` : nothing}
           @click=${() => stage({ taDevices: !taDevices })}></button>
       </div>
       <div class="toggle-row" style="margin-top:8px">
-        <span>Outlet tiles</span>
+        <span>${loc("Outlet tiles")}</span>
         <button class="toggle ${taOutlets ? "on" : ""}"
           style=${taOutlets ? `background:${accent}` : nothing}
           @click=${() => stage({ taOutlets: !taOutlets })}></button>
@@ -8902,36 +8870,34 @@ export class SpiderFarmerCard extends LitElement {
     const secCooldown = this.hasDehumidifier() ? html`
       <div class="section-label set-collapse-h" style="margin-top:16px"
         @click=${() => (this._cdOpen = !this._cdOpen)}>
-        <span>Dehumidifier cooldown timer</span>
+        <span>${loc("Dehumidifier cooldown timer")}</span>
         <ha-icon icon=${this._cdOpen ? "mdi:chevron-up" : "mdi:chevron-down"}></ha-icon>
       </div>
       ${this._cdOpen ? html`
       <div class="set-note">
-        Many dehumidifiers enforce a compressor lockout after switching off — they
-        can't restart until it elapses, even when SF or the integration calls for
-        them. Show a live countdown so you always know when it can come back on.
+        ${loc("Many dehumidifiers enforce a compressor lockout after switching off — they can't restart until it elapses, even when SF or the integration calls for them. Show a live countdown so you always know when it can come back on.")}
       </div>
       <div class="toggle-row">
-        <span>Show cooldown timer</span>
+        <span>${loc("Show cooldown timer")}</span>
         <button class="toggle ${cdShow ? "on" : ""}"
           style=${cdShow ? `background:${accent}` : nothing}
           @click=${() => stage({ cdShow: !cdShow })}></button>
       </div>
       ${cdShow ? html`
       <div class="toggle-row" style="margin-top:8px">
-        <span>On device tile</span>
+        <span>${loc("On device tile")}</span>
         <button class="toggle ${cdDevice ? "on" : ""}"
           style=${cdDevice ? `background:${accent}` : nothing}
           @click=${() => stage({ cdDevice: !cdDevice })}></button>
       </div>
       <div class="toggle-row" style="margin-top:8px">
-        <span>On outlet tiles</span>
+        <span>${loc("On outlet tiles")}</span>
         <button class="toggle ${cdOutlet ? "on" : ""}"
           style=${cdOutlet ? `background:${accent}` : nothing}
           @click=${() => stage({ cdOutlet: !cdOutlet })}></button>
       </div>
       <div class="set-note" style="margin-top:8px;display:flex;justify-content:space-between">
-        <span>Cooldown length</span>
+        <span>${loc("Cooldown length")}</span>
         <span style="color:${accent};font-weight:500">${(cdSecs / 60).toFixed(1).replace(/\.0$/, "")} min</span>
       </div>
       <input type="range" min="30" max="900" step="30" .value=${String(cdSecs)} style="width:100%"
@@ -8944,24 +8910,23 @@ export class SpiderFarmerCard extends LitElement {
       ${this.setHead(this._setOverviewOpen, "Overview", () => (this._setOverviewOpen = !this._setOverviewOpen))}
       ${this._setOverviewOpen ? html`
       <div class="set-note">
-        Show everything in one view: append the outlet tiles to the Overview tab,
-        at the bottom under Devices.
+        ${loc("Show everything in one view: append the outlet tiles to the Overview tab, at the bottom under Devices.")}
       </div>
       <div class="toggle-row">
-        <span>Show outlets on Overview</span>
+        <span>${loc("Show outlets on Overview")}</span>
         <button class="toggle ${ovOutlets ? "on" : ""}"
           style=${ovOutlets ? `background:${accent}` : nothing}
           @click=${() => stage({ ovOutlets: !ovOutlets })}></button>
       </div>
       <div class="toggle-row" style="margin-top:8px">
-        <span>Show quick-toggle row on Overview</span>
+        <span>${loc("Show quick-toggle row on Overview")}</span>
         <button class="toggle ${ovQuick ? "on" : ""}"
           style=${ovQuick ? `background:${accent}` : nothing}
           @click=${() => stage({ ovQuick: !ovQuick })}></button>
       </div>
       ${this.get(`sensor.sf_${this.config.panel}_power`) ? html`
       <div class="toggle-row" style="margin-top:8px">
-        <span>Hide Energy Usage tile</span>
+        <span>${loc("Hide Energy Usage tile")}</span>
         <button class="toggle ${hideEnergy ? "on" : ""}"
           style=${hideEnergy ? `background:${accent}` : nothing}
           @click=${() => stage({ hideEnergy: !hideEnergy })}></button>
@@ -8971,93 +8936,85 @@ export class SpiderFarmerCard extends LitElement {
       ${this.setHead(this._setExtrasOpen, "Tile extras", () => (this._setExtrasOpen = !this._setExtrasOpen))}
       ${this._setExtrasOpen ? html`
       <div class="set-note">
-        Shown on every Overview tile, independent of the colour mode. Tap any tile
-        to open its history graph (6h–7d, selectable).
+        ${loc("Shown on every Overview tile, independent of the colour mode. Tap any tile to open its history graph (6h–7d, selectable).")}
       </div>
       ${outletOnly ? nothing : html`
       <div class="toggle-row">
-        <span>Target / range line</span>
+        <span>${loc("Target / range line")}</span>
         <button class="toggle ${showTargets ? "on" : ""}"
           style=${showTargets ? `background:${accent}` : nothing}
           @click=${() => stage({ showTargets: !showTargets })}></button>
       </div>
       <div class="toggle-row" style="margin-top:8px">
-        <span>Trend arrows</span>
+        <span>${loc("Trend arrows")}</span>
         <button class="toggle ${showTrend ? "on" : ""}"
           style=${showTrend ? `background:${accent}` : nothing}
           @click=${() => stage({ showTrend: !showTrend })}></button>
       </div>
       <div class="toggle-row" style="margin-top:8px">
-        <span>Dead-zone band</span>
+        <span>${loc("Dead-zone band")}</span>
         <button class="toggle ${showBand ? "on" : ""}"
           style=${showBand ? `background:${accent}` : nothing}
           @click=${() => stage({ showBand: !showBand })}></button>
       </div>
       <div class="toggle-row" style="margin-top:8px">
-        <span>Device mode summary</span>
+        <span>${loc("Device mode summary")}</span>
         <button class="toggle ${tileSummary ? "on" : ""}"
           style=${tileSummary ? `background:${accent}` : nothing}
           @click=${() => stage({ tileSummary: !tileSummary })}></button>
       </div>
       <div class="set-note">
-        On each device tile (Blower, Fan, Heater, Humidifier, Dehumidifier,
-        Lights), show a small line with its mode and key settings — so you can
-        read it without opening the tile.
+        ${loc("On each device tile (Blower, Fan, Heater, Humidifier, Dehumidifier, Lights), show a small line with its mode and key settings — so you can read it without opening the tile.")}
       </div>`}
       <div class="toggle-row" style="margin-top:8px">
-        <span>12-hour time (AM/PM)</span>
+        <span>${loc("12-hour time (AM/PM)")}</span>
         <button class="toggle ${hour12 ? "on" : ""}"
           style=${hour12 ? `background:${accent}` : nothing}
           @click=${() => stage({ hour12: !hour12 })}></button>
       </div>
       <div class="set-note">
-        Show tile schedule times as 5:00am–11:00pm instead of 05:00–23:00.
+        ${loc("Show tile schedule times as 5:00am–11:00pm instead of 05:00–23:00.")}
       </div>
       <div class="toggle-row" style="margin-top:8px">
-        <span>Hide the tab bar</span>
+        <span>${loc("Hide the tab bar")}</span>
         <button class="toggle ${hideTabs ? "on" : ""}"
           style=${hideTabs ? `background:${accent}` : nothing}
           @click=${() => stage({ hideTabs: !hideTabs })}></button>
       </div>
       <div class="set-note">
-        Collapse the row of tabs for a compact card. Tap the card title (its name in
-        the header) to show or hide the tabs again at any time.
+        ${loc("Collapse the row of tabs for a compact card. Tap the card title (its name in the header) to show or hide the tabs again at any time.")}
       </div>` : nothing}`;
 
     const secHeader = html`
       ${this.setHead(this._setConnOpen, "Header connection info", () => (this._setConnOpen = !this._setConnOpen))}
       ${this._setConnOpen ? html`
       <div class="set-note">
-        Show the controller's online status + Wi-Fi signal bars in the top-right
-        of the header. Signal comes from the controller's own Wi-Fi — no extra
-        entities are created.
+        ${loc("Show the controller's online status + Wi-Fi signal bars in the top-right of the header. Signal comes from the controller's own Wi-Fi — no extra entities are created.")}
       </div>
       <div class="toggle-row" style="margin-top:8px">
-        <span>Show connection info</span>
+        <span>${loc("Show connection info")}</span>
         <button class="toggle ${showConn ? "on" : ""}"
           style=${showConn ? `background:${accent}` : nothing}
           @click=${() => stage({ showConn: !showConn })}></button>
       </div>
       ${showConn ? html`
         <div class="toggle-row" style="margin-top:8px">
-          <span>Use a custom signal source</span>
+          <span>${loc("Use a custom signal source")}</span>
           <button class="toggle ${connCustom ? "on" : ""}"
             style=${connCustom ? `background:${accent}` : nothing}
             @click=${() => stage({ connCustom: !connCustom })}></button>
         </div>
         <div class="set-note">
-          Point the signal bars at a different entity — e.g. the controller is on
-          another AP or hard-wired, and its dBm is reported by your router/AP
-          integration instead of the bundled Wi-Fi AP.
+          ${loc("Point the signal bars at a different entity — e.g. the controller is on another AP or hard-wired, and its dBm is reported by your router/AP integration instead of the bundled Wi-Fi AP.")}
         </div>
         ${connCustom ? html`
           <div class="toggle-row" style="margin-top:6px">
-            <span>Signal entity</span>
+            <span>${loc("Signal entity")}</span>
             <select style="max-width:60%"
               @change=${(e: Event) => stage({ connSignal: (e.target as HTMLSelectElement).value })}>
-              <option value="" ?selected=${!connSignal}>— none —</option>
+              <option value="" ?selected=${!connSignal}>${loc("— none —")}</option>
               ${this.signalEntityOptions().map((o) => html`
-                <option value=${o.id} ?selected=${connSignal === o.id}>${o.name}</option>`)}
+                <option value=${o.id} ?selected=${connSignal === o.id}>${loc(o.name)}</option>`)}
             </select>
           </div>` : nothing}
       ` : nothing}` : nothing}`;
@@ -9066,81 +9023,71 @@ export class SpiderFarmerCard extends LitElement {
       ${this.setHead(this._setVpdOpen, "VPD graph", () => (this._setVpdOpen = !this._setVpdOpen))}
       ${this._setVpdOpen ? html`
       <div class="set-note">
-        Adds a "VPD" tab with a vibrant temperature × humidity phase chart (grid
-        or trend) plus growth-stage targets. Uses this panel's air temp + humidity
-        — no extra entities.
+        ${loc("Adds a \"VPD\" tab with a vibrant temperature × humidity phase chart (grid or trend) plus growth-stage targets. Uses this panel's air temp + humidity — no extra entities.")}
       </div>
       <div class="toggle-row" style="margin-top:8px">
-        <span>Show Leaf VPD tile</span>
+        <span>${loc("Show Leaf VPD tile")}</span>
         <button class="toggle ${showLeafVpd ? "on" : ""}"
           style=${showLeafVpd ? `background:${accent}` : nothing}
           @click=${() => stage({ showLeafVpd: !showLeafVpd })}></button>
       </div>
-      <div class="set-note">Off hides the Leaf VPD tile and its target settings.</div>
+      <div class="set-note">${loc("Off hides the Leaf VPD tile and its target settings.")}</div>
       <div class="toggle-row" style="margin-top:8px">
-        <span>Enable VPD graph</span>
+        <span>${loc("Enable VPD graph")}</span>
         <button class="toggle ${showVpd ? "on" : ""}"
           style=${showVpd ? `background:${accent}` : nothing}
           @click=${() => stage({ showVpd: !showVpd })}></button>
       </div>
       ${showVpd ? html`
         <div class="toggle-row" style="margin-top:8px">
-          <span>Enable Leaf VPD</span>
+          <span>${loc("Enable Leaf VPD")}</span>
           <button class="toggle ${vpdLeaf ? "on" : ""}"
             style=${vpdLeaf ? `background:${accent}` : nothing}
             @click=${() => stage({ vpdLeaf: !vpdLeaf })}></button>
         </div>
         <div class="set-note">
-          Also plots leaf VPD (from the leaf-VPD sensor) alongside air VPD on the
-          tab.
+          ${loc("Also plots leaf VPD (from the leaf-VPD sensor) alongside air VPD on the tab.")}
         </div>` : nothing}` : nothing}`;
 
     const secDevices = hasDevices ? html`
       ${this.setHead(this._setDevOpen, "Devices", () => (this._setDevOpen = !this._setDevOpen))}
       ${this._setDevOpen ? html`
       <div class="toggle-row" style="margin-top:8px">
-        <span>Show Device Log tab</span>
+        <span>${loc("Show Device Log tab")}</span>
         <button class="toggle ${showDeviceLog ? "on" : ""}"
           style=${showDeviceLog ? `background:${accent}` : nothing}
           @click=${() => stage({ showDeviceLog: !showDeviceLog })}></button>
       </div>
       <div class="set-note">
-        Adds a "Device Log" tab with a 24h/7d on-off timeline per device (lights,
-        fan, blower, heater, humidifier, dehumidifier) from Home Assistant's
-        recorder history. Tap a row for its recent events.
+        ${loc("Adds a \"Device Log\" tab with a 24h/7d on-off timeline per device (lights, fan, blower, heater, humidifier, dehumidifier) from Home Assistant's recorder history. Tap a row for its recent events.")}
       </div>
       <div class="toggle-row" style="margin-top:8px">
-        <span>Show Time-lapse tab</span>
+        <span>${loc("Show Time-lapse tab")}</span>
         <button class="toggle ${showTimelapseTab ? "on" : ""}"
           style=${showTimelapseTab ? `background:${accent}` : nothing}
           @click=${() => stage({ showTimelapseTab: !showTimelapseTab })}></button>
       </div>
       <div class="set-note">
-        Adds a "Time-lapse" tab to this panel's card for a grow time-lapse. Pick its
-        camera in the tab; it reuses the Spider Time-lapse card (frames, scrub/play,
-        MP4 export, env overlay).
+        ${loc("Adds a \"Time-lapse\" tab to this panel's card for a grow time-lapse. Pick its camera in the tab; it reuses the Spider Time-lapse card (frames, scrub/play, MP4 export, env overlay).")}
       </div>
       <div class="toggle-row" style="margin-top:8px">
-        <span>Quick-toggle devices row</span>
+        <span>${loc("Quick-toggle devices row")}</span>
         <button class="toggle ${showDeviceQuick ? "on" : ""}"
           style=${showDeviceQuick ? `background:${accent}` : nothing}
           @click=${() => stage({ showDeviceQuick: !showDeviceQuick })}></button>
       </div>
       <div class="set-note">
-        Shows a compact row of icon buttons above the device tiles for fast
-        on/off toggling.
+        ${loc("Shows a compact row of icon buttons above the device tiles for fast on/off toggling.")}
       </div>
       ${showDeviceQuick ? html`
         <div class="toggle-row" style="margin-top:6px">
-          <span>Remember device settings on toggle</span>
+          <span>${loc("Remember device settings on toggle")}</span>
           <button class="toggle ${deviceQuickRemember ? "on" : ""}"
             style=${deviceQuickRemember ? `background:${accent}` : nothing}
             @click=${() => stage({ deviceQuickRemember: !deviceQuickRemember })}></button>
         </div>
         <div class="set-note">
-          On quick-off, remember the device's mode; on quick-on, re-select it so the
-          controller re-applies that mode's settings (instead of a bare manual on).
-          Saved on the controller, so it syncs across your devices.
+          ${loc("On quick-off, remember the device's mode; on quick-on, re-select it so the controller re-applies that mode's settings (instead of a bare manual on). Saved on the controller, so it syncs across your devices.")}
         </div>` : nothing}
       ` : nothing}` : nothing;
 
@@ -9148,82 +9095,72 @@ export class SpiderFarmerCard extends LitElement {
       ${this.setHead(this._setOutletOpen, "Outlets", () => (this._setOutletOpen = !this._setOutletOpen))}
       ${this._setOutletOpen ? html`
       <div class="toggle-row" style="margin-top:12px">
-        <span>Custom outlet names</span>
+        <span>${loc("Custom outlet names")}</span>
         <button class="toggle ${customNames ? "on" : ""}"
           style=${customNames ? `background:${accent}` : nothing}
           @click=${() => stage({ customNames: !customNames })}></button>
       </div>
       <div class="set-note">
-        Give each outlet its own name (e.g. "Exhaust Fan", "Veg Light"), shown in
-        the Outlets tab in place of "Outlet 1/2/…". Edit each name on its outlet
-        after enabling. Saved to the controller, so it sticks across upgrades and
-        your other devices.
+        ${loc("Give each outlet its own name (e.g. \"Exhaust Fan\", \"Veg Light\"), shown in the Outlets tab in place of \"Outlet 1/2/…\". Edit each name on its outlet after enabling. Saved to the controller, so it sticks across upgrades and your other devices.")}
       </div>
       <div class="toggle-row" style="margin-top:8px">
-        <span>Show Outlets Log tab</span>
+        <span>${loc("Show Outlets Log tab")}</span>
         <button class="toggle ${showOutletsLog ? "on" : ""}"
           style=${showOutletsLog ? `background:${accent}` : nothing}
           @click=${() => stage({ showOutletsLog: !showOutletsLog })}></button>
       </div>
       <div class="set-note">
-        Adds an "Outlets Log" tab with a 24h/7d on-off timeline per outlet (from
-        Home Assistant's recorder history). Tap a row to see its recent switch
-        events.
+        ${loc("Adds an \"Outlets Log\" tab with a 24h/7d on-off timeline per outlet (from Home Assistant's recorder history). Tap a row to see its recent switch events.")}
       </div>
       <div class="toggle-row" style="margin-top:8px">
-        <span>Quick-toggle outlets row</span>
+        <span>${loc("Quick-toggle outlets row")}</span>
         <button class="toggle ${showOutletQuick ? "on" : ""}"
           style=${showOutletQuick ? `background:${accent}` : nothing}
           @click=${() => stage({ showOutletQuick: !showOutletQuick })}></button>
       </div>
       <div class="set-note">
-        Shows a compact row of numbered on/off buttons above the outlet tiles for
-        fast toggling.
+        ${loc("Shows a compact row of numbered on/off buttons above the outlet tiles for fast toggling.")}
       </div>
       ${showOutletQuick ? html`
         <div class="toggle-row" style="margin-top:6px">
-          <span>Show outlet names on quick buttons</span>
+          <span>${loc("Show outlet names on quick buttons")}</span>
           <button class="toggle ${outletQuickNames ? "on" : ""}"
             style=${outletQuickNames ? `background:${accent}` : nothing}
             @click=${() => stage({ outletQuickNames: !outletQuickNames })}></button>
         </div>
         <div class="set-note">
-          On: buttons show the outlet number + name (e.g. "4-Heater"), or just the
-          number for unnamed outlets. Off: a status dot + number.
+          ${loc("On: buttons show the outlet number + name (e.g. \"4-Heater\"), or just the number for unnamed outlets. Off: a status dot + number.")}
         </div>
         <div class="toggle-row" style="margin-top:6px">
-          <span>Remember outlet settings on toggle</span>
+          <span>${loc("Remember outlet settings on toggle")}</span>
           <button class="toggle ${outletQuickRemember ? "on" : ""}"
             style=${outletQuickRemember ? `background:${accent}` : nothing}
             @click=${() => stage({ outletQuickRemember: !outletQuickRemember })}></button>
         </div>
         <div class="set-note">
-          On: quick-on restores the outlet's last mode/config (saved when you
-          quick-off it). Off: plain on/off — a bare toggle reverts the outlet to
-          Manual, like the device does.
+          ${loc("On: quick-on restores the outlet's last mode/config (saved when you quick-off it). Off: plain on/off — a bare toggle reverts the outlet to Manual, like the device does.")}
         </div>` : nothing}` : nothing}` : nothing;
 
     const secLayout = html`
       ${this.setHead(this._setLayoutOpen, "Layout", () => (this._setLayoutOpen = !this._setLayoutOpen))}
       ${this._setLayoutOpen ? html`
       <div class="set-note">
-        Resize the whole card and choose how many tiles sit per row. Saved to the
-        controller, so it sticks across upgrades and your other devices.
+        ${loc("Resize the whole card and choose how many tiles sit per row. Saved to the controller, so it sticks across upgrades and your other devices.")}
       </div>
       <div class="toggle-row">
-        <span>Custom layout</span>
+        <span>${loc("Custom layout")}</span>
         <button class="toggle ${customLayout ? "on" : ""}"
           style=${customLayout ? `background:${accent}` : nothing}
           @click=${() => stage({ customLayout: !customLayout })}></button>
       </div>
       ${customLayout ? html`
         <div class="set-note" style="margin-top:10px;display:flex;justify-content:space-between">
-          <span>Scale</span><span style="color:${accent};font-weight:500">${scale}%</span>
+          <span>${loc("Scale")}</span><span style="color:${accent};font-weight:500">${scale}%</span>
         </div>
         <input type="range" min="70" max="150" step="5" .value=${String(scale)}
           style="width:100%"
           @input=${(e: Event) => stage({ scale: Number((e.target as HTMLInputElement).value) })} />
-        <div class="set-note" style="margin-top:10px">Tiles per row</div>
+        <div class="set-note" style="margin-top:10px">${loc("Tiles per row")}</div>
         <div class="seg-row" style="grid-template-columns:repeat(4,1fr)">
           ${[2, 3, 4, 5].map((c) => html`
             <button class="seg ${cols === c ? "on" : ""}"
@@ -9232,44 +9169,40 @@ export class SpiderFarmerCard extends LitElement {
         </div>
         ${!this.outletOnly() ? html`
         <div class="toggle-row" style="margin-top:12px">
-          <span>Free-move panel</span>
+          <span>${loc("Free-move panel")}</span>
           <button class="toggle ${layoutMode === "unified" ? "on" : ""}"
             style=${layoutMode === "unified" ? `background:${accent}` : nothing}
             @click=${() => stage({ layoutMode: layoutMode === "unified" ? "sections" : "unified" })}></button>
         </div>
         <div class="set-note" style="margin-top:2px;opacity:.8">
-          On: all tiles — sensors, energy, devices, outlets — merge into one grid with
-          no section headings, so any tile can go anywhere. Off: tiles reorder within
-          their own section (sensors, devices, outlets stay grouped).
+          ${loc("On: all tiles — sensors, energy, devices, outlets — merge into one grid with no section headings, so any tile can go anywhere. Off: tiles reorder within their own section (sensors, devices, outlets stay grouped).")}
         </div>
         ${layoutMode === "unified" && (this.overviewDevices().length || this.hasOutlets()) ? html`
         ${this.overviewDevices().length ? html`
         <div class="toggle-row" style="margin-top:10px">
-          <span>Show device quick row</span>
+          <span>${loc("Show device quick row")}</span>
           <button class="toggle ${unifiedDeviceQuick ? "on" : ""}"
             style=${unifiedDeviceQuick ? `background:${accent}` : nothing}
             @click=${() => stage({ unifiedDeviceQuick: !unifiedDeviceQuick })}></button>
         </div>` : nothing}
         ${this.hasOutlets() ? html`
         <div class="toggle-row" style="margin-top:6px">
-          <span>Show outlet quick row</span>
+          <span>${loc("Show outlet quick row")}</span>
           <button class="toggle ${unifiedOutletQuick ? "on" : ""}"
             style=${unifiedOutletQuick ? `background:${accent}` : nothing}
             @click=${() => stage({ unifiedOutletQuick: !unifiedOutletQuick })}></button>
         </div>` : nothing}
         <div class="set-note" style="margin-top:2px;opacity:.8">
-          Adds the quick-toggle row(s) as full-width bars in the panel — draggable in
-          Rearrange like any tile.
+          ${loc("Adds the quick-toggle row(s) as full-width bars in the panel — draggable in Rearrange like any tile.")}
         </div>` : nothing}
-        <div class="section-label" style="margin-top:16px">Rearrange tiles</div>
+        <div class="section-label" style="margin-top:16px">${loc("Rearrange tiles")}</div>
         <div class="set-note" style="margin-top:2px;opacity:.8">
-          Drag Overview tiles to reorder them and close gaps, or tap a tile's eye icon
-          to hide it. Opens Overview in rearrange mode; changes save on Apply.
+          ${loc("Drag Overview tiles to reorder them and close gaps, or tap a tile's eye icon to hide it. Opens Overview in rearrange mode; changes save on Apply.")}
         </div>
         <button class="seg" style="margin-top:8px;width:auto;padding:7px 12px"
           @click=${() => this.enterReorder()}>
           <ha-icon icon="mdi:drag-variant" style="--mdc-icon-size:18px"></ha-icon>
-          <span style="margin-left:6px">Rearrange / Hide Tiles</span>
+          <span style="margin-left:6px">${loc("Rearrange / Hide Tiles")}</span>
         </button>` : nothing}` : nothing}` : nothing}`;
 
     // Soil sensors — tile layout (averaged / per-sensor / split). Only when probes
@@ -9278,29 +9211,24 @@ export class SpiderFarmerCard extends LitElement {
       ${this.setHead(this._setSoilOpen, "Soil sensors", () => (this._setSoilOpen = !this._setSoilOpen))}
       ${this._setSoilOpen ? html`
       <div class="set-note">
-        How the soil probes appear on Overview. <b>Averaged</b> keeps one tile per
-        metric (averaged across probes). <b>Per sensor</b> shows one tile per probe
-        with Temp, Moisture and EC on it, tap for its graph. <b>Split</b> gives each
-        probe three separate tiles.
+        ${loc("How the soil probes appear on Overview.")} <b>${loc("Averaged")}</b> ${loc("keeps one tile per metric (averaged across probes).")} <b>${loc("Per sensor")}</b> ${loc("shows one tile per probe with Temp, Moisture and EC on it, tap for its graph.")} <b>${loc("Split")}</b> ${loc("gives each probe three separate tiles.")}
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
         ${(([["avg", "Averaged"], ["sensor", "Per sensor"], ["split", "Split (3 tiles)"]]) as [typeof soilMode, string][]).map(([v, l]) => html`
           <button class="seg ${soilMode === v ? "on" : ""}"
             style=${soilMode === v ? `border-color:${accent};color:${accent}` : nothing}
-            @click=${() => stage({ soilMode: v })}>${l}</button>`)}
+            @click=${() => stage({ soilMode: v })}>${loc(l)}</button>`)}
       </div>
       ${soilMode !== "avg" ? html`
-        <div class="toggle-row" style="margin-top:12px"><span>Averaged tiles &amp; stats</span></div>
+        <div class="toggle-row" style="margin-top:12px"><span>${loc("Averaged tiles & stats")}</span></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
           ${(([["replace", "Replace"], ["keep", "Keep"], ["stats", "Stats only"]]) as [typeof soilKeep, string][]).map(([v, l]) => html`
             <button class="seg ${soilKeep === v ? "on" : ""}"
               style=${soilKeep === v ? `border-color:${accent};color:${accent}` : nothing}
-              @click=${() => stage({ soilKeep: v })}>${l}</button>`)}
+              @click=${() => stage({ soilKeep: v })}>${loc(l)}</button>`)}
         </div>
         <div class="set-note">
-          <b>Replace</b>: show only the per-sensor tiles. <b>Keep</b>: also keep the
-          averaged tiles and All Soil Stats. <b>Stats only</b>: keep just the All Soil
-          Stats summary tile above the per-sensor tiles.
+          <b>${loc("Replace")}</b>${loc(": show only the per-sensor tiles.")} <b>${loc("Keep")}</b>${loc(": also keep the averaged tiles and All Soil Stats.")} <b>${loc("Stats only")}</b>${loc(": keep just the All Soil Stats summary tile above the per-sensor tiles.")}
         </div>` : nothing}` : nothing}` : nothing;
 
     // Collapsible Settings sections, rendered in alphabetical order by label.
@@ -10294,6 +10222,7 @@ export class SpiderFarmerCardEditor extends LitElement {
   }
 
   protected render() {
+    setLanguage(this.hass);
     if (!this.hass) return nothing;
     const cur = this._config;
     const dt = cur.default_tab as string | undefined;
@@ -10320,10 +10249,10 @@ export class SpiderFarmerCardEditor extends LitElement {
     return html`
       <div class="form">
         <label class="field">
-          <span class="flabel">Panel device</span>
+          <span class="flabel">${loc("Panel device")}</span>
           <select @change=${this._panelChanged}>
-            ${panels.length ? nothing : html`<option value="">(no devices found yet)</option>`}
-            ${!cur.panel ? html`<option value="" selected>— choose a device —</option>` : nothing}
+            ${panels.length ? nothing : html`<option value="">${loc("(no devices found yet)")}</option>`}
+            ${!cur.panel ? html`<option value="" selected>${loc("— choose a device —")}</option>` : nothing}
             ${panels.map(
               (s) => html`<option value=${s} ?selected=${s === cur.panel}>${label(s)}</option>`
             )}
@@ -10331,34 +10260,34 @@ export class SpiderFarmerCardEditor extends LitElement {
               ? html`<option value=${cur.panel} selected>${cur.panel} (not found)</option>`
               : nothing}
           </select>
-          <span class="hint">Which display panel this card shows.</span>
+          <span class="hint">${loc("Which display panel this card shows.")}</span>
         </label>
 
         <label class="field">
-          <span class="flabel">Title</span>
-          <input type="text" .value=${cur.title ?? ""} placeholder="Spider Farmer"
+          <span class="flabel">${loc("Title")}</span>
+          <input type="text" .value=${cur.title ?? ""} placeholder=${loc("Spider Farmer")}
             @change=${this._titleChanged} />
         </label>
 
         <label class="field">
-          <span class="flabel">Default tab</span>
+          <span class="flabel">${loc("Default tab")}</span>
           <select @change=${this._tabChanged}>
-            <option value="overview" ?selected=${!dt || dt === "overview"}>Overview</option>
-            <option value="environment" ?selected=${dt === "environment" || dt === "config"}>Environment</option>
-            ${hasOutlets ? html`<option value="outlets" ?selected=${dt === "outlets"}>Outlets</option>` : nothing}
-            ${hasOutlets && outletsLogOn ? html`<option value="outlets_log" ?selected=${dt === "outlets_log"}>Outlets Log</option>` : nothing}
-            ${deviceLogOn ? html`<option value="device_log" ?selected=${dt === "device_log"}>Device Log</option>` : nothing}
+            <option value="overview" ?selected=${!dt || dt === "overview"}>${loc("Overview")}</option>
+            <option value="environment" ?selected=${dt === "environment" || dt === "config"}>${loc("Environment")}</option>
+            ${hasOutlets ? html`<option value="outlets" ?selected=${dt === "outlets"}>${loc("Outlets")}</option>` : nothing}
+            ${hasOutlets && outletsLogOn ? html`<option value="outlets_log" ?selected=${dt === "outlets_log"}>${loc("Outlets Log")}</option>` : nothing}
+            ${deviceLogOn ? html`<option value="device_log" ?selected=${dt === "device_log"}>${loc("Device Log")}</option>` : nothing}
             ${vpdOn ? html`<option value="vpd" ?selected=${dt === "vpd"}>VPD</option>` : nothing}
-            <option value="calibration" ?selected=${dt === "calibration" || dt === "cali"}>Calibration</option>
-            <option value="alerts" ?selected=${dt === "alerts"}>Alerts</option>
-            <option value="log" ?selected=${dt === "log"}>Log</option>
+            <option value="calibration" ?selected=${dt === "calibration" || dt === "cali"}>${loc("Calibration")}</option>
+            <option value="alerts" ?selected=${dt === "alerts"}>${loc("Alerts")}</option>
+            <option value="log" ?selected=${dt === "log"}>${loc("Log")}</option>
           </select>
         </label>
 
         ${outs.length
           ? html`
               <div class="field">
-                <span class="flabel">Outlet devices (Outlets tab)</span>
+                <span class="flabel">${loc("Outlet devices (Outlets tab)")}</span>
                 <div class="checks">
                   ${outs.map(
                     (s) => html`
@@ -10370,7 +10299,7 @@ export class SpiderFarmerCardEditor extends LitElement {
                       </label>`
                   )}
                 </div>
-                <span class="hint">Power strips nested under this panel. Standalone strips are controlled from their own card.</span>
+                <span class="hint">${loc("Power strips nested under this panel. Standalone strips are controlled from their own card.")}</span>
               </div>`
           : nothing}
       </div>`;
@@ -10513,15 +10442,16 @@ export class SpiderLightCard extends LitElement {
   }
 
   protected render() {
+    setLanguage(this.hass);
     if (!this.hass || !this.config) return nothing;
     const slot = this.seSlot();
     const light = this.get(`light.sf_${slot}_light`);
     if (!light) {
       return html`<ha-card>
         <div class="empty">
-          No Spider Farmer SE light found${this.config.light
-            ? ` for "${this.config.light}"`
-            : ""}.
+          ${this.config.light
+            ? loc('No Spider Farmer SE light found for "{light}".', { light: this.config.light })
+            : loc("No Spider Farmer SE light found.")}
         </div>
       </ha-card>`;
     }
@@ -10558,7 +10488,7 @@ export class SpiderLightCard extends LitElement {
     return html`
       <ha-card>
         <div class="header">
-          <span class="title">${this.config.title || "Spider Light"}</span>
+          <span class="title">${this.config.title || loc("Spider Light")}</span>
           ${devName ? html`<span class="device">${devName}</span>` : nothing}
         </div>
 
@@ -10576,14 +10506,14 @@ export class SpiderLightCard extends LitElement {
               : nothing}
             <text x="100" y="102" text-anchor="middle" class="gval"
               fill=${showOn ? accent : "var(--secondary-text-color)"}>
-              ${showOn ? bri + "%" : "Off"}
+              ${showOn ? bri + "%" : loc("Off")}
             </text>
           </svg>
           <button class="power ${on ? "on" : ""} ${linked ? "ro" : ""}"
             style=${on ? `background:${accent}` : ""}
             ?disabled=${linked}
             @click=${linked ? null : () => this.stageCtl("power", on ? "off" : "on")}
-            aria-label="Toggle light"></button>
+            aria-label=${loc("Toggle light")}></button>
         </div>
 
         <span class="sl-live bri">
@@ -10604,17 +10534,17 @@ export class SpiderLightCard extends LitElement {
                   class="mode ${active ? "active" : ""} ${linked ? "ro" : ""}"
                   style=${active ? `color:${accent};border-color:${accent}` : ""}
                   ?disabled=${linked}
-                  @click=${linked ? null : () => this.stageCtl("mode", m)}>${m}</button>`;
+                  @click=${linked ? null : () => this.stageCtl("mode", m)}>${loc(m)}</button>`;
               })}
               ${linked && !modeOpts.includes("Linked")
                 ? html`<button class="mode active ro"
-                    style=${`color:${accent};border-color:${accent}`} disabled>Linked</button>`
+                    style=${`color:${accent};border-color:${accent}`} disabled>${loc("Linked")}</button>`
                 : nothing}
             </div>`
           : nothing}
 
         ${linked
-          ? html`<div class="linked-note">Linked — a controller (cb/ac) connected by RJ12 is driving this light.</div>`
+          ? html`<div class="linked-note">${loc("Linked — a controller (cb/ac) connected by RJ12 is driving this light.")}</div>`
           : nothing}
 
         ${!linked && mode === "Automatic" ? this.renderSchedule(slot) : nothing}
@@ -10654,7 +10584,7 @@ export class SpiderLightCard extends LitElement {
     const periods = this.periodsFor(slot);
     const accent = this.accent();
     return html`
-      <div class="section-label">Schedule</div>
+      <div class="section-label">${loc("Schedule")}</div>
       ${periods.map((p, i) => this.renderPeriod(slot, p, i, accent))}
       <div class="sched-actions">
         <button class="add"
@@ -10662,7 +10592,7 @@ export class SpiderLightCard extends LitElement {
             this.edit(slot, (a) =>
               a.push({ enabled: 1, days: [0, 1, 2, 3, 4, 5, 6],
                 start: "08:00", end: "20:00", brightness: 50, fade: 0 }))}>
-          + Add period
+          ${loc("+ Add period")}
         </button>
       </div>`;
   }
@@ -10671,8 +10601,8 @@ export class SpiderLightCard extends LitElement {
     return html`
       <div class="period">
         <div class="period-head">
-          <span class="period-name">Period ${i + 1}</span>
-          <button class="del" aria-label="Delete period"
+          <span class="period-name">${loc("Period {n}", { n: i + 1 })}</span>
+          <button class="del" aria-label=${loc("Delete period")}
             @click=${() => this.edit(slot, (a) => a.splice(i, 1))}>✕</button>
         </div>
         <div class="days">
@@ -10692,21 +10622,21 @@ export class SpiderLightCard extends LitElement {
         </div>
         <div class="sched-times">
           <div class="tf">
-            <span class="tf-lbl">Start</span>
+            <span class="tf-lbl">${loc("Start")}</span>
             <input type="time" .value=${p.start}
               @change=${(e: Event) =>
                 this.edit(slot, (a) => { a[i].start = (e.target as HTMLInputElement).value; })} />
           </div>
           <span class="dash">—</span>
           <div class="tf">
-            <span class="tf-lbl">Stop</span>
+            <span class="tf-lbl">${loc("Stop")}</span>
             <input type="time" .value=${p.end}
               @change=${(e: Event) =>
                 this.edit(slot, (a) => { a[i].end = (e.target as HTMLInputElement).value; })} />
           </div>
         </div>
         <div class="num-row">
-          <span class="nr-lbl">Brightness</span>
+          <span class="nr-lbl">${loc("Brightness")}</span>
           <span class="sl-live">
             <input type="range" min="11" max="100" .value=${String(p.brightness)}
               style="accent-color:${accent}" data-unit="%"
@@ -10718,7 +10648,7 @@ export class SpiderLightCard extends LitElement {
           <span class="nr-val">${p.brightness}%</span>
         </div>
         <div class="num-row">
-          <span class="nr-lbl">Sun fade</span>
+          <span class="nr-lbl">${loc("Sun fade")}</span>
           <span class="sl-live">
             <input type="range" min="0" max="30" .value=${String(p.fade)}
               style="accent-color:${accent}" data-unit="m"
@@ -10739,7 +10669,7 @@ export class SpiderLightCard extends LitElement {
     const fade = this.get(`number.sf_${slot}_sunrise_sunset_fade`);
     if (!start && !stop && !briN && !fade) return nothing;
     return html`
-      <div class="section-label">Schedule</div>
+      <div class="section-label">${loc("Schedule")}</div>
       ${start || stop
         ? html`<div class="sched-times">
             ${this.timeField(`text.sf_${slot}_schedule_start`, "Start")}
@@ -10757,7 +10687,7 @@ export class SpiderLightCard extends LitElement {
     const live = e.state === "unknown" || e.state === "unavailable" ? "" : e.state;
     const v = this.cur(id, live);
     return html`<div class="tf">
-      <span class="tf-lbl">${label}</span>
+      <span class="tf-lbl">${loc(label)}</span>
       <input type="time" .value=${v}
         @change=${(ev: Event) =>
           this.stageCtl(id, (ev.target as HTMLInputElement).value)} />
@@ -10772,7 +10702,7 @@ export class SpiderLightCard extends LitElement {
     const live = e.state === "unknown" || e.state === "unavailable" ? "" : e.state;
     const v = this.cur(id, live);
     return html`<div class="num-row">
-      <span class="nr-lbl">${label}</span>
+      <span class="nr-lbl">${loc(label)}</span>
       <span class="sl-live">
         <input type="range" min=${min} max=${max} step=${step} .value=${String(v)}
           style="accent-color:${this.accent()}" data-unit=${unit}
@@ -11987,6 +11917,7 @@ export class SpiderPpfdCard extends LitElement {
   `;
 
   protected render() {
+    setLanguage(this.hass);
     if (!this.config) return nothing;
     const s = this.s;
     const light = PPFD_LIGHTS[s.model] || PPFD_LIGHTS.SE4500;
@@ -12002,75 +11933,75 @@ export class SpiderPpfdCard extends LitElement {
     return html`
       <div id="w">
         <div class="top">
-          <div class="title">${title}</div>
+          <div class="title">${loc(title)}</div>
           <select @change=${this.onModel} style="width:auto">
-            ${ppfdGrouped().map((g) => html`<optgroup label=${g.label}>
+            ${ppfdGrouped().map((g) => html`<optgroup label=${loc(g.label)}>
               ${g.models.map((m) => html`<option value=${m} ?selected=${s.model === m}>${PPFD_LIGHTS[m].name} ${PPFD_LIGHTS[m].watts}W</option>`)}
             </optgroup>`)}
           </select>
         </div>
         <div class="tabs">
-          <div class="tab ${this.tab === "view" ? "on" : ""}" @click=${() => { this.tab = "view"; this.needRender = true; }}>View</div>
-          <div class="tab ${this.tab === "set" ? "on" : ""}" @click=${() => { this.tab = "set"; }}>Settings</div>
+          <div class="tab ${this.tab === "view" ? "on" : ""}" @click=${() => { this.tab = "view"; this.needRender = true; }}>${loc("View")}</div>
+          <div class="tab ${this.tab === "set" ? "on" : ""}" @click=${() => { this.tab = "set"; }}>${loc("Settings")}</div>
         </div>
         <!-- Canvas stays in the DOM across tabs (only hidden) so the WebGL
              context survives the switch — recreating it left the view black. -->
         <div class="vw" style=${this.tab === "view" ? "" : "display:none"}><canvas id="c" height="340"></canvas></div>
         ${this.tab === "view" ? html`
           <div class="stats">
-            <div class="stat"><div class="sl">Center PPFD</div><div class="sv">${ppfd.center.toLocaleString()}<span class="su">μmol/m²/s</span></div></div>
-            <div class="stat"><div class="sl">Avg canopy</div><div class="sv">${ppfd.avg.toLocaleString()}<span class="su">μmol/m²/s</span></div></div>
-            <div class="stat"><div class="sl">Edge PPFD</div><div class="sv">${ppfd.edge.toLocaleString()}<span class="su">μmol/m²/s</span></div></div>
-            <div class="stat"><div class="sl">DLI @ ${photo}h</div><div class="sv">${dli}<span class="su">mol/m²/d</span></div></div>
+            <div class="stat"><div class="sl">${loc("Center PPFD")}</div><div class="sv">${ppfd.center.toLocaleString()}<span class="su">μmol/m²/s</span></div></div>
+            <div class="stat"><div class="sl">${loc("Avg canopy")}</div><div class="sv">${ppfd.avg.toLocaleString()}<span class="su">μmol/m²/s</span></div></div>
+            <div class="stat"><div class="sl">${loc("Edge PPFD")}</div><div class="sv">${ppfd.edge.toLocaleString()}<span class="su">μmol/m²/s</span></div></div>
+            <div class="stat"><div class="sl">${loc("DLI @ {hours}h", { hours: photo })}</div><div class="sv">${dli}<span class="su">${loc("mol/m²/d")}</span></div></div>
           </div>
-          <div class="leg"><span>Low</span><div class="legbar"></div><span>High PPFD</span></div>
+          <div class="leg"><span>${loc("Low")}</span><div class="legbar"></div><span>${loc("High PPFD")}</span></div>
           <div class="zone">
-            <span class="zbadge" style="background:${zone.color}22;color:${zone.color};border:1px solid ${zone.color}44">${zone.label}</span>
-            ${this.fmtSmall(effectiveH)} light-to-canopy · ${s.dim}% brightness · ${photo}h light
+            <span class="zbadge" style="background:${zone.color}22;color:${zone.color};border:1px solid ${zone.color}44">${loc(zone.label)}</span>
+            ${loc("{height} light-to-canopy · {dim}% brightness · {hours}h light", { height: this.fmtSmall(effectiveH), dim: s.dim, hours: photo })}
           </div>
           <div class="div"></div>
-          <div class="sec">Light &amp; plants</div>
+          <div class="sec">${loc("Light & plants")}</div>
           <div class="ctrls">
             <div class="r3">
-              <div class="cg"><span class="cl">Light height <span class="cv">${this.fmtSmall(s.hin)}</span></span><input type="range" min="8" max=${ti} step="1" .value=${String(s.hin)} @input=${(e: Event) => this.onSlider("hin", e)}></div>
-              <div class="cg"><span class="cl">Plant height <span class="cv">${this.fmtSmall(s.plantIn)}</span></span><input type="range" min="1" max=${ti} step="1" .value=${String(s.plantIn)} @input=${(e: Event) => this.onSlider("plantIn", e)}></div>
-              <div class="cg"><span class="cl">Brightness <span class="cv">${s.dim}%</span></span><input type="range" min="10" max="100" step="5" .value=${String(s.dim)} ?disabled=${this.auto && !!this.brightSrc} @input=${(e: Event) => this.onSlider("dim", e)}></div>
+              <div class="cg"><span class="cl">${loc("Light height")} <span class="cv">${this.fmtSmall(s.hin)}</span></span><input type="range" min="8" max=${ti} step="1" .value=${String(s.hin)} @input=${(e: Event) => this.onSlider("hin", e)}></div>
+              <div class="cg"><span class="cl">${loc("Plant height")} <span class="cv">${this.fmtSmall(s.plantIn)}</span></span><input type="range" min="1" max=${ti} step="1" .value=${String(s.plantIn)} @input=${(e: Event) => this.onSlider("plantIn", e)}></div>
+              <div class="cg"><span class="cl">${loc("Brightness")} <span class="cv">${s.dim}%</span></span><input type="range" min="10" max="100" step="5" .value=${String(s.dim)} ?disabled=${this.auto && !!this.brightSrc} @input=${(e: Event) => this.onSlider("dim", e)}></div>
             </div>
           </div>
         ` : html`
-          <div class="sec">Brightness</div>
+          <div class="sec">${loc("Brightness")}</div>
           <div class="set">
-            <label class="setrow"><input type="checkbox" .checked=${this.auto} @change=${this.onAuto}> Auto-read brightness from a light</label>
-            <div class="cg"><span class="cl">Light source</span>
+            <label class="setrow"><input type="checkbox" .checked=${this.auto} @change=${this.onAuto}> ${loc("Auto-read brightness from a light")}</label>
+            <div class="cg"><span class="cl">${loc("Light source")}</span>
               <select .value=${this.brightSrc} @change=${this.onBrightSrc}>
-                <option value="" ?selected=${!this.brightSrc}>— none —</option>
-                ${opts.map((o) => html`<option value=${o.id} ?selected=${this.brightSrc === o.id}>${o.name}</option>`)}
+                <option value="" ?selected=${!this.brightSrc}>${loc("— none —")}</option>
+                ${opts.map((o) => html`<option value=${o.id} ?selected=${this.brightSrc === o.id}>${loc(o.name)}</option>`)}
               </select>
             </div>
             <div class="hint">
               ${this.auto && this.brightSrc
                 ? html`Reading ${(this.hass?.states[this.brightSrc]?.attributes.friendly_name) || this.brightSrc}: ${s.dim}%`
-                : "Pick a Spider Farmer light (live brightness) or a Schedule Brightness (target) and the value tracks it live."}
+                : loc("Pick a Spider Farmer light (live brightness) or a Schedule Brightness (target) and the value tracks it live.")}
             </div>
           </div>
           <div class="div"></div>
-          <div class="sec">Plants &amp; photoperiod</div>
+          <div class="sec">${loc("Plants & photoperiod")}</div>
           <div class="ctrls">
             <div class="r3">
-              <div class="cg"><span class="cl">Number of plants</span><input type="number" min="1" max="12" step="1" .value=${String(s.numPlants)} @change=${(e: Event) => this.onSlider("numPlants", e)}></div>
-              <div class="cg"><span class="cl">Photoperiod (h)</span><input type="number" min="1" max="24" step="1" .value=${String(this.effectivePhoto())} ?disabled=${this.photoFollowsLight()} @change=${(e: Event) => this.onSlider("photo", e)}></div>
+              <div class="cg"><span class="cl">${loc("Number of plants")}</span><input type="number" min="1" max="12" step="1" .value=${String(s.numPlants)} @change=${(e: Event) => this.onSlider("numPlants", e)}></div>
+              <div class="cg"><span class="cl">${loc("Photoperiod (h)")}</span><input type="number" min="1" max="24" step="1" .value=${String(this.effectivePhoto())} ?disabled=${this.photoFollowsLight()} @change=${(e: Event) => this.onSlider("photo", e)}></div>
             </div>
             ${this.photoFollowsLight()
-              ? html`<div class="hint">Auto from the selected light's schedule — ${this.effectivePhoto()}h. Uncheck “Auto-read brightness from a light” to set hours manually.</div>`
+              ? html`<div class="hint">${loc("Auto from the selected light's schedule — {hours}h. Uncheck “Auto-read brightness from a light” to set hours manually.", { hours: this.effectivePhoto() })}</div>`
               : nothing}
           </div>
           <div class="div"></div>
-          <div class="sec">Tent dimensions</div>
+          <div class="sec">${loc("Tent dimensions")}</div>
           <div class="ctrls">
             <div class="r3">
-              <div class="cg"><span class="cl">Width (${u})</span><input type="number" min=${this.s.metric ? "0.3" : "1"} max=${this.s.metric ? "3.0" : "10"} step="0.1" .value=${this.fmtTentDim(s.tW / 0.3048)} @change=${(e: Event) => this.onTent("tW", e)}></div>
-              <div class="cg"><span class="cl">Length (${u})</span><input type="number" min=${this.s.metric ? "0.3" : "1"} max=${this.s.metric ? "3.6" : "12"} step="0.1" .value=${this.fmtTentDim(s.tL / 0.3048)} @change=${(e: Event) => this.onTent("tL", e)}></div>
-              <div class="cg"><span class="cl">Height (${u})</span><input type="number" min=${this.s.metric ? "0.9" : "3"} max=${this.s.metric ? "3.6" : "12"} step="0.1" .value=${this.fmtTentDim(s.tH / 0.3048)} @change=${(e: Event) => this.onTent("tH", e)}></div>
+              <div class="cg"><span class="cl">${loc("Width ({unit})", { unit: u })}</span><input type="number" min=${this.s.metric ? "0.3" : "1"} max=${this.s.metric ? "3.0" : "10"} step="0.1" .value=${this.fmtTentDim(s.tW / 0.3048)} @change=${(e: Event) => this.onTent("tW", e)}></div>
+              <div class="cg"><span class="cl">${loc("Length ({unit})", { unit: u })}</span><input type="number" min=${this.s.metric ? "0.3" : "1"} max=${this.s.metric ? "3.6" : "12"} step="0.1" .value=${this.fmtTentDim(s.tL / 0.3048)} @change=${(e: Event) => this.onTent("tL", e)}></div>
+              <div class="cg"><span class="cl">${loc("Height ({unit})", { unit: u })}</span><input type="number" min=${this.s.metric ? "0.9" : "3"} max=${this.s.metric ? "3.6" : "12"} step="0.1" .value=${this.fmtTentDim(s.tH / 0.3048)} @change=${(e: Event) => this.onTent("tH", e)}></div>
             </div>
           </div>
           ${commitBar("var(--primary-color, #03a9f4)", this.settingsDirty(),
@@ -12267,8 +12198,8 @@ export class SpiderTimelapseCard extends LitElement {
   private _clearAll() {
     const st = this._statusEntity();
     const n = st ? (st.attributes.frame_count ?? 0) : 0;
-    const label = this.config.title || (st && st.attributes.name) || "this time-lapse";
-    if (!window.confirm(`Delete ALL ${n} image(s) and exported videos for ${label}? This cannot be undone.`)) return;
+    const label = this.config.title || (st && st.attributes.name) || loc("this time-lapse");
+    if (!window.confirm(loc("Delete ALL {n} image(s) and exported videos for {name}? This cannot be undone.", { n, name: label }))) return;
     this.hass.callService("sf", "timelapse_clear", { tl_id: this.config.tl_id });
     this._frames = []; this._idx = 0; this._session = null; this._sizeBytes = 0;
     setTimeout(() => this._fetchFrames(), 1500);
@@ -12288,7 +12219,7 @@ export class SpiderTimelapseCard extends LitElement {
   private _displayName(st: any): string {
     const label = (st?.attributes?.label as string) || "";
     return this.config.title || label || this._camFriendly(st?.attributes?.camera)
-      || (st?.attributes?.name as string) || "Time-lapse";
+      || (st?.attributes?.name as string) || loc("Time-lapse");
   }
 
   // ── in-card settings (writes to the backend via sf.timelapse_configure) ────
@@ -12434,14 +12365,14 @@ export class SpiderTimelapseCard extends LitElement {
     // numbers before any frame is captured; otherwise use the frame's own data.
     const livev = editing ? this._liveReadings(src.overlay_panel) : null;
     const data = (livev && Object.keys(livev).length) ? livev : (cur && cur.data);
-    const lbl: any = { temp: "Temp", humidity: "RH", vpd: "VPD", co2: "CO2", ppfd: "PPFD" };
+    const lbl: any = { temp: loc("Temp"), humidity: loc("RH"), vpd: "VPD", co2: "CO2", ppfd: "PPFD" };
     const showLabels = src.overlay_labels !== false;
     const rendered: [string, string][] = [];
     for (const f of fields) {
       if (f === "timestamp") {
-        rendered.push(["timestamp", cur ? this._fmt(cur.stamp) : (editing ? this._nowStamp() : "Time —")]);
+        rendered.push(["timestamp", cur ? this._fmt(cur.stamp) : (editing ? this._nowStamp() : loc("Time —"))]);
       } else if (f === "day") {
-        rendered.push(["day", `Day ${this._dayNumber(cur)}`]);
+        rendered.push(["day", loc("Day {n}", { n: this._dayNumber(cur) })]);
       } else {
         // Drop the "/m²/s" from PPFD (the ² renders as a stray glyph in burned frames,
         // and it's just noise on the small overlay) — keep "µmol". Works for old frames too.
@@ -12618,15 +12549,15 @@ export class SpiderTimelapseCard extends LitElement {
   }
   private _waitMsg(st: any): string {
     const nc = st && st.attributes.next_capture;
-    if (!nc) return "Waiting for the first frame…";
+    if (!nc) return loc("Waiting for the first frame…");
     const t = new Date(nc);
     const ms = t.getTime() - Date.now();
-    if (ms <= 0) return "Capturing…";
+    if (ms <= 0) return loc("Capturing…");
     const s = Math.ceil(ms / 1000), m = Math.floor(s / 60), sec = s % 60;
     const h24 = t.getHours(), ampm = h24 < 12 ? "AM" : "PM";
     const h12 = ((h24 + 11) % 12) + 1, mm = String(t.getMinutes()).padStart(2, "0");
     const left = m > 0 ? `${m}m ${sec}s` : `${sec}s`;
-    return `First frame at ${h12}:${mm} ${ampm} · in ${left}`;
+    return loc("First frame at {time} · in {left}", { time: `${h12}:${mm} ${ampm}`.trim(), left });
   }
   private _settingsPanel() {
     const c = this._cfg || {};
@@ -12646,35 +12577,35 @@ export class SpiderTimelapseCard extends LitElement {
     const _keep = Math.max(1, Number(c.retention ?? 7) || 7);
     const _perDay = 86400 / curIv;
     const _estNote = (this._sizeBytes > 0 && _frames > 0)
-      ? `≈ ${this._fmtSize((this._sizeBytes / _frames) * _perDay * _keep)} at full retention`
-      : "size estimate appears after the first frames";
+      ? loc("≈ {size} at full retention", { size: this._fmtSize((this._sizeBytes / _frames) * _perDay * _keep) })
+      : loc("size estimate appears after the first frames");
     return html`<div class="tl-settings">
       <div class="tl-grid" style="grid-template-columns:${curIv === 86400 ? "1fr 1fr 1fr" : "1fr 1fr"}">
-        <label class="tl-field"><span>Snapshot interval</span>
+        <label class="tl-field"><span>${loc("Snapshot interval")}</span>
           <select .value=${live(String(curIv))} @change=${(e: any) => this._setCfg({ interval: Number(e.target.value) })}>
-            ${IVS.map(([v, lbl]) => html`<option value=${v} ?selected=${v === curIv}>${lbl}</option>`)}
+            ${IVS.map(([v, lbl]) => html`<option value=${v} ?selected=${v === curIv}>${loc(lbl)}</option>`)}
           </select></label>
-        <label class="tl-field"><span>Keep (days)</span>
+        <label class="tl-field"><span>${loc("Keep (days)")}</span>
           <input type="number" min="1" .value=${String(c.retention ?? 7)} @change=${(e: any) => this._setCfg({ retention: Number(e.target.value) })} />
           <span style="font-size:.68em;color:var(--secondary-text-color);margin-top:3px;line-height:1.2">${_estNote}</span></label>
-        ${curIv === 86400 ? html`<label class="tl-field"><span>Capture daily at</span>
+        ${curIv === 86400 ? html`<label class="tl-field"><span>${loc("Capture daily at")}</span>
           <input type="time" .value=${live(c.daily_at || "00:00")}
             @change=${(e: any) => this._setCfg({ daily_at: e.target.value })} /></label>` : nothing}
       </div>
       <div class="tl-checks">
-        <label class="tl-check"><input type="checkbox" .checked=${!!c.enabled} @change=${(e: any) => this._setCfg({ enabled: e.target.checked })} />Enable capture</label>
-        <label class="tl-check"><input type="checkbox" .checked=${!!c.overlay} @change=${(e: any) => this._setCfg({ overlay: e.target.checked })} />Env overlay</label>
-        <label class="tl-check"><input type="checkbox" .checked=${!!c.overlay_burn} @change=${(e: any) => this._setCfg({ overlay_burn: e.target.checked })} />Burn into video</label>
-        <label class="tl-check" title="On: first frame lands on the next 5/10/15… clock mark. Off: start right away.">
-          <input type="checkbox" .checked=${c.align !== false} @change=${(e: any) => this._setCfg({ align: e.target.checked })} />Start on the mark</label>
+        <label class="tl-check"><input type="checkbox" .checked=${!!c.enabled} @change=${(e: any) => this._setCfg({ enabled: e.target.checked })} />${loc("Enable capture")}</label>
+        <label class="tl-check"><input type="checkbox" .checked=${!!c.overlay} @change=${(e: any) => this._setCfg({ overlay: e.target.checked })} />${loc("Env overlay")}</label>
+        <label class="tl-check"><input type="checkbox" .checked=${!!c.overlay_burn} @change=${(e: any) => this._setCfg({ overlay_burn: e.target.checked })} />${loc("Burn into video")}</label>
+        <label class="tl-check" title=${loc("On: first frame lands on the next 5/10/15… clock mark. Off: start right away.")}>
+          <input type="checkbox" .checked=${c.align !== false} @change=${(e: any) => this._setCfg({ align: e.target.checked })} />${loc("Start on the mark")}</label>
       </div>
       ${c.overlay ? html`
         <div class="tl-row tl-adj">
-          <span>Read env from</span>
+          <span>${loc("Read env from")}</span>
           <select class="tl-xnarrow" .value=${live(c.overlay_panel || "")} @change=${(e: any) => this._setCfg({ overlay_panel: e.target.value })}>
             ${this._panelList().map((p) => html`<option value=${p} ?selected=${c.overlay_panel === p}>${p}</option>`)}
           </select>
-          <span class="tl-gap">Text size</span>
+          <span class="tl-gap">${loc("Text size")}</span>
           <select class="tl-xnarrow" .value=${live(String(Number(c.overlay_font) || 12))}
             @change=${(e: any) => this._setCfg({ overlay_font: Number(e.target.value) })}>
             ${Array.from({ length: 16 }, (_, i) => i + 5).map((f) => html`<option value=${String(f)} ?selected=${(Number(c.overlay_font) || 12) === f}>${f}</option>`)}
@@ -12682,24 +12613,24 @@ export class SpiderTimelapseCard extends LitElement {
         </div>
         <div class="tl-checks">
           <label class="tl-check"><input type="checkbox" .checked=${c.overlay_grouped !== false}
-            @change=${(e: any) => this._setCfg({ overlay_grouped: e.target.checked })} />All together</label>
-          <label class="tl-check" title="Off: show just the values (e.g. 72°F) without the Temp/RH labels">
+            @change=${(e: any) => this._setCfg({ overlay_grouped: e.target.checked })} />${loc("All together")}</label>
+          <label class="tl-check" title=${loc("Off: show just the values (e.g. 72°F) without the Temp/RH labels")}>
             <input type="checkbox" .checked=${c.overlay_labels !== false}
-              @change=${(e: any) => this._setCfg({ overlay_labels: e.target.checked })} />Show labels</label>
-          ${c.overlay_grouped !== false ? html`<span class="tl-inline"><span>Layout</span>
+              @change=${(e: any) => this._setCfg({ overlay_labels: e.target.checked })} />${loc("Show labels")}</label>
+          ${c.overlay_grouped !== false ? html`<span class="tl-inline"><span>${loc("Layout")}</span>
             <select class="tl-narrow" .value=${live(c.overlay_orient === "h" ? "h" : "v")}
               @change=${(e: any) => this._setCfg({ overlay_orient: e.target.value })}>
-              <option value="v" ?selected=${c.overlay_orient !== "h"}>Vertical</option>
-              <option value="h" ?selected=${c.overlay_orient === "h"}>Horizontal</option>
+              <option value="v" ?selected=${c.overlay_orient !== "h"}>${loc("Vertical")}</option>
+              <option value="h" ?selected=${c.overlay_orient === "h"}>${loc("Horizontal")}</option>
             </select></span>` : nothing}
         </div>
         <div class="tl-hint">${c.overlay_grouped !== false
-          ? "Readings stack in one box, in the order selected. Drag the box on the image to place it."
-          : "Drag each reading on the image to place it independently."}</div>
+          ? loc("Readings stack in one box, in the order selected. Drag the box on the image to place it.")
+          : loc("Drag each reading on the image to place it independently.")}</div>
         <div class="tl-fields">${fields.map(([k, lab]) => html`
           <button class="tl-chip ${(c.overlay_fields || []).includes(k) ? "on" : ""}"
             @click=${() => this._toggleField(k)}>${lab}</button>`)}</div>
-        <label class="tl-row"><span>Text colour</span>
+        <label class="tl-row"><span>${loc("Text colour")}</span>
           <span class="tl-wheelwrap">
             <canvas class="tl-wheel" width="104" height="104"
               @pointerdown=${(e: any) => this._wheelDown(e)}></canvas>
@@ -12707,21 +12638,21 @@ export class SpiderTimelapseCard extends LitElement {
           </span></label>` : nothing}
       ${this._instances.length ? html`
         <div class="tl-manage">
-          <div class="tl-manage-h">Time-lapses (tap 🗑, then confirm, to delete — images included)</div>
+          <div class="tl-manage-h">${loc("Time-lapses (tap 🗑, then confirm, to delete — images included)")}</div>
           ${this._instances.map((it) => {
             const nm = it.label || this._camFriendly(it.camera) || it.name;
             const arm = this._rmConfirm === it.tl_id;
             return html`
             <div class="tl-manage-row">
-              <span class="tl-manage-name">${nm}${it.tl_id === this.config.tl_id ? " (this card)" : ""}
+              <span class="tl-manage-name">${nm}${it.tl_id === this.config.tl_id ? loc(" (this card)") : ""}
                 <span class="tl-manage-sub">${(it.camera || "—").replace("camera.", "")} · ${(it.status && it.status.frame_count) || 0} frames</span></span>
-              <button class="tl-xbtn ${arm ? "danger" : ""}" title="Delete this time-lapse and its images"
-                @click=${() => arm ? this._removeInstance(it.tl_id) : this._armRemove(it.tl_id)}>${arm ? "Delete?" : "🗑"}</button>
+              <button class="tl-xbtn ${arm ? "danger" : ""}" title=${loc("Delete this time-lapse and its images")}
+                @click=${() => arm ? this._removeInstance(it.tl_id) : this._armRemove(it.tl_id)}>${arm ? loc("Delete?") : "🗑"}</button>
             </div>`; })}
         </div>` : nothing}
       <div class="tl-apply">
-        <button class="tl-ctl" @click=${() => this._applySettings()}>Apply</button>
-        <button class="tl-ctl" @click=${() => { this._settingsOpen = false; }}>Cancel</button>
+        <button class="tl-ctl" @click=${() => this._applySettings()}>${loc("Apply")}</button>
+        <button class="tl-ctl" @click=${() => { this._settingsOpen = false; }}>${loc("Cancel")}</button>
       </div>
     </div>`;
   }
@@ -12739,28 +12670,25 @@ export class SpiderTimelapseCard extends LitElement {
   private _fmtInterval(s: any): string {
     const n = Number(s) || 0;
     const map: any = { 300: "5 min", 600: "10 min", 900: "15 min", 1800: "30 min", 2700: "45 min", 3600: "1 hr", 86400: "1 day" };
-    if (map[n]) return map[n];
-    if (n >= 86400) return `${Math.round(n / 86400)} day`;
-    if (n >= 3600) return `${Math.round(n / 3600)} hr`;
+    if (map[n]) return loc(map[n]);
+    if (n >= 86400) return loc("{n} day", { n: Math.round(n / 86400) });
+    if (n >= 3600) return loc("{n} hr", { n: Math.round(n / 3600) });
     if (n >= 60) return `${Math.round(n / 60)} min`;
     return `${n}s`;
   }
 
   render() {
+    setLanguage(this.hass);
     const st = this._statusEntity();
     if (!st) {
       // Camera already chosen in the editor (e.g. after a delete) → one-tap re-create,
       // so you don't have to re-pick the same camera. Otherwise point to the editor.
       if (this.config.camera) {
-        return html`<ha-card><div class="tl-note">Ready to create this time-lapse.
-          <div style="margin-top:8px"><button class="tl-ctl" @click=${() => this._setupFromConfig()}>Set up ${this.config.title || this._camFriendly(this.config.camera)}</button></div>
-          <div style="margin-top:6px">This makes its folder and starts the time-lapse. Change the
-          camera, title, interval or folder in the editor (⋮ → Edit) first if needed. To remove this
-          card, edit the dashboard and delete the card.</div></div></ha-card>`;
+        return html`<ha-card><div class="tl-note">${loc("Ready to create this time-lapse.")}
+          <div style="margin-top:8px"><button class="tl-ctl" @click=${() => this._setupFromConfig()}>${loc("Set up {name}", { name: this.config.title || this._camFriendly(this.config.camera) })}</button></div>
+          <div style="margin-top:6px">${loc("This makes its folder and starts the time-lapse. Change the camera, title, interval or folder in the editor (⋮ → Edit) first if needed. To remove this card, edit the dashboard and delete the card.")}</div></div></ha-card>`;
       }
-      return html`<ha-card><div class="tl-note">Time-lapse not set up yet. Open this card's
-        editor (⋮ → Edit) and choose a camera. Give it a title and storage folder there too;
-        set the interval and env overlay from the ⚙ settings.</div></ha-card>`;
+      return html`<ha-card><div class="tl-note">${loc("Time-lapse not set up yet. Open this card's editor (⋮ → Edit) and choose a camera. Give it a title and storage folder there too; set the interval and env overlay from the ⚙ settings.")}</div></ha-card>`;
     }
     const capturing = !!st.attributes.capturing;
     const exporting = !!st.attributes.export_running;
@@ -12771,14 +12699,14 @@ export class SpiderTimelapseCard extends LitElement {
       <div class="tl-head">
         <span>${this._displayName(st)}</span>
         <span class="tl-right">
-          <span class="tl-sub">${capturing ? "● capturing" : "idle"} · ${this._fmtInterval(st.attributes.interval_s)} · ${st.attributes.frame_count ?? 0} frames${this._sizeBytes ? " · " + this._fmtSize(this._sizeBytes) : ""}</span>
+          <span class="tl-sub">${capturing ? loc("● capturing") : "idle"} · ${this._fmtInterval(st.attributes.interval_s)} · ${st.attributes.frame_count ?? 0} frames${this._sizeBytes ? " · " + this._fmtSize(this._sizeBytes) : ""}</span>
           <ha-icon class="tl-gear" icon="mdi:cog" @click=${() => this._settingsOpen ? (this._settingsOpen = false) : this._openSettings()}></ha-icon>
         </span>
       </div>
       <div class="tl-stage">
-        ${cur ? html`<img src=${cur.url} alt="frame" decoding="sync"
+        ${cur ? html`<img src=${cur.url} alt=${loc("frame")} decoding="sync"
                 @error=${() => this._onFrameError()} />`
-              : html`<div class="tl-empty">${capturing ? this._waitMsg(st) : "No frames yet"}</div>`}
+              : html`<div class="tl-empty">${capturing ? this._waitMsg(st) : loc("No frames yet")}</div>`}
         ${this._overlayOn(st) ? this._overlayItems(cur).map((it) => {
           // Snap to the nearer side: an item on the right half anchors its RIGHT edge
           // (text grows left) so long readings don't run off the right edge; left half
@@ -12788,11 +12716,11 @@ export class SpiderTimelapseCard extends LitElement {
           return html`
           <div class="tl-ov ${this._settingsOpen ? "drag" : ""}"
             style="${side}; top:${it.y}%; text-align:${right ? "right" : "left"}; font-size:${Number(this._ovActive().overlay_font) || 12}px; color:${this._ovActive().overlay_color || "#ffffff"}"
-            @pointerdown=${this._settingsOpen ? (e: any) => this._ovDown(e, it.key) : null}>${it.text}</div>`; }) : nothing}
+            @pointerdown=${this._settingsOpen ? (e: any) => this._ovDown(e, it.key) : null}>${loc(it.text)}</div>`; }) : nothing}
       </div>
       ${this._settingsOpen ? this._settingsPanel() : nothing}
       <div class="tl-scrub">
-        <button class="tl-btn" title=${this._playing ? "Pause" : "Play"}
+        <button class="tl-btn" title=${this._playing ? loc("Pause") : loc("Play")}
           @click=${() => this._toggle()}>${this._playing ? "⏸" : "▶"}</button>
         <input type="range" min="0" max=${Math.max(0, total - 1)} .value=${String(this._idx)}
           @input=${(e: any) => { this._stopPlay(); this._idx = Number(e.target.value); }} />
@@ -12801,15 +12729,15 @@ export class SpiderTimelapseCard extends LitElement {
       <div class="tl-time">${cur ? this._fmt(cur.stamp) : ""}</div>
       <div class="tl-controls">
         ${capturing
-          ? html`<button class="tl-ctl" @click=${() => this._stopCapture()}>Stop capture</button>`
-          : html`<button class="tl-ctl" @click=${() => this._startCapture()}>Start capture</button>`}
+          ? html`<button class="tl-ctl" @click=${() => this._stopCapture()}>${loc("Stop capture")}</button>`
+          : html`<button class="tl-ctl" @click=${() => this._startCapture()}>${loc("Start capture")}</button>`}
         ${total ? html`<button class="tl-ctl" ?disabled=${exporting}
-          @click=${() => this._export()}>${exporting ? "Exporting…" : "Export MP4"}</button>` : nothing}
-        ${lastExport ? html`<button class="tl-ctl" @click=${() => this._download()}>Download MP4</button>` : nothing}
-        ${total ? html`<button class="tl-ctl tl-danger" @click=${() => this._clearAll()}>Delete all images</button>` : nothing}
+          @click=${() => this._export()}>${exporting ? loc("Exporting…") : loc("Export MP4")}</button>` : nothing}
+        ${lastExport ? html`<button class="tl-ctl" @click=${() => this._download()}>${loc("Download MP4")}</button>` : nothing}
+        ${total ? html`<button class="tl-ctl tl-danger" @click=${() => this._clearAll()}>${loc("Delete all images")}</button>` : nothing}
       </div>
       ${st.attributes.last_export_error
-        ? html`<div class="tl-err">Export failed: ${st.attributes.last_export_error}</div>` : nothing}
+        ? html`<div class="tl-err">${loc("Export failed: {error}", { error: st.attributes.last_export_error })}</div>` : nothing}
     </ha-card>`;
   }
 
@@ -12922,40 +12850,38 @@ export class SpiderTimelapseCardEditor extends LitElement {
     this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: cfg }, bubbles: true, composed: true }));
   }
   render() {
+    setLanguage(this.hass);
     const iv = this._intervalOpts();
     const curIv = this._interval();
     const presets = this._storagePresets();
     const curDir = (this._storageCustom && this._config.storage_dir) ? this._config.storage_dir : this._defDir();
     const isCustom = this._storageCustom;
     return html`<div class="ed">
-      <div class="ed-note">Set up the time-lapse: camera, a title, the capture interval and a
-        secure storage folder. The folder is named Title_camera_interval, so the same camera on
-        two cards at different intervals are separate time-lapses. Retention and the env overlay
-        are on the card's ⚙ settings.</div>
-      <label class="ed-field"><span>Camera</span>
+      <div class="ed-note">${loc("Set up the time-lapse: camera, a title, the capture interval and a secure storage folder. The folder is named Title_camera_interval, so the same camera on two cards at different intervals are separate time-lapses. Retention and the env overlay are on the card's ⚙ settings.")}</div>
+      <label class="ed-field"><span>${loc("Camera")}</span>
         <ha-entity-picker .hass=${this.hass} .value=${this._config.camera || ""}
           .includeDomains=${["camera"]} allow-custom-entity
           @value-changed=${(e: any) => this._apply({ camera: e.detail.value })}></ha-entity-picker></label>
-      <label class="ed-field"><span>Title (optional — defaults to the camera name)</span>
+      <label class="ed-field"><span>${loc("Title (optional — defaults to the camera name)")}</span>
         <input type="text" class="ed-input" .value=${this._config.title || ""}
-          placeholder=${this._camFriendly() || "camera name"}
+          placeholder=${this._camFriendly() || loc("camera name")}
           @change=${(e: any) => this._apply({ title: e.target.value })}></label>
-      <label class="ed-field"><span>Interval</span>
+      <label class="ed-field"><span>${loc("Interval")}</span>
         <select class="ed-input" .value=${live(String(curIv))}
           @change=${(e: any) => this._apply({ interval: Number(e.target.value) })}>
-          ${iv.map(([s, lab]) => html`<option value=${String(s)} ?selected=${curIv === s}>${lab}</option>`)}
+          ${iv.map(([s, lab]) => html`<option value=${String(s)} ?selected=${curIv === s}>${loc(lab)}</option>`)}
         </select></label>
-      ${curIv === 86400 ? html`<label class="ed-field"><span>Capture daily at (time of day)</span>
+      ${curIv === 86400 ? html`<label class="ed-field"><span>${loc("Capture daily at (time of day)")}</span>
         <input type="time" class="ed-input" .value=${this._config.daily_at || "00:00"}
           @change=${(e: any) => this._apply({ daily_at: e.target.value })}></label>` : nothing}
-      <label class="ed-field"><span>Storage folder (secure — never /www)</span>
+      <label class="ed-field"><span>${loc("Storage folder (secure — never /www)")}</span>
         <select class="ed-input" .value=${live(isCustom ? "__custom__" : curDir)}
           @change=${(e: any) => { const v = e.target.value; if (v === "__custom__") { this._storageCustom = true; } else { this._storageCustom = false; this._apply({ storage_dir: v }); } }}>
           ${presets.map((p) => html`<option value=${p} ?selected=${!isCustom && curDir === p}>${p}</option>`)}
-          <option value="__custom__" ?selected=${isCustom}>Custom…</option>
+          <option value="__custom__" ?selected=${isCustom}>${loc("Custom…")}</option>
         </select></label>
-      ${isCustom ? html`<label class="ed-field"><span>Custom folder</span>
-        <input type="text" class="ed-input" .value=${this._config.storage_dir || curDir} placeholder="/media/… (never /www)"
+      ${isCustom ? html`<label class="ed-field"><span>${loc("Custom folder")}</span>
+        <input type="text" class="ed-input" .value=${this._config.storage_dir || curDir} placeholder=${loc("/media/… (never /www)")}
           @change=${(e: any) => this._apply({ storage_dir: e.target.value })}></label>` : nothing}
     </div>`;
   }
@@ -13011,6 +12937,7 @@ export class SpiderPpfdCardEditor extends LitElement {
     return false;
   }
   render() {
+    setLanguage(this.hass);
     const c = this._config || {};
     const d = c.defaults || {}, tent = c.tent || {};
     const n = (v: any, dv: number) => (v == null ? dv : v);
@@ -13025,45 +12952,44 @@ export class SpiderPpfdCardEditor extends LitElement {
     const toFt = (v: number) => metric ? +(v / 0.3048).toFixed(3) : v;
     const tentStep = metric ? "0.05" : "0.1";
     return html`<div class="ped">
-      <div class="ped-note">Set up the PPFD visualizer. Each card keeps its own settings.</div>
-      <label class="pf"><span>Title</span>
+      <div class="ped-note">${loc("Set up the PPFD visualizer. Each card keeps its own settings.")}</div>
+      <label class="pf"><span>${loc("Title")}</span>
         <input type="text" .value=${c.title || ""} @change=${(e: any) => this._set("title", e.target.value)}></label>
-      <label class="pf"><span>Light model</span>
+      <label class="pf"><span>${loc("Light model")}</span>
         <select .value=${live(c.light_model || "SE4500")} @change=${(e: any) => this._set("light_model", e.target.value)}>
-          ${ppfdGrouped().map((g) => html`<optgroup label=${g.label}>
+          ${ppfdGrouped().map((g) => html`<optgroup label=${loc(g.label)}>
             ${g.models.map((m) => html`<option value=${m} ?selected=${c.light_model === m}>${m}</option>`)}
           </optgroup>`)}
         </select></label>
-      <label class="pf"><span>Units</span>
+      <label class="pf"><span>${loc("Units")}</span>
         <select .value=${live(c.unit_system || "auto")} @change=${(e: any) => this._set("unit_system", e.target.value)}>
-          <option value="auto">Auto (follow HA)</option>
-          <option value="imperial">Imperial (in / ft)</option>
-          <option value="metric">Metric (cm / m)</option>
+          <option value="auto">${loc("Auto (follow HA)")}</option>
+          <option value="imperial">${loc("Imperial (in / ft)")}</option>
+          <option value="metric">${loc("Metric (cm / m)")}</option>
         </select></label>
-      <div class="ped-h">Brightness</div>
+      <div class="ped-h">${loc("Brightness")}</div>
       <label class="pf pf-row"><input type="checkbox" .checked=${!!d.auto_brightness}
           @change=${(e: any) => this._setDefault("auto_brightness", e.target.checked)}>
-        <span>Auto-read brightness from a light</span></label>
-      <label class="pf"><span>Light source</span>
+        <span>${loc("Auto-read brightness from a light")}</span></label>
+      <label class="pf"><span>${loc("Light source")}</span>
         <select .value=${live(d.brightness_source || "")} @change=${(e: any) => this._setDefault("brightness_source", e.target.value)}>
-          <option value="" ?selected=${!d.brightness_source}>— none —</option>
-          ${this._brightOptions().map((o) => html`<option value=${o.id} ?selected=${d.brightness_source === o.id}>${o.name}</option>`)}
+          <option value="" ?selected=${!d.brightness_source}>${loc("— none —")}</option>
+          ${this._brightOptions().map((o) => html`<option value=${o.id} ?selected=${d.brightness_source === o.id}>${loc(o.name)}</option>`)}
         </select></label>
-      <div class="ped-note">Pick a Spider Farmer light (live brightness) or a Schedule Brightness
-        (target). This is the card's default — the card's own Settings tab can change it live.</div>
-      <div class="ped-h">Defaults</div>
+      <div class="ped-note">${loc("Pick a Spider Farmer light (live brightness) or a Schedule Brightness (target). This is the card's default — the card's own Settings tab can change it live.")}</div>
+      <div class="ped-h">${loc("Defaults")}</div>
       <div class="pgrid">
-        <label class="pf"><span>Light height (${lenU})</span><input type="number" min="0" .value=${String(inDisp(n(d.height_inches, 18)))} @change=${(e: any) => this._setDefault("height_inches", toIn(Number(e.target.value)))}></label>
-        <label class="pf"><span>Plant height (${lenU})</span><input type="number" min="0" .value=${String(inDisp(n(d.plant_height_inches, 12)))} @change=${(e: any) => this._setDefault("plant_height_inches", toIn(Number(e.target.value)))}></label>
-        <label class="pf"><span>Plants</span><input type="number" min="1" .value=${String(n(d.num_plants, 2))} @change=${(e: any) => this._setDefault("num_plants", Number(e.target.value))}></label>
-        <label class="pf"><span>Brightness (%)</span><input type="number" min="0" max="100" .value=${String(n(d.dimmer_percent, 100))} @change=${(e: any) => this._setDefault("dimmer_percent", Number(e.target.value))}></label>
-        <label class="pf"><span>Photoperiod (h)</span><input type="number" min="0" max="24" .value=${String(n(d.photoperiod_hours, 18))} @change=${(e: any) => this._setDefault("photoperiod_hours", Number(e.target.value))}></label>
+        <label class="pf"><span>${loc("Light height ({unit})", { unit: lenU })}</span><input type="number" min="0" .value=${String(inDisp(n(d.height_inches, 18)))} @change=${(e: any) => this._setDefault("height_inches", toIn(Number(e.target.value)))}></label>
+        <label class="pf"><span>${loc("Plant height ({unit})", { unit: lenU })}</span><input type="number" min="0" .value=${String(inDisp(n(d.plant_height_inches, 12)))} @change=${(e: any) => this._setDefault("plant_height_inches", toIn(Number(e.target.value)))}></label>
+        <label class="pf"><span>${loc("Plants")}</span><input type="number" min="1" .value=${String(n(d.num_plants, 2))} @change=${(e: any) => this._setDefault("num_plants", Number(e.target.value))}></label>
+        <label class="pf"><span>${loc("Brightness (%)")}</span><input type="number" min="0" max="100" .value=${String(n(d.dimmer_percent, 100))} @change=${(e: any) => this._setDefault("dimmer_percent", Number(e.target.value))}></label>
+        <label class="pf"><span>${loc("Photoperiod (h)")}</span><input type="number" min="0" max="24" .value=${String(n(d.photoperiod_hours, 18))} @change=${(e: any) => this._setDefault("photoperiod_hours", Number(e.target.value))}></label>
       </div>
-      <div class="ped-h">Tent size (${tentU})</div>
+      <div class="ped-h">${loc("Tent size ({unit})", { unit: tentU })}</div>
       <div class="pgrid">
-        <label class="pf"><span>Width</span><input type="number" min="0" step=${tentStep} .value=${String(ftDisp(n(tent.width_ft, 2)))} @change=${(e: any) => this._setTent("width_ft", toFt(Number(e.target.value)))}></label>
-        <label class="pf"><span>Length</span><input type="number" min="0" step=${tentStep} .value=${String(ftDisp(n(tent.length_ft, 4)))} @change=${(e: any) => this._setTent("length_ft", toFt(Number(e.target.value)))}></label>
-        <label class="pf"><span>Height</span><input type="number" min="0" step=${tentStep} .value=${String(ftDisp(n(tent.height_ft, 6.5)))} @change=${(e: any) => this._setTent("height_ft", toFt(Number(e.target.value)))}></label>
+        <label class="pf"><span>${loc("Width")}</span><input type="number" min="0" step=${tentStep} .value=${String(ftDisp(n(tent.width_ft, 2)))} @change=${(e: any) => this._setTent("width_ft", toFt(Number(e.target.value)))}></label>
+        <label class="pf"><span>${loc("Length")}</span><input type="number" min="0" step=${tentStep} .value=${String(ftDisp(n(tent.length_ft, 4)))} @change=${(e: any) => this._setTent("length_ft", toFt(Number(e.target.value)))}></label>
+        <label class="pf"><span>${loc("Height")}</span><input type="number" min="0" step=${tentStep} .value=${String(ftDisp(n(tent.height_ft, 6.5)))} @change=${(e: any) => this._setTent("height_ft", toFt(Number(e.target.value)))}></label>
       </div>
     </div>`;
   }
@@ -13100,22 +13026,23 @@ export class SpiderLightCardEditor extends LitElement {
     return seLightSlots(h).map((slot) => ({ slot, name: slotDeviceName(h, slot) || `SE light (${slot})` }));
   }
   render() {
+    setLanguage(this.hass);
     const c = this._config || {};
     const lights = this._seLights();
     return html`<div class="ped">
-      <div class="ped-note">Set up the Spider Farmer SE light card. Each card keeps its own settings.</div>
-      <label class="pf"><span>Title</span>
-        <input type="text" .value=${c.title || ""} placeholder="Spider Light"
+      <div class="ped-note">${loc("Set up the Spider Farmer SE light card. Each card keeps its own settings.")}</div>
+      <label class="pf"><span>${loc("Title")}</span>
+        <input type="text" .value=${c.title || ""} placeholder=${loc("Spider Light")}
           @change=${(e: any) => this._set("title", e.target.value)}></label>
-      <label class="pf"><span>SE light</span>
+      <label class="pf"><span>${loc("SE light")}</span>
         <select .value=${live(c.light || "")} @change=${(e: any) => this._set("light", e.target.value)}>
-          <option value="" ?selected=${!c.light}>Auto (first found)</option>
+          <option value="" ?selected=${!c.light}>${loc("Auto (first found)")}</option>
           ${lights.map((l) => html`<option value=${l.slot} ?selected=${c.light === l.slot}>${l.name}</option>`)}
         </select></label>
       ${lights.length === 0
-        ? html`<div class="ped-note">No Spider Farmer SE light found yet — add the card once the light is online, or leave it on Auto.</div>`
+        ? html`<div class="ped-note">${loc("No Spider Farmer SE light found yet — add the card once the light is online, or leave it on Auto.")}</div>`
         : nothing}
-      <label class="pf"><span>Accent colour</span>
+      <label class="pf"><span>${loc("Accent colour")}</span>
         <input type="color" .value=${c.accent || ACCENT_DEFAULT}
           @change=${(e: any) => this._set("accent", e.target.value)}></label>
     </div>`;
@@ -13161,8 +13088,11 @@ if (!customElements.get("ppfd-3d-card")) {
 // than once (e.g. a manually-added resource plus the integration's auto-install),
 // only one entry per card shows in HA's "Add card" list.
 const _sfCards: any[] = ((window as any).customCards = (window as any).customCards || []);
+// Card picker names/descriptions in the frontend's language (HA sets <html lang>).
+setLanguage({ language: (typeof document !== "undefined" && document.documentElement.lang) || "en" });
 const _sfRegisterCard = (def: any) => {
-  if (!_sfCards.some((c) => c && c.type === def.type)) _sfCards.push(def);
+  if (!_sfCards.some((c) => c && c.type === def.type))
+    _sfCards.push({ ...def, name: loc(def.name), description: loc(def.description) });
 };
 _sfRegisterCard({
   type: "spider-farmer-card",

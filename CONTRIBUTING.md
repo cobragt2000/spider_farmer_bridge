@@ -100,6 +100,21 @@ When your change is based on someone else's bug report, please credit them in
 the commit or PR description (`Reported-by: <name>`); if you're incorporating
 someone else's code, add them as a co-author.
 
+## Translations
+
+Everything users see can be translated; English is the reference.
+
+- **Integration** (`custom_components/sf/translations/`): copy `en.json` to
+  `<language>.json` (e.g. `fr.json`) and translate the values; keep the keys and the
+  `{placeholders}`. Entity names come from the `entity` section. A new entity name in
+  `entity_defs.py` needs an `en.json` entry — `tests/test_i18n.py` names the key and
+  the English text to add.
+- **Cards** (`card-src/src/translations/`): copy `de.ts` to `<language>.ts`, translate
+  the values (the keys are the English texts), add the import + table entry in
+  `card-src/src/i18n.ts`, rebuild. Wrap new card texts in `loc("…")` (placeholders:
+  `loc("{n} stages", { n })`); `tests/test_card_i18n.py` checks every table covers
+  every `loc("…")` text.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the

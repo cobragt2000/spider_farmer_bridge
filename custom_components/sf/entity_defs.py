@@ -104,6 +104,39 @@ def _outlet_count(dtype: str) -> int:
     return 10 if dtype in ("ps10", "cb") else 5
 
 
+# ── Name translation ─────────────────────────────────────────────────────────
+
+# A standalone number in an English entity name ("Outlet 3", "Light 1 Mode",
+# "Soil 2 Moisture") — not one glued to letters like "CO2".
+_NAME_NUMBER_RE = re.compile(r"(?<![\w.])(\d+)(?![\w.])")
+
+
+def name_template(name: str) -> tuple[str, dict]:
+    """("Outlet 3 Mode") -> ("Outlet {n} Mode", {"n": "3"}); a second number
+    becomes {n2}. The template is the English text in translations/en.json."""
+    placeholders: dict = {}
+
+    def _sub(m: re.Match) -> str:
+        key = "n" if not placeholders else f"n{len(placeholders) + 1}"
+        placeholders[key] = m.group(1)
+        return "{" + key + "}"
+
+    return _NAME_NUMBER_RE.sub(_sub, name), placeholders
+
+
+def translation_key_for(template: str) -> str:
+    """Translation key for an English name template: "Outlet {n} Mode" ->
+    "outlet_n_mode", "Daytime (Light Sensor)" -> "daytime_light_sensor"."""
+    key = re.sub(r"[^a-z0-9]+", "_", template.lower().replace("{", "").replace("}", ""))
+    return key.strip("_")
+
+
+def name_translation(name: str) -> tuple[str, Optional[dict]]:
+    """(translation_key, placeholders or None) for an English entity name."""
+    template, placeholders = name_template(name)
+    return translation_key_for(template), (placeholders or None)
+
+
 # ── Entity descriptor ─────────────────────────────────────────────────────────
 
 @dataclass
@@ -145,6 +178,21 @@ class SfDef:
                                             # to (dynamic visibility); None =
                                             # always visible
     entity_category: Optional[str] = None   # HA entity_category: "diagnostic"
+    # Name translation: the English `name` stays the reference (entity_ids and
+    # the fallback on cores without name placeholders); HA shows the translated
+    # name from translations/<lang>.json "entity". Derived from `name` unless
+    # set explicitly: standalone numbers become {n} ("Outlet 3 Mode" ->
+    # key "outlet_n_mode", placeholders {"n": "3"}).
+    translation_key: Optional[str] = None
+    translation_placeholders: Optional[dict] = None
+    # Sub-device name translation (translations "device"), e.g. the Environment
+    # device: key "environment", placeholders {"device": host device name}.
+    device_translation_key: Optional[str] = None
+    device_translation_placeholders: Optional[dict] = None
+
+    def __post_init__(self) -> None:
+        if self.translation_key is None:
+            self.translation_key, self.translation_placeholders = name_translation(self.name)
 
     @property
     def unique_id(self) -> str:
@@ -802,10 +850,14 @@ def build_device_entities(
     return defs
 
 
+def soil_slot_tail(soil_slot: str) -> str:
+    """soil1 -> '1'; a custom slot like veg_left -> 'veg_left'."""
+    return soil_slot[4:] if soil_slot.startswith("soil") and soil_slot[4:] else soil_slot
+
+
 def soil_display_label(soil_slot: str) -> str:
     """soil1 -> 'Soil 1'; a custom slot like veg_left -> 'Soil veg_left'."""
-    tail = soil_slot[4:] if soil_slot.startswith("soil") and soil_slot[4:] else soil_slot
-    return f"Soil {tail}"
+    return f"Soil {soil_slot_tail(soil_slot)}"
 
 
 def build_soil_entities(
@@ -825,9 +877,13 @@ def build_soil_entities(
     dname  = _device_name(cfg)
     dmodel = _TYPE_LABELS.get((cfg.get("type", "") or "").lower(), "Display Panel")
     safe   = re.sub(r"[^a-zA-Z0-9_]", "_", str(sensor_id))
-    label  = (name_label or "").strip() or (
-        soil_display_label(soil_slot) if soil_slot else f"Soil {sensor_id}"
-    )
+    app_label = (name_label or "").strip()
+    probe  = soil_slot_tail(soil_slot) if soil_slot else str(sensor_id)
+    label  = app_label or f"Soil {probe}"
+    # Translated as "{label} Temperature" (app-set probe name) or
+    # "Soil {probe} Temperature"; the English name stays the reference.
+    tr_ph  = {"label": app_label} if app_label else {"probe": probe}
+    tr_pre = "soil_named" if app_label else "soil_probe"
 
     out: list[SfDef] = []
     for suffix, name, unit, device_class, icon in [
@@ -839,6 +895,7 @@ def build_soil_entities(
             platform="sensor",
             field=f"soil_{safe}_{suffix}",
             name=name,
+            translation_key=f"{tr_pre}_{suffix}", translation_placeholders=dict(tr_ph),
             mac=mac, mac_raw=mac_raw,
             device_name=dname, device_model=dmodel,
             unit=unit, icon=icon,
@@ -1009,12 +1066,14 @@ def build_soil_calibration_entities(mac_raw, sensor_id, device_cfg, slot=None, s
     dname = _device_name({**(device_cfg or {}), "mac": mac_raw})
     dmodel = _TYPE_LABELS.get((device_cfg or {}).get("type", "").lower(), "Display Panel")
     safe = re.sub(r"[^a-zA-Z0-9_]", "_", str(sensor_id))
-    base = soil_display_label(soil_slot) if soil_slot else f"Soil {sensor_id}"
+    probe = soil_slot_tail(soil_slot) if soil_slot else str(sensor_id)
+    base = f"Soil {probe}"
     oid = (lambda suff: f"sf_{slot}_{soil_slot}_{suff}") if (slot and soil_slot) else (lambda suff: None)
 
     def num(suff, label, unit, icon, lo, hi, step):
         return SfDef(
             platform="number", field=f"soil_{safe}_{suff}", name=f"{base} {label}",
+            translation_key=f"soil_probe_{suff}", translation_placeholders={"probe": probe},
             mac=mac, mac_raw=mac_raw, device_name=dname, device_model=dmodel,
             unit=unit, slot=slot, kind="cal", min_value=lo, max_value=hi, step=step,
             num_mode="box", entity_category="diagnostic", icon=icon, object_id=oid(suff),
@@ -1028,6 +1087,7 @@ def build_soil_calibration_entities(mac_raw, sensor_id, device_cfg, slot=None, s
     if include_substrate:  # Pro probes only — Basic probes have no substrate type
         out.append(SfDef(
             platform="select", field=f"soil_{safe}_substrate", name=f"{base} Substrate",
+            translation_key="soil_probe_substrate", translation_placeholders={"probe": probe},
             mac=mac, mac_raw=mac_raw, device_name=dname, device_model=dmodel, slot=slot,
             options=list(SUBSTRATE_OPTIONS), entity_category="diagnostic",
             icon="mdi:layers-outline", object_id=oid("substrate"),
@@ -1134,7 +1194,8 @@ def build_env_entities(device_cfg, slot, include_co2=True):
             platform=platform, field=field, name=name, mac=mac, mac_raw=mac_raw,
             device_name=dname, device_model=dmodel, slot=slot,
             object_id=f"sf_{slot}_{field}" if slot else None,
-            device_key="env", **kw,
+            device_key="env", device_translation_key="environment",
+            device_translation_placeholders={"device": _device_name(device_cfg)}, **kw,
         )
 
     defs = [

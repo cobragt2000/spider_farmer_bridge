@@ -15,7 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .bus import SfBus
 from .const import DATA_BUS, DOMAIN, SIGNAL_NEW_FMT
-from .entity import SfEntity
+from .entity import SfEntity, platform_text
 from .entity_defs import SfDef
 
 _LOGGER = logging.getLogger(__name__)
@@ -478,7 +478,11 @@ class SfTimelapseSensor(SensorEntity):
         self._mgr = manager
         self._tl_id = tl_id
         ctrl = manager.get(tl_id)
-        self._attr_name = f"SF Timelapse {ctrl.name if ctrl else tl_id}"
+        # English at registration (keeps entity_id sensor.sf_timelapse_*); the
+        # translated name and states (capturing/idle) come from "timelapse".
+        self._tl_label = ctrl.name if ctrl else tl_id
+        self._attr_name = f"SF Timelapse {self._tl_label}"
+        self._attr_translation_key = "timelapse"
         self._attr_unique_id = f"{entry.entry_id}_timelapse_{tl_id}"
 
     @property
@@ -487,6 +491,10 @@ class SfTimelapseSensor(SensorEntity):
 
     async def async_added_to_hass(self) -> None:
         from .timelapse import SIGNAL_TIMELAPSE_UPDATE, SIGNAL_TIMELAPSE_INSTANCES
+
+        translated = platform_text(self, "timelapse", name=self._tl_label)
+        if translated:
+            self._attr_name = translated
 
         @callback
         def _update() -> None:

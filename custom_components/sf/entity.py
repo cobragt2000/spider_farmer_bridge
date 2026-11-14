@@ -22,6 +22,7 @@ from typing import Optional
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import slugify
 
@@ -44,6 +45,33 @@ import re as _re
 _SOIL_FIELD_RE = _re.compile(r"^soil_(?!avg_)([A-Za-z0-9]+)_(temperature|moisture|ec)$")
 _SOIL_SUFFIX_WORD = {"temperature": "Temperature", "moisture": "Moisture", "ec": "EC"}
 
+# Translated names with {placeholders} ("Outlet {n}") need a core that substitutes
+# name placeholders; older cores keep the English name, exactly as before.
+_NAME_PLACEHOLDERS = hasattr(Entity, "translation_placeholders")
+# Same for translated device names with placeholders (DeviceInfo.translation_*).
+_DEVICE_TRANSLATION = "translation_placeholders" in getattr(DeviceInfo, "__annotations__", {})
+
+
+def platform_text(entity: Entity, key: str, **placeholders) -> Optional[str]:
+    """Translated entity name for ``key`` in the platform's language (English
+    fallback is merged in by HA), formatted with ``placeholders``; None when the
+    key is unknown. For names that change at runtime (app-set probe labels),
+    where HA's cached name can't follow a placeholder change."""
+    # HA 2026.x keeps the loaded translations on entity.platform_data, older
+    # cores on entity.platform.
+    source = getattr(entity, "platform_data", None)
+    if getattr(source, "platform_translations", None) is None:
+        source = getattr(entity, "platform", None)
+    translations = getattr(source, "platform_translations", None) or {}
+    domain = getattr(source, "domain", None)
+    text = translations.get(f"component.{DOMAIN}.entity.{domain}.{key}.name") if domain else None
+    if not text:
+        return None
+    try:
+        return text.format(**placeholders)
+    except (KeyError, IndexError, ValueError):
+        return None
+
 
 class SfEntity(RestoreEntity):
     """Common behaviour for every Spider Farmer Bridge entity."""
@@ -55,7 +83,14 @@ class SfEntity(RestoreEntity):
         self.bus = bus
         self.d = d
         self._attr_unique_id = d.unique_id
-        self._attr_name = d.name
+        # Name: translated via translations/<lang>.json "entity" (d.translation_key);
+        # the English d.name only where the core can't fill placeholders.
+        if d.translation_key and (_NAME_PLACEHOLDERS or not d.translation_placeholders):
+            self._attr_translation_key = d.translation_key
+            if d.translation_placeholders:
+                self._attr_translation_placeholders = dict(d.translation_placeholders)
+        else:
+            self._attr_name = d.name
         if d.icon:
             self._attr_icon = d.icon
         if d.entity_category:
@@ -82,6 +117,16 @@ class SfEntity(RestoreEntity):
             # controller. The link is set post-creation via via_device_id in
             # _relink_via_device (async_added_to_hass) — DeviceInfo.via_device is
             # deprecated (removed in HA 2027.8.0) and cannot carry via_device_id.
+            if self.d.device_translation_key and self._device_name_translated():
+                # Translated sub-device name ("… Environment" / "… Umgebung")
+                return DeviceInfo(
+                    identifiers={(DOMAIN, f"ggs_{self.d.mac}_{self.d.device_key}")},
+                    translation_key=self.d.device_translation_key,
+                    translation_placeholders=dict(
+                        self.d.device_translation_placeholders or {}),
+                    manufacturer="Spider Farmer",
+                    model=self.d.device_model,
+                )
             return DeviceInfo(
                 identifiers={(DOMAIN, f"ggs_{self.d.mac}_{self.d.device_key}")},
                 name=self.d.device_name,
@@ -100,6 +145,21 @@ class SfEntity(RestoreEntity):
             manufacturer="Spider Farmer",
             model=model,
         )
+
+    def _device_name_translated(self) -> bool:
+        """True when HA can name this sub-device from translations "device": the
+        core supports it and the text is loaded. HA would otherwise name the device
+        after the bare key ("environment"), so we keep the English name then."""
+        if not _DEVICE_TRANSLATION or self.hass is None:
+            return False
+        try:
+            from homeassistant.helpers.translation import async_get_cached_translations
+            cached = async_get_cached_translations(
+                self.hass, self.hass.config.language, "device", DOMAIN)
+        except Exception:  # pragma: no cover - defensive
+            return False
+        return (f"component.{DOMAIN}.device.{self.d.device_translation_key}.name"
+                in cached)
 
     @callback
     def _relink_via_device(self) -> None:
@@ -139,6 +199,16 @@ class SfEntity(RestoreEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+
+        # Safety net: a name key missing from the translations would leave the
+        # entity nameless — fall back to the English name instead.
+        if not hasattr(self, "_attr_name") and self.d.translation_key and (
+            platform_text(self, self.d.translation_key,
+                          **(self.d.translation_placeholders or {})) is None
+        ):
+            _LOGGER.debug("%s: no translation for %s, using English name",
+                          self.entity_id, self.d.translation_key)
+            self._attr_name = self.d.name
 
         # Nest a sub-device (e.g. Environment) under its controller. HA has
         # just registered this entity's own device; link it the modern way
@@ -181,6 +251,7 @@ class SfEntity(RestoreEntity):
         m = _SOIL_FIELD_RE.match(self.d.field or "")
         if m:
             self._soil_suffix_word = _SOIL_SUFFIX_WORD[m.group(2)]
+            self._soil_suffix = m.group(2)
             self.async_on_remove(
                 async_dispatcher_connect(
                     self.hass,
@@ -190,7 +261,7 @@ class SfEntity(RestoreEntity):
             )
             lbl = self.bus._soil_label.get(m.group(1))
             if lbl:
-                self._attr_name = f"{lbl} {self._soil_suffix_word}"
+                self._attr_name = self._soil_named(lbl)
 
         # Seed: live cache first (device already reported), else restore.
         seeded = False
@@ -223,12 +294,17 @@ class SfEntity(RestoreEntity):
             self.async_write_ha_state()
         return _handler
 
+    def _soil_named(self, label: str) -> str:
+        """'{label} Temperature' in the user's language (English fallback)."""
+        return (platform_text(self, f"soil_named_{self._soil_suffix}", label=label)
+                or f"{label} {self._soil_suffix_word}")
+
     @callback
     def _soil_label_changed(self, label: str) -> None:
         word = getattr(self, "_soil_suffix_word", None)
         if not word:
             return
-        self._attr_name = f"{label} {word}"
+        self._attr_name = self._soil_named(label)
         if self.hass is not None:
             self.async_write_ha_state()
 

@@ -62,6 +62,13 @@ except Exception:  # ImportError, or any optional-dep failure in the chain
 
     _camera_stub.async_get_image = _stub_async_get_image
     _sys.modules["homeassistant.components.camera"] = _camera_stub
+    # Also bind it on the parent package: monkeypatch's dotted-path lookup walks
+    # attributes (homeassistant.components -> .camera), and a module that is only
+    # in sys.modules isn't reachable that way (pytest 8+: "module
+    # 'homeassistant.components' has no attribute 'camera'").
+    import homeassistant.components as _components
+
+    _components.camera = _camera_stub
 
 
 @pytest.fixture(autouse=True)

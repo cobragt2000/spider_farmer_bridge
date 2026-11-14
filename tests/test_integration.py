@@ -17,6 +17,7 @@ from custom_components.sf.ha.discovery import (
 from custom_components.sf.proxy.normalizer import normalize_status
 from custom_components.sf.proxy.mitm_proxy import ProxySession, _process_publish
 from custom_components.sf.proxy.mqtt_parser import MQTTPacket, MQTT_PUBLISH
+from ha_compat import device_by_ident
 
 
 def _cb_pkt(data: dict) -> MQTTPacket:
@@ -153,7 +154,7 @@ async def test_setup_and_cb_entities(hass: HomeAssistant):
 
     # Device registry: single device, correct name
     from homeassistant.helpers import device_registry as dr
-    dev = dr.async_get(hass).async_get_device({(DOMAIN, f"ggs_{CB_MAC_LC}")})
+    dev = device_by_ident(hass, f"ggs_{CB_MAC_LC}")
     assert dev is not None
     assert dev.name == "SF Display Panel 4E01"
     assert dev.manufacturer == "Spider Farmer"

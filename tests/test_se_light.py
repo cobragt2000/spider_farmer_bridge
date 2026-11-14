@@ -19,6 +19,7 @@ from homeassistant.core import HomeAssistant
 from custom_components.sf.const import DOMAIN, DATA_BUS
 from custom_components.sf.proxy.mitm_proxy import ProxySession, _process_publish
 from custom_components.sf.proxy.mqtt_parser import MQTTPacket, MQTT_PUBLISH
+from ha_compat import device_by_ident
 
 SE_MAC = "0A1B2C3D4E06"
 SE_MAC_LC = "0a1b2c3d4e06"
@@ -92,7 +93,7 @@ async def test_se_light_detected_and_entities(hass: HomeAssistant):
 
     # Device registered with the SE label
     from homeassistant.helpers import device_registry as dr
-    dev = dr.async_get(hass).async_get_device({(DOMAIN, f"ggs_{SE_MAC_LC}")})
+    dev = device_by_ident(hass, f"ggs_{SE_MAC_LC}")
     assert dev is not None
     assert dev.name == "SF SE Light 4E06"
     assert dev.model == "SE Light"

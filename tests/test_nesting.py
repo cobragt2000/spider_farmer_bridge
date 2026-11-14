@@ -6,6 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
 from custom_components.sf.const import DOMAIN, DATA_BUS
+from ha_compat import device_by_ident
 
 CB_MAC = "0a1b2c3d4e01"
 PS_MAC = "0a1b2c3d4e0a"
@@ -58,13 +59,13 @@ async def test_strip_nests_under_host_panel_and_unnest(hass: HomeAssistant):
     # Hosted by the panel -> strip nests under it.
     bus.proxy = _FakeProxy(host=CB_MAC)
     bus._update_strip_nesting({"mac": PS_MAC, "type": "ps10"})
-    strip = reg.async_get_device({(DOMAIN, f"ggs_{PS_MAC}")})
+    strip = device_by_ident(hass, f"ggs_{PS_MAC}")
     assert strip.via_device_id == panel.id
 
     # Standalone (no host) -> link cleared, back to top-level.
     bus.proxy = _FakeProxy(host=None)
     bus._update_strip_nesting({"mac": PS_MAC, "type": "ps10"})
-    strip = reg.async_get_device({(DOMAIN, f"ggs_{PS_MAC}")})
+    strip = device_by_ident(hass, f"ggs_{PS_MAC}")
     assert strip.via_device_id is None
 
     await hass.config_entries.async_unload(entry.entry_id)
@@ -104,7 +105,7 @@ async def test_register_device_periodic_nests_late_host(hass: HomeAssistant):
 
     bus.proxy = _FakeProxy(host=CB_MAC)
     bus.register_device({"mac": PS_MAC, "type": "PS10"})
-    strip = reg.async_get_device({(DOMAIN, f"ggs_{PS_MAC}")})
+    strip = device_by_ident(hass, f"ggs_{PS_MAC}")
     assert strip.via_device_id == panel.id
 
     await hass.config_entries.async_unload(entry.entry_id)

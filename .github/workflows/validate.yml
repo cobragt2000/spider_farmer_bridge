@@ -27,9 +27,9 @@ jobs:
       matrix:
         include:
           - python-version: "3.12"
-            packages: homeassistant pytest pytest-asyncio pytest-homeassistant-custom-component
+            packages: homeassistant pytest pytest-asyncio pytest-homeassistant-custom-component numpy
           - python-version: "3.14"
-            packages: pytest-homeassistant
+            packages: pytest-homeassistant numpy
     name: tests (py${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@v4

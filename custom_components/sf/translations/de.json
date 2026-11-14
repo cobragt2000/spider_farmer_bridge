@@ -1,0 +1,1029 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Spider Farmer Bridge",
+        "description": "Fängt den Datenverkehr der Spider-Farmer-GGS-Controller ab und stellt die Geräte direkt in Home Assistant bereit. Die TLS-Zertifikate sind enthalten – keine manuelle Einrichtung nötig.\n\nStelle sicher, dass deine GGS-Controller auf den Proxy-Port dieser HA-Instanz umgeleitet werden.",
+        "data": {
+          "listen_port": "Proxy-Port",
+          "upstream_host": "MQTT-Server von Spider Farmer",
+          "upstream_port": "MQTT-Port von Spider Farmer",
+          "allow_control": "Gerätesteuerung erlauben (Befehle an die Geräte senden)",
+          "keep_offline_entities": "Offline-Geräte behalten (Entitäten von Geräten, die nichts mehr melden, nicht entfernen; abwählen, um Phantome aufzuräumen)",
+          "environment_entities": "Entitäten für Umgebungseinstellungen anlegen (je Display Panel: Zielwerte für Temperatur, Luftfeuchte und CO2)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Spider Farmer Bridge ist bereits eingerichtet."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Spider Farmer Bridge",
+        "menu_options": {
+          "settings": "Einstellungen (Ports, Steuerung, Diagnoseprotokoll)",
+          "mappings": "Gerätezuordnung (logische Slots für Entitäts-IDs)",
+          "components": "Gerätezubehör (Licht 2 / Umluft je Gerät)",
+          "migrate": "Gerät migrieren (Hardware tauschen, Verlauf behalten)",
+          "replace_soil": "Bodensensor ersetzen (Hardware tauschen, Verlauf behalten)"
+        }
+      },
+      "settings": {
+        "title": "Einstellungen",
+        "data": {
+          "preserve_on_remove": "Anpassungen und Verlauf beim Entfernen behalten (abwählen, um beim Entfernen alles zu löschen)",
+          "keep_offline_entities": "Offline-Geräte behalten (Entitäten von Geräten, die nichts mehr melden, nicht entfernen; abwählen, um Phantome aufzuräumen)",
+          "diagnostic_log_per_boot": "Diagnoseprotokoll anlegen (neue Datei bei jedem Neustart, mit Version und Datum/Uhrzeit im Namen)",
+          "environment_entities": "Entitäten für Umgebungseinstellungen anlegen (je Display Panel: Zielwerte für Temperatur, Luftfeuchte und CO2)",
+          "install_lovelace_card": "Spider-Farmer-Dashboard-Karten installieren (fügt custom:spider-farmer-card und custom:ppfd-3d-card hinzu; abwählen, um sie zu entfernen)",
+          "listen_port": "Proxy-Port (auf diesen Port werden die GGS-Controller umgeleitet)",
+          "upstream_host": "Cloud-Server von Spider Farmer (MQTT-Server)",
+          "upstream_port": "Cloud-Port von Spider Farmer",
+          "allow_control": "Gerätesteuerung aktivieren (Befehle an die Geräte senden; aus = nur beobachten)",
+          "block_cloud": "Cloud sperren (nur lokal – die Geräte erreichen die Server von Spider Farmer nicht mehr; HA steuert weiter, aber die Handy-App und Firmware-Updates aus der Cloud funktionieren dann nicht)",
+          "diagnostic_log_path": "Pfad der Diagnoseprotokoll-Datei",
+          "diagnostic_log_days": "Diagnoseprotokoll aufbewahren (Tage)"
+        }
+      },
+      "components": {
+        "title": "Gerätezubehör",
+        "description": "Jeder Controller erscheint mit einem Kästchen für jedes Zubehör, das er meldet – Licht 1, Licht 2 und Umluft (Zubehör, das ein Gerät nicht meldet, fehlt). Es wird automatisch angelegt; wähle eines ab, um es auszublenden und zu entfernen (praktisch bei einem Phantom-Licht oder -Lüfter oder wenn nur ein Lüfter angeschlossen ist und der Lichtkanal aus bleiben soll). Alles andere (Abluft, Luftbefeuchter, Sensoren, Steckdosen) wird automatisch erkannt."
+      },
+      "migrate": {
+        "title": "Gerät migrieren",
+        "description": "Hardware tauschen und dabei Entitäts-IDs, Verlauf und Automationen behalten. Wähle das ALTE Gerät, das ausgemustert wird, und das NEUE Gerät, das es ersetzt. Das neue Gerät muss sich mindestens einmal verbunden haben. Nach erfolgreicher Migration wird das alte Gerät entfernt.",
+        "data": {
+          "old_device": "Altes Gerät (wird ersetzt)",
+          "new_device": "Neues Gerät (Ersatz)"
+        }
+      },
+      "mappings": {
+        "title": "Slot-Zuordnung der Geräte",
+        "description": "Jedes Gerät und jeder Bodensensor hat einen logischen Slot, aus dem seine Entitäts-IDs gebildet werden (sf_dp1_temperature, sf_dp1_soil1_moisture). Bodensensoren gehören zu dem Gerät, an dem sie stecken – dp1_soil1 und dp2_soil1 sind verschiedene Sensoren. Aktuelle Zuordnung:\n\n{mappings}\n\nUnten kannst du jeden Slot ändern. Bodensensor-Felder nehmen Werte mit Geräte-Präfix (dp1_soil2) oder ohne (soil2) an; das Präfix ergibt sich daraus, an welchem Gerät der Sensor steckt. Um einen Sensor zu ERSETZEN, gib der neuen Seriennummer den alten Slot und LEERE das Feld der alten Seriennummer (leer = ausmustern). Die Entitäts-IDs werden nach dem Neuladen der Integration angepasst."
+      },
+      "replace_soil": {
+        "title": "Bodensensor ersetzen",
+        "description": "Der NEUE Sensor übernimmt den Slot des ALTEN, damit Entitäts-IDs und Verlauf weiterlaufen; danach wird der alte Sensor entfernt. Beide Sensoren müssen am selben Gerät stecken und mindestens einmal gemeldet haben.",
+        "data": {
+          "old_probe": "Alter Sensor (wird ersetzt)",
+          "new_probe": "Neuer Sensor (Ersatz)"
+        }
+      },
+      "timelapse": {
+        "title": "Zeitraffer",
+        "description": "Nimmt eine Kamera in festen Abständen in einem geschützten Ordner auf; in der Karte kannst du die Bilder dann durchsehen und exportieren. Wähle einen privaten Speicherort – nie einen /www-Ordner (der wird ohne Anmeldung ausgeliefert). Standard: {default_dir}. Bei einem Pfad unter /media erscheint das exportierte Video auch unter „Medien“ in Home Assistant.",
+        "data": {
+          "timelapse_camera": "Kamera",
+          "timelapse_dir": "Speicherordner (geschützt – nicht /www)",
+          "timelapse_interval": "Aufnahmeabstand (Sekunden)",
+          "timelapse_retention": "Bilder aufbewahren (Tage)",
+          "timelapse_enabled": "Zeitraffer-Aufnahme aktivieren"
+        }
+      }
+    },
+    "error": {
+      "same_device": "Quelle und Ziel müssen verschiedene Geräte sein.",
+      "migration_failed": "Migration fehlgeschlagen – Einzelheiten stehen im Protokoll. Es wurden keine Geräte entfernt.",
+      "nothing_to_migrate": "Beim gewählten alten Gerät wurden keine Entitäten zum Migrieren gefunden.",
+      "type_mismatch": "Die Gerätetypen passen nicht zusammen – migrieren geht nur auf ein Gerät der gleichen Art (Display Panel auf Display Panel, Power Strip AC10 auf Power Strip AC10 usw.).",
+      "bad_slot": "Slots dürfen nur Kleinbuchstaben, Ziffern und Unterstriche enthalten.",
+      "duplicate_slot": "Jeder Slot darf nur einmal vorkommen.",
+      "wrong_cb_prefix": "Das Geräte-Präfix eines Bodensensors ergibt sich daraus, an welchem Gerät er steckt – durch Ändern des Slots lässt er sich nicht verschieben. Verwende das Präfix seines Geräts oder nur den Namen ohne Präfix (z. B. soil2).",
+      "same_probe": "Alter und neuer Sensor müssen verschieden sein.",
+      "different_cb": "Beide Sensoren müssen am selben Gerät stecken.",
+      "tl_dir_required": "Gib einen Speicherordner an.",
+      "tl_dir_insecure": "Dieser Ordner wird ohne Anmeldung im Web ausgeliefert (ein /www-Pfad). Wähle einen privaten Pfad wie /media/sf_timelapse.",
+      "tl_dir_unwritable": "Home Assistant kann diesen Ordner nicht anlegen oder nicht hineinschreiben. Prüfe Pfad und Berechtigungen."
+    },
+    "abort": {
+      "no_devices": "Noch keinem Gerät ist ein Slot zugeordnet – verbinde zuerst ein Gerät.",
+      "need_two_probes": "Für einen Austausch braucht es mindestens zwei Bodensensoren.",
+      "no_components": "Noch kein Gerät mit abschaltbarem Licht 2 oder Umluft gefunden – verbinde zuerst das Gerät."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "active": {
+        "name": "Aktiv"
+      },
+      "daytime_light_sensor": {
+        "name": "Tag (Lichtsensor)"
+      },
+      "daytime_schedule": {
+        "name": "Tag (Zeitplan)"
+      },
+      "dehumidifier_active": {
+        "name": "Luftentfeuchter aktiv"
+      },
+      "ethernet_connected": {
+        "name": "Ethernet verbunden"
+      },
+      "fan_natural_wind": {
+        "name": "Umluft Naturwind"
+      },
+      "heater_active": {
+        "name": "Heizung aktiv"
+      },
+      "humidifier_active": {
+        "name": "Luftbefeuchter aktiv"
+      },
+      "sensor_cleaning": {
+        "name": "Sensorreinigung"
+      },
+      "wifi_connected": {
+        "name": "WLAN verbunden"
+      }
+    },
+    "button": {
+      "reboot": {
+        "name": "Neu starten"
+      }
+    },
+    "fan": {
+      "blower": {
+        "name": "Abluft"
+      },
+      "fan": {
+        "name": "Umluft"
+      }
+    },
+    "light": {
+      "light": {
+        "name": "Licht"
+      },
+      "light_n": {
+        "name": "Licht {n}"
+      }
+    },
+    "number": {
+      "air_humidity_calibration": {
+        "name": "Kalibrierung Luftfeuchte"
+      },
+      "air_temp_calibration": {
+        "name": "Kalibrierung Lufttemperatur"
+      },
+      "blower_cycle_times": {
+        "name": "Abluft Zyklen"
+      },
+      "blower_running_speed": {
+        "name": "Abluft Stufe im Betrieb"
+      },
+      "blower_speed_set": {
+        "name": "Abluft Stufe (Vorgabe)"
+      },
+      "blower_standby_speed": {
+        "name": "Abluft Stufe in Bereitschaft"
+      },
+      "co2_calibration": {
+        "name": "Kalibrierung CO2"
+      },
+      "co2_dead_zone": {
+        "name": "CO2 Spielraum"
+      },
+      "co2_target_day": {
+        "name": "CO2 Ziel Tag"
+      },
+      "co2_target_night": {
+        "name": "CO2 Ziel Nacht"
+      },
+      "dehumidifier_cycle_times": {
+        "name": "Luftentfeuchter Zyklen"
+      },
+      "display_off": {
+        "name": "Display aus nach"
+      },
+      "fan_cycle_times": {
+        "name": "Umluft Zyklen"
+      },
+      "fan_oscillation_set": {
+        "name": "Umluft Schwenken (Vorgabe)"
+      },
+      "fan_schedule_gear": {
+        "name": "Umluft Stufe im Zeitplan"
+      },
+      "fan_speed_set": {
+        "name": "Umluft Stufe (Vorgabe)"
+      },
+      "fan_standby_speed": {
+        "name": "Umluft Stufe in Bereitschaft"
+      },
+      "heater_cycle_times": {
+        "name": "Heizung Zyklen"
+      },
+      "heater_level_set": {
+        "name": "Heizung Stufe (Vorgabe)"
+      },
+      "humidifier_cycle_times": {
+        "name": "Luftbefeuchter Zyklen"
+      },
+      "humidifier_level_set": {
+        "name": "Luftbefeuchter Stufe (Vorgabe)"
+      },
+      "humidity_dead_zone": {
+        "name": "Luftfeuchte Spielraum"
+      },
+      "humidity_target_day": {
+        "name": "Luftfeuchte Ziel Tag"
+      },
+      "humidity_target_night": {
+        "name": "Luftfeuchte Ziel Nacht"
+      },
+      "leaf_offset_day": {
+        "name": "Blatt-Versatz (Tag)"
+      },
+      "leaf_offset_night": {
+        "name": "Blatt-Versatz (Nacht)"
+      },
+      "leaf_vpd_max": {
+        "name": "Blatt-VPD max"
+      },
+      "leaf_vpd_min": {
+        "name": "Blatt-VPD min"
+      },
+      "light_n_dimming_range_max": {
+        "name": "Licht {n} Dimmbereich max"
+      },
+      "light_n_dimming_range_min": {
+        "name": "Licht {n} Dimmbereich min"
+      },
+      "light_n_fade": {
+        "name": "Licht {n} Dimmzeit"
+      },
+      "light_n_go_dark": {
+        "name": "Licht {n} Abdunkeln ab"
+      },
+      "light_n_ppfd_fade": {
+        "name": "Licht {n} PPFD-Dimmzeit"
+      },
+      "light_n_ppfd_target": {
+        "name": "Licht {n} PPFD-Ziel"
+      },
+      "light_n_schedule_brightness": {
+        "name": "Licht {n} Helligkeit im Zeitplan"
+      },
+      "light_n_turn_off": {
+        "name": "Licht {n} Ausschalten ab"
+      },
+      "outlet_n_average_target": {
+        "name": "Steckdose {n} Ziel (Mittelwert)"
+      },
+      "outlet_n_execution_times": {
+        "name": "Steckdose {n} Ausführungen"
+      },
+      "outlet_n_off_duration_min": {
+        "name": "Steckdose {n} Pausendauer (min)"
+      },
+      "outlet_n_run_duration_min": {
+        "name": "Steckdose {n} Laufdauer (min)"
+      },
+      "ppfd_calibration": {
+        "name": "Kalibrierung PPFD"
+      },
+      "schedule_brightness": {
+        "name": "Helligkeit im Zeitplan"
+      },
+      "soil_probe_cal_ec": {
+        "name": "Boden {probe} Kalibrierung EC"
+      },
+      "soil_probe_cal_moisture": {
+        "name": "Boden {probe} Kalibrierung Feuchte"
+      },
+      "soil_probe_cal_temp": {
+        "name": "Boden {probe} Kalibrierung Temperatur"
+      },
+      "sunrise_sunset_fade": {
+        "name": "Dimmzeit Sonnenauf-/-untergang"
+      },
+      "temp_dead_zone": {
+        "name": "Temperatur Spielraum"
+      },
+      "temp_target_day": {
+        "name": "Temperatur Ziel Tag"
+      },
+      "temp_target_night": {
+        "name": "Temperatur Ziel Nacht"
+      }
+    },
+    "select": {
+      "blower_mode_set": {
+        "name": "Abluft Modus (Vorgabe)"
+      },
+      "blower_run_mode": {
+        "name": "Abluft Betriebsart"
+      },
+      "dehumidifier_level_set": {
+        "name": "Luftentfeuchter Stufe (Vorgabe)"
+      },
+      "dehumidifier_mode_set": {
+        "name": "Luftentfeuchter Modus (Vorgabe)"
+      },
+      "fan_mode_set": {
+        "name": "Umluft Modus (Vorgabe)"
+      },
+      "fan_run_mode": {
+        "name": "Umluft Betriebsart"
+      },
+      "heater_gear": {
+        "name": "Heizung Stufe"
+      },
+      "heater_mode_set": {
+        "name": "Heizung Modus (Vorgabe)"
+      },
+      "humidifier_gear": {
+        "name": "Luftbefeuchter Stufe"
+      },
+      "humidifier_mode_set": {
+        "name": "Luftbefeuchter Modus (Vorgabe)"
+      },
+      "light_n_mode": {
+        "name": "Licht {n} Modus"
+      },
+      "mode_set": {
+        "name": "Modus (Vorgabe)"
+      },
+      "operating_mode": {
+        "name": "Betriebsart"
+      },
+      "outlet_n_device_type": {
+        "name": "Steckdose {n} Gerätetyp"
+      },
+      "outlet_n_mode": {
+        "name": "Steckdose {n} Modus"
+      },
+      "outlet_n_sensor": {
+        "name": "Steckdose {n} Sensor"
+      },
+      "outlet_n_week": {
+        "name": "Steckdose {n} Wochentage"
+      },
+      "soil_probe_substrate": {
+        "name": "Boden {probe} Substrat"
+      }
+    },
+    "sensor": {
+      "alarm_settings": {
+        "name": "Alarmeinstellungen"
+      },
+      "alarms": {
+        "name": "Alarme"
+      },
+      "blower_mode": {
+        "name": "Abluft Modus"
+      },
+      "blower_speed": {
+        "name": "Abluft Stufe"
+      },
+      "brightness": {
+        "name": "Helligkeit"
+      },
+      "co2": {
+        "name": "CO2"
+      },
+      "current": {
+        "name": "Stromstärke"
+      },
+      "dehumidifier_level": {
+        "name": "Luftentfeuchter Stufe"
+      },
+      "dehumidifier_mode": {
+        "name": "Luftentfeuchter Modus"
+      },
+      "dehumidifier_tank": {
+        "name": "Luftentfeuchter Tank"
+      },
+      "energy": {
+        "name": "Energie"
+      },
+      "fan_mode": {
+        "name": "Umluft Modus"
+      },
+      "fan_oscillation": {
+        "name": "Umluft Schwenken"
+      },
+      "fan_speed": {
+        "name": "Umluft Stufe"
+      },
+      "firmware_version": {
+        "name": "Firmware-Version"
+      },
+      "hardware_version": {
+        "name": "Hardware-Version"
+      },
+      "heater_level": {
+        "name": "Heizung Stufe"
+      },
+      "heater_mode": {
+        "name": "Heizung Modus"
+      },
+      "heater_status": {
+        "name": "Heizung Status"
+      },
+      "humidifier_level": {
+        "name": "Luftbefeuchter Stufe"
+      },
+      "humidifier_mode": {
+        "name": "Luftbefeuchter Modus"
+      },
+      "humidifier_tank": {
+        "name": "Luftbefeuchter Tank"
+      },
+      "humidity": {
+        "name": "Luftfeuchtigkeit"
+      },
+      "light_n_brightness": {
+        "name": "Licht {n} Helligkeit"
+      },
+      "mode": {
+        "name": "Modus"
+      },
+      "operations": {
+        "name": "Bedienprotokoll"
+      },
+      "outlet_n_schedule": {
+        "name": "Steckdose {n} Zeitplan"
+      },
+      "planting_plan": {
+        "name": "Anbauplan"
+      },
+      "power": {
+        "name": "Leistung"
+      },
+      "ppfd": {
+        "name": "PPFD"
+      },
+      "schedule": {
+        "name": "Zeitplan"
+      },
+      "sensor_cleaning_phase": {
+        "name": "Sensorreinigung Phase"
+      },
+      "sensor_cleaning_time": {
+        "name": "Sensorreinigung Zeit"
+      },
+      "soil_avg_ec": {
+        "name": "Boden Ø EC"
+      },
+      "soil_avg_moisture": {
+        "name": "Boden Ø Feuchte"
+      },
+      "soil_avg_temperature": {
+        "name": "Boden Ø Temperatur"
+      },
+      "soil_named_ec": {
+        "name": "{label} EC"
+      },
+      "soil_named_moisture": {
+        "name": "{label} Feuchte"
+      },
+      "soil_named_temperature": {
+        "name": "{label} Temperatur"
+      },
+      "soil_probe_ec": {
+        "name": "Boden {probe} EC"
+      },
+      "soil_probe_moisture": {
+        "name": "Boden {probe} Feuchte"
+      },
+      "soil_probe_temperature": {
+        "name": "Boden {probe} Temperatur"
+      },
+      "temperature": {
+        "name": "Temperatur"
+      },
+      "timelapse": {
+        "name": "SF Zeitraffer {name}",
+        "state": {
+          "capturing": "Aufnahme läuft",
+          "idle": "Inaktiv"
+        }
+      },
+      "uptime": {
+        "name": "Betriebszeit"
+      },
+      "voltage": {
+        "name": "Spannung"
+      },
+      "vpd_air": {
+        "name": "VPD Luft"
+      },
+      "vpd_leaf": {
+        "name": "VPD Blatt"
+      },
+      "wifi_signal": {
+        "name": "WLAN-Signal"
+      }
+    },
+    "switch": {
+      "blower_close_co2": {
+        "name": "Abluft aus bei CO2-Begasung"
+      },
+      "dehumidifier": {
+        "name": "Luftentfeuchter"
+      },
+      "fan_natural_wind_set": {
+        "name": "Umluft Naturwind (Vorgabe)"
+      },
+      "heater": {
+        "name": "Heizung"
+      },
+      "humidifier": {
+        "name": "Luftbefeuchter"
+      },
+      "indicator_light": {
+        "name": "Kontrollleuchte"
+      },
+      "outlet_n": {
+        "name": "Steckdose {n}"
+      },
+      "planting_plan_enabled": {
+        "name": "Anbauplan aktiv"
+      }
+    },
+    "text": {
+      "blower_cycle_off": {
+        "name": "Abluft Zyklus Pause"
+      },
+      "blower_cycle_run": {
+        "name": "Abluft Zyklus Laufzeit"
+      },
+      "blower_cycle_start": {
+        "name": "Abluft Zyklus Beginn"
+      },
+      "blower_schedule_start": {
+        "name": "Abluft Zeitplan Beginn"
+      },
+      "blower_schedule_stop": {
+        "name": "Abluft Zeitplan Ende"
+      },
+      "day_cycle_start": {
+        "name": "Tageszyklus Beginn"
+      },
+      "day_cycle_stop": {
+        "name": "Tageszyklus Ende"
+      },
+      "dehumidifier_cycle_off": {
+        "name": "Luftentfeuchter Zyklus Pause"
+      },
+      "dehumidifier_cycle_run": {
+        "name": "Luftentfeuchter Zyklus Laufzeit"
+      },
+      "dehumidifier_cycle_start": {
+        "name": "Luftentfeuchter Zyklus Beginn"
+      },
+      "dehumidifier_schedule_start": {
+        "name": "Luftentfeuchter Zeitplan Beginn"
+      },
+      "dehumidifier_schedule_stop": {
+        "name": "Luftentfeuchter Zeitplan Ende"
+      },
+      "fan_cycle_off": {
+        "name": "Umluft Zyklus Pause"
+      },
+      "fan_cycle_run": {
+        "name": "Umluft Zyklus Laufzeit"
+      },
+      "fan_cycle_start": {
+        "name": "Umluft Zyklus Beginn"
+      },
+      "fan_schedule_start": {
+        "name": "Umluft Zeitplan Beginn"
+      },
+      "fan_schedule_stop": {
+        "name": "Umluft Zeitplan Ende"
+      },
+      "heater_cycle_off": {
+        "name": "Heizung Zyklus Pause"
+      },
+      "heater_cycle_run": {
+        "name": "Heizung Zyklus Laufzeit"
+      },
+      "heater_cycle_start": {
+        "name": "Heizung Zyklus Beginn"
+      },
+      "heater_schedule_start": {
+        "name": "Heizung Zeitplan Beginn"
+      },
+      "heater_schedule_stop": {
+        "name": "Heizung Zeitplan Ende"
+      },
+      "humidifier_cycle_off": {
+        "name": "Luftbefeuchter Zyklus Pause"
+      },
+      "humidifier_cycle_run": {
+        "name": "Luftbefeuchter Zyklus Laufzeit"
+      },
+      "humidifier_cycle_start": {
+        "name": "Luftbefeuchter Zyklus Beginn"
+      },
+      "humidifier_schedule_start": {
+        "name": "Luftbefeuchter Zeitplan Beginn"
+      },
+      "humidifier_schedule_stop": {
+        "name": "Luftbefeuchter Zeitplan Ende"
+      },
+      "light_n_ppfd_start": {
+        "name": "Licht {n} PPFD Beginn"
+      },
+      "light_n_ppfd_stop": {
+        "name": "Licht {n} PPFD Ende"
+      },
+      "light_n_schedule_start": {
+        "name": "Licht {n} Zeitplan Beginn"
+      },
+      "light_n_schedule_stop": {
+        "name": "Licht {n} Zeitplan Ende"
+      },
+      "outlet_n_start": {
+        "name": "Steckdose {n} Beginn"
+      },
+      "outlet_n_stop": {
+        "name": "Steckdose {n} Ende"
+      },
+      "schedule_start": {
+        "name": "Zeitplan Beginn"
+      },
+      "schedule_stop": {
+        "name": "Zeitplan Ende"
+      }
+    }
+  },
+  "device": {
+    "environment": {
+      "name": "{device} Umgebung"
+    }
+  },
+  "selector": {
+    "accessory": {
+      "options": {
+        "light": "Licht 1",
+        "light2": "Licht 2",
+        "fan": "Umluft"
+      }
+    },
+    "strip_sensor_source": {
+      "options": {
+        "sf": "Spider-Farmer-Sensor",
+        "external": "Externer Sensor"
+      }
+    }
+  },
+  "exceptions": {
+    "proxy_not_running": {
+      "message": "Der Proxy der Spider Farmer Bridge läuft nicht."
+    },
+    "control_disabled": {
+      "message": "Die Gerätesteuerung ist ausgeschaltet – schalte sie in den Optionen der Integration Spider Farmer Bridge ein."
+    },
+    "control_disabled_reboot": {
+      "message": "Die Gerätesteuerung ist ausgeschaltet – schalte sie in den Optionen der Integration Spider Farmer Bridge ein, um ein Gerät neu zu starten."
+    },
+    "control_disabled_cleaning": {
+      "message": "Die Gerätesteuerung ist ausgeschaltet – schalte sie in den Optionen der Integration Spider Farmer Bridge ein, um die Sensorreinigung zu starten oder zu stoppen."
+    },
+    "device_offline_reboot": {
+      "message": "Das Gerät ist offline – es muss mit der Bridge verbunden sein, um neu zu starten."
+    }
+  },
+  "services": {
+    "set_se_schedule": {
+      "name": "SE-Licht-Zeitplan setzen",
+      "description": "Schreibt den vollständigen Zeitplan mit mehreren Abschnitten und Wochentagen in ein Licht der Spider-Farmer-SE-Serie. Wird von der Spider-Light-Karte genutzt; geht auch aus Automationen.",
+      "fields": {
+        "entity_id": {
+          "name": "Licht",
+          "description": "Das SE-Licht (oder eine seiner Entitäten), in das der Zeitplan geschrieben wird."
+        },
+        "periods": {
+          "name": "Abschnitte",
+          "description": "Liste der Zeitplan-Abschnitte. Jeder Abschnitt hat die Schlüssel: days (Liste von 0-6, 0=Sonntag), start (\"HH:MM\"), end (\"HH:MM\"), brightness (11-100), fade (Dimmzeit Sonnenauf-/-untergang in Minuten, 0-30), enabled (0 oder 1)."
+        }
+      }
+    },
+    "set_outlet_schedule": {
+      "name": "Zeitfenster einer Steckdose setzen",
+      "description": "Schreibt die Zeitfenster einer Steckdose (bis zu 12 Ein/Aus-Fenster mit Wochentagen) in eine Spider-Farmer-Steckdosenleiste oder ein Display Panel. Wird vom Reiter Steckdosen der Zelt-Karte genutzt; geht auch aus Automationen.",
+      "fields": {
+        "entity_id": {
+          "name": "Steckdose",
+          "description": "Eine beliebige Entität der Steckdose (z. B. ihr Schalter oder Modus)."
+        },
+        "periods": {
+          "name": "Zeitfenster",
+          "description": "Liste von bis zu 12 Zeitfenstern. Jedes hat die Schlüssel: days (Liste von 0-6, 0=Sonntag), start (\"HH:MM\"), end (\"HH:MM\")."
+        }
+      }
+    },
+    "set_outlet_config": {
+      "name": "Steckdosen-Modus und Einstellungen setzen",
+      "description": "Setzt Modus und Einstellungen einer Steckdose (Zyklus-Zeiten, Geräteauswahl) in einem einzigen Schreibvorgang, sodass Moduswahl und Einstellungen zusammen übernommen werden. Wird vom Reiter Steckdosen der Zelt-Karte genutzt.",
+      "fields": {
+        "entity_id": {
+          "name": "Steckdose",
+          "description": "Eine beliebige Entität der Steckdose (z. B. ihr Schalter oder ihre Modusauswahl)."
+        },
+        "mode": {
+          "name": "Modus",
+          "description": "Steckdosen-Modus: Manual, Time Slot, Cycle, Temperature, Humidity, CO2."
+        },
+        "config": {
+          "name": "Einstellungen",
+          "description": "Zuordnung der Einstellungsfelder des Modus zu Werten, z. B. für Cycle: cycle_start \"12:00\", cycle_run 5, cycle_off 7, cycle_times 3."
+        }
+      }
+    },
+    "set_alarm_settings": {
+      "name": "Alarmgrenzen setzen",
+      "description": "Schreibt die Alarmgrenzen des Controllers (Klima, Substrat und andere Geräte). Wird vom Reiter Alarme der Zelt-Karte genutzt; geht auch aus Automationen.",
+      "fields": {
+        "entity_id": {
+          "name": "Controller",
+          "description": "Eine beliebige Entität des Controllers, dessen Alarme gesetzt werden (z. B. sein Sensor Alarmeinstellungen)."
+        },
+        "settings": {
+          "name": "Einstellungen",
+          "description": "Die entschlüsselten Grenzwert-Gruppen (climate, substrate, other). Jeder Messwert ist eine Zuordnung mit key, enabled (0/1) und max/min (Temperaturen in °F)."
+        }
+      }
+    },
+    "apply_bundle": {
+      "name": "Einstellungspaket übernehmen",
+      "description": "Schreibt mehrere vorgemerkte Einstellungen eines Gerätemoduls (fan, blower, heater, humidifier, dehumidifier, light, light2) in einem einzigen Schreibvorgang, der den übrigen Block erhält. Wird von den Speichern-Knöpfen der Zelt-Karte genutzt; geht auch aus Automationen.",
+      "fields": {
+        "entity_id": {
+          "name": "Geräte-Entität",
+          "description": "Eine beliebige Entität des Geräts, in das geschrieben wird (z. B. seine Modusauswahl)."
+        },
+        "module": {
+          "name": "Modul",
+          "description": "Das Gerätemodul, in das geschrieben wird: fan, blower, heater, humidifier, dehumidifier, light, light2 (light_1/light_2 gehen auch)."
+        },
+        "settings": {
+          "name": "Einstellungen",
+          "description": "Zuordnung der Einstellungs-Schlüssel zu Werten, z. B. mode \"Cycle\", cycle_start \"08:00\", cycle_times 4."
+        }
+      }
+    },
+    "set_card_option": {
+      "name": "Karten-Option setzen",
+      "description": "Speichert eine Anzeige-Option der Karte je Panel (z. B. die Farbe bei Werten außerhalb des Bereichs) im Konfigurationseintrag, damit sie Updates übersteht und auf allen Geräten gleich ist. Wird vom Reiter Einstellungen der Zelt-Karte genutzt; meist nicht von Hand aufgerufen.",
+      "fields": {
+        "entity_id": {
+          "name": "Panel-Entität",
+          "description": "Der Sensor Alarmeinstellungen des Panels (bestimmt den Controller)."
+        },
+        "key": {
+          "name": "Schlüssel",
+          "description": "Name der Option, z. B. \"colors\"."
+        },
+        "value": {
+          "name": "Wert",
+          "description": "Wert der Option, z. B. \"tile\", \"text\" oder \"off\"."
+        }
+      }
+    },
+    "set_sensor_heating": {
+      "name": "Sensorreinigung (starten/stoppen)",
+      "description": "Startet oder stoppt den Heiz-Reinigungszyklus des Luft-Temperatur-/Feuchtesensors (in der SF-App „Sensor cleaning“). Erfordert „Gerätesteuerung erlauben“. Wird vom Reiter Kalibrierung der Zelt-Karte genutzt.",
+      "fields": {
+        "entity_id": {
+          "name": "Controller-Entität",
+          "description": "Eine beliebige Spider-Farmer-Entität des Ziel-Controllers."
+        },
+        "on": {
+          "name": "Starten",
+          "description": "An = Reinigung starten, Aus = stoppen."
+        }
+      }
+    },
+    "set_strip_sensor": {
+      "name": "Temperaturquelle der Steckdosenleiste",
+      "description": "Wählt die Temperatur-/Feuchtequelle einer Steckdosenleiste ohne eigene Steuerung (AC5/AC10/S-Station): ihren eigenen SF-Sensor oder eine Temperatur-/Feuchte-Entität aus HA, die für Steckdosen-Automatiken auf die Leiste gespiegelt wird. Wird vom Reiter Einstellungen der Zelt-Karte genutzt.",
+      "fields": {
+        "entity_id": {
+          "name": "Leisten-Entität",
+          "description": "Eine beliebige Spider-Farmer-Entität der Ziel-Leiste."
+        },
+        "source": {
+          "name": "Quelle",
+          "description": "sf = der eigene Sensor der Leiste; external = ein fremder Sensor aus HA."
+        },
+        "temp_entity": {
+          "name": "Externe Temperatur-Entität",
+          "description": "Temperatur-Entität aus HA, die gespiegelt wird (bei Quelle external)."
+        },
+        "humi_entity": {
+          "name": "Externe Feuchte-Entität",
+          "description": "Feuchte-Entität aus HA, die gespiegelt wird (bei Quelle external)."
+        }
+      }
+    },
+    "set_smart_control": {
+      "name": "Smarte Regelung (Luftentfeuchter)",
+      "description": "Schaltet die Feuchteregelung der Integration für ein Gerät ein oder aus und stellt sie ein. ACHTUNG: Eingeschaltet steuert die Integration die Stufe des Luftentfeuchters (vollständig manuell) und übergeht die Automatik von SF. Wird vom Reiter Einstellungen der Zelt-Karte genutzt.",
+      "fields": {
+        "entity_id": {
+          "name": "Geräte-Entität",
+          "description": "Eine beliebige Spider-Farmer-Entität des Ziel-Geräts."
+        },
+        "enabled": {
+          "name": "Aktiv",
+          "description": "An = die Integration steuert den Luftentfeuchter; Aus = Steuerung zurück an das Gerät."
+        },
+        "settings": {
+          "name": "Einstellungen",
+          "description": "Feinabstimmung: humidity (entity_id), target, deadband, escalate_after_s, escalate_drop, ease_band, min_on_s, min_off_s."
+        }
+      }
+    },
+    "set_outlet_env": {
+      "name": "Klima-Steuerung einer Steckdose (Leiste ohne Sensor)",
+      "description": "Schaltet die Temperatur-Steuerung (Kühlen/Heizen) durch die Integration für eine Steckdose ein oder aus, an einer Leiste ohne SF-Luftsensor (AC5/AC10 mit externer Temperaturquelle). Die Steckdose kann das auf dem Gerät nicht selbst, also steuert die Integration sie nach der gespiegelten Temperatur und dem Klimaziel der Leiste. ACHTUNG: Eingeschaltet gehört diese Steckdose der Integration (auf dem Gerät bleibt sie auf Manual); die Karte zeigt weiter den gewählten Modus Temperatur/Kühlen. Wird vom Steckdosen-Fenster der Zelt-Karte bei externen Leisten genutzt.",
+      "fields": {
+        "entity_id": {
+          "name": "Steckdosen-Entität",
+          "description": "Eine beliebige Entität der Ziel-Steckdose (ihr Schalter oder ihre Modusauswahl)."
+        },
+        "enabled": {
+          "name": "Aktiv",
+          "description": "An = die Integration steuert die Steckdose; Aus = Steuerung zurück an das Gerät."
+        },
+        "mode": {
+          "name": "Modus",
+          "description": "Zu haltender Klima-Modus – Temperature oder Humidity."
+        },
+        "direction": {
+          "name": "Richtung",
+          "description": "Temperature: Cooling (an, wenn warm) oder Heating (an, wenn kalt). Humidity: Dehumidifying (an, wenn feucht) oder Humidifying (an, wenn trocken)."
+        },
+        "settings": {
+          "name": "Einstellungen",
+          "description": "Optionale Feinabstimmung: deadband, min_on_s, min_off_s."
+        }
+      }
+    },
+    "reboot_device": {
+      "name": "Gerät neu starten",
+      "description": "Startet einen Spider-Farmer-Controller über die Bridge neu (setDevRestart der Firmware). Der Controller verbindet sich von selbst wieder, sobald er hochgefahren ist. Erfordert „Gerätesteuerung erlauben“ in den Optionen der Integration; ein Controller, der offline ist, wird übersprungen.",
+      "fields": {
+        "entity_id": {
+          "name": "Gerät",
+          "description": "Eine beliebige Entität des Controllers, der neu starten soll."
+        }
+      }
+    },
+    "timelapse_configure": {
+      "name": "Zeitraffer einrichten",
+      "description": "Legt einen Zeitraffer an oder ändert ihn. Gib tl_id (ein Slug) an oder lass sie aus Name/Kamera bilden; eine neue tl_id legt einen neuen Zeitraffer an. Der Speicherort muss ein geschützter Ordner sein, der nicht im Web ausgeliefert wird (nie unter /www oder /config/www).",
+      "fields": {
+        "tl_id": {
+          "name": "Zeitraffer-ID",
+          "description": "Feste Kennung (Slug) dieses Zeitraffers. Neue ID = neuer Zeitraffer."
+        },
+        "name": {
+          "name": "Name",
+          "description": "Name des Zeitraffers (daraus wird die tl_id gebildet). Leer = Name der Kamera."
+        },
+        "label": {
+          "name": "Anzeigename",
+          "description": "Optionaler Titel oben auf der Karte. Leer = Anzeigename der Kamera. Ändert die tl_id nicht."
+        },
+        "camera": {
+          "name": "Kamera"
+        },
+        "storage_dir": {
+          "name": "Speicherordner",
+          "description": "Geschützter absoluter Pfad (nie /www oder /config/www)."
+        },
+        "interval": {
+          "name": "Abstand (s)"
+        },
+        "retention": {
+          "name": "Aufbewahren (Tage)"
+        },
+        "enabled": {
+          "name": "Aufnahme aktiv"
+        },
+        "overlay": {
+          "name": "Klima-Einblendung"
+        },
+        "overlay_burn": {
+          "name": "Einblendung ins Video brennen"
+        },
+        "overlay_panel": {
+          "name": "Klimawerte von Panel"
+        },
+        "overlay_fields": {
+          "name": "Eingeblendete Werte",
+          "description": "Beliebige aus: temp, humidity, vpd, co2, ppfd, timestamp, day."
+        },
+        "overlay_color": {
+          "name": "Textfarbe der Einblendung",
+          "description": "Hex-Farbe, z. B. \"#ffffff\"."
+        },
+        "overlay_grouped": {
+          "name": "Einblendung gruppiert",
+          "description": "Alle Werte in einem Kasten (in Auswahlreihenfolge) statt einzeln platziert."
+        },
+        "overlay_orient": {
+          "name": "Anordnung der Einblendung",
+          "description": "\"v\" (untereinander) oder \"h\" (in einer Zeile) für den gruppierten Kasten."
+        },
+        "overlay_labels": {
+          "name": "Beschriftung der Einblendung",
+          "description": "Aus zeigt nur die Werte (z. B. 72°F) ohne die Beschriftungen Temp/RH."
+        },
+        "overlay_font": {
+          "name": "Textgröße der Einblendung",
+          "description": "Textgröße in px, wie auf der Karte angezeigt (Standard 12)."
+        },
+        "overlay_pos": {
+          "name": "Positionen der Einblendung",
+          "description": "Ankerpositionen: Feld oder \"group\" zugeordnet zu [xPct, yPct]."
+        },
+        "align": {
+          "name": "Zur vollen Marke starten",
+          "description": "An = erstes Bild zur nächsten Uhrzeit-Marke; aus = sofort beginnen."
+        },
+        "daily_at": {
+          "name": "Täglich aufnehmen um",
+          "description": "Uhrzeit \"HH:MM\" bei einem Abstand von 1 Tag."
+        }
+      }
+    },
+    "timelapse_start": {
+      "name": "Zeitraffer starten",
+      "description": "Startet die Aufnahme eines Zeitraffers oder setzt sie fort.",
+      "fields": {
+        "tl_id": {
+          "name": "Zeitraffer-ID"
+        },
+        "interval": {
+          "name": "Abstand (s)"
+        }
+      }
+    },
+    "timelapse_stop": {
+      "name": "Zeitraffer stoppen",
+      "description": "Stoppt die Aufnahme eines Zeitraffers (läuft nach einem Neustart nicht wieder an).",
+      "fields": {
+        "tl_id": {
+          "name": "Zeitraffer-ID"
+        }
+      }
+    },
+    "timelapse_set_interval": {
+      "name": "Zeitraffer-Abstand ändern",
+      "description": "Ändert den Aufnahmeabstand eines Zeitraffers (während der Aufnahme).",
+      "fields": {
+        "tl_id": {
+          "name": "Zeitraffer-ID"
+        },
+        "interval": {
+          "name": "Abstand (s)"
+        }
+      }
+    },
+    "timelapse_export": {
+      "name": "Zeitraffer als MP4 exportieren",
+      "description": "Rechnet die Bilder einer Sitzung zu einer .mp4 im selben geschützten Ordner.",
+      "fields": {
+        "tl_id": {
+          "name": "Zeitraffer-ID"
+        },
+        "session": {
+          "name": "Sitzung"
+        },
+        "fps": {
+          "name": "Bilder pro Sekunde"
+        },
+        "name": {
+          "name": "Dateiname"
+        }
+      }
+    },
+    "timelapse_remove": {
+      "name": "Zeitraffer entfernen",
+      "description": "Löscht einen Zeitraffer (stoppt die Aufnahme, entfernt seinen Status-Sensor). Mit delete_images wird auch sein Ordner mit Bildern, Sitzungen und Exporten gelöscht.",
+      "fields": {
+        "tl_id": {
+          "name": "Zeitraffer-ID"
+        },
+        "delete_images": {
+          "name": "Bilder löschen",
+          "description": "Auch die aufgenommenen Bilder, Sitzungen und Exporte auf der Platte löschen."
+        }
+      }
+    },
+    "timelapse_clear": {
+      "name": "Zeitraffer-Bilder leeren",
+      "description": "Löscht ALLE aufgenommenen Bilder, Sitzungen und exportierten Videos eines Zeitraffers (der Zeitraffer selbst bleibt). Lief die Aufnahme, geht sie in einer neuen, leeren Sitzung weiter. Das lässt sich nicht rückgängig machen.",
+      "fields": {
+        "tl_id": {
+          "name": "Zeitraffer-ID"
+        }
+      }
+    }
+  }
+}

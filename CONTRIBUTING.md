@@ -26,7 +26,7 @@ This repo ships three things:
 | Path | What it is |
 |------|------------|
 | `custom_components/sf/` | The Home Assistant integration (this is what Marketplace/HACS installs). |
-| `spider-farmer-card/` | The Lovelace dashboard card (TypeScript/Lit, built with rollup). The built bundle lives at `custom_components/sf/cards/spider-farmer-card.js`. |
+| `card-src/` | The Lovelace dashboard cards (TypeScript/Lit, built with rollup). The built bundle lives at `custom_components/sf/cards/spider-farmer-card.js`. |
 | `spider_farmer_hotspot/` | The optional Wi-Fi hotspot add-on (a Home Assistant add-on). |
 
 ## Development setup
@@ -53,13 +53,17 @@ hassfest. A PR needs these green before it can be merged.
 ### Building the card
 
 If your change touches the dashboard card, edit the TypeScript source under
-`spider-farmer-card/src/`, then build and include the rebuilt bundle:
+`card-src/src/`, then build and include the rebuilt bundle:
 
 ```bash
-cd spider-farmer-card
-npm install
+cd card-src
+npm ci
 npm run build
+cp dist/spider-farmer-card.js ../custom_components/sf/cards/spider-farmer-card.js
 ```
+
+Keep the `version` in `custom_components/sf/cards/card-version.json` equal to
+the one in `card-src/package.json` (details in [`card-src/README.md`](card-src/README.md)).
 
 ## Coding guidelines
 
@@ -69,7 +73,7 @@ npm run build
   (and reverting, if needed) much easier.
 - **Bump the version and update the changelog in the same change.** For
   user-facing changes, bump the relevant version — `custom_components/sf/manifest.json`
-  (integration), `spider-farmer-card/package.json` (card), or
+  (integration), `card-src/package.json` + `custom_components/sf/cards/card-version.json` (card), or
   `spider_farmer_hotspot/config.yaml` (add-on) — and add a matching entry to the
   relevant `CHANGELOG.md`.
 - **Add or update tests** for behavior changes where practical.

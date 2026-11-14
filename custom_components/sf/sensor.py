@@ -36,6 +36,7 @@ async def async_setup_entry(
             else SfAlarmsSensor(bus, d) if d.kind in ("alarms", "oplog")
             else SfAlarmSettingsSensor(bus, d) if d.kind == "alarm_settings"
             else SfPlanSensor(bus, d) if d.kind == "plan"
+            else SfAiSensor(bus, d) if d.kind == "ai"
             else SfSensor(bus, d)
             for d in defs
         )
@@ -322,6 +323,56 @@ class SfAlarmsSensor(SfSensor):
             **(self._attr_extra_state_attributes or {}),
             "count": len(events),
             "events": events,
+        }
+
+
+class SfAiSensor(SfSensor):
+    """Adaptive-climate learning status (v3.20.0, observe-only): state = overall
+    learning confidence 0–100 %; attributes carry the per-metric model summary
+    (drift, gains, confidence, n) + sample count — the seed for the AI Stats card.
+    Payload is the JSON the ai_learn task publishes. No device is actuated."""
+
+    @callback
+    def _handle_payload(self, topic: str, payload: str) -> None:
+        import json
+        try:
+            data = json.loads(payload) if payload else {}
+        except (ValueError, TypeError):
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        conf = data.get("confidence")
+        self._attr_native_value = conf if isinstance(conf, (int, float)) else None
+        self._attr_extra_state_attributes = {
+            **(self._attr_extra_state_attributes or {}),
+            "models": data.get("models", {}),
+            "samples": data.get("samples", 0),
+            # Separate day (lights on) and night model sets, each {models, samples,
+            # confidence} — present when the panel/zone has grow lights. (v3.21.0)
+            "day": data.get("day"),
+            "night": data.get("night"),
+            # Real span the learner covers: the durable store's span when on, else the
+            # recorder window. (Was always the recorder window `days` — so the card's
+            # "days history" stuck at 10 even with a 44-day store. v3.20.18)
+            "history_days": data.get("history_days", data.get("days")),
+            # Durable training store status (v3.20.8) — lets the card show the real
+            # training span instead of a recorder-window input once the store is on.
+            "store_enabled": bool(data.get("store_enabled", False)),
+            "store_rows": data.get("store_rows"),
+            "store_recent": data.get("store_recent"),       # samples stored in the recent window
+            "store_recent_s": data.get("store_recent_s"),   # that window's length (seconds)
+            "store_days": data.get("store_days"),
+            "store_bytes": data.get("store_bytes"),
+            "store_first": data.get("store_first"),
+            "store_last": data.get("store_last"),
+            "device_meta": data.get("device_meta", {}),
+            "zone": data.get("zone"),      # set when this panel is a zone's sensor controller
+            # Wall-clock epoch of the last learning pass — the card counts down from
+            # last_fit + cadence so "next update" resets on the mark, independent of
+            # HA's last_updated (which stalls on identical re-fits). (v3.20.22)
+            "last_fit": data.get("last_fit"),
+            # Saved learning profiles (named dataset snapshots) for the card's library.
+            "profiles": data.get("profiles", []),
         }
 
 

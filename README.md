@@ -575,6 +575,69 @@ Rule checklist:
   the rule; UniFi/others: tick Masquerade on the NAT rule.) Putting the
   devices on their own VLAN also avoids this, as does Option A.
 
+> **A DNS override by itself is not enough — this is the most common setup
+> mistake.** Pointing `sf.mqtt.spider-farmer.com` at the HA host (e.g. a dnsmasq
+> `address=/sf.mqtt.spider-farmer.com/<HA_IP>`) only changes *where* the device
+> connects, not *which port*. The device still dials **`8883`**, and the proxy
+> listens on **`8000`** (the MQTT broker add-on owns `8883` on the HA host), so
+> the connection lands on a port nothing is proxying and the device stays
+> offline. You also need a **port redirect `8883 → 8000`**, and the DNS record
+> should point at **the router that performs that redirect**, not straight at HA
+> — otherwise, on a flat LAN, the device talks to HA directly and the router
+> never sees the traffic to redirect it.
+
+### Option C — OpenWrt / GL.iNet travel router (dnsmasq + firewall redirect)
+
+A small travel router (e.g. a **GL.iNet GL-MT300N-V2**, OpenWrt) makes a tidy,
+isolated "device network." Put the SF controllers on the router's Wi-Fi and
+connect the router's **WAN** to your main network where HA lives (so HA is
+upstream — this sidesteps the same-subnet hairpin problem above).
+
+1. **DNS → the router itself** (not HA). LuCI → *Network → DHCP and DNS →
+   Addresses*, or in `/etc/config/dhcp`:
+   `address=/sf.mqtt.spider-farmer.com/<ROUTER_LAN_IP>` (e.g. the GL.iNet's
+   default `192.168.8.1`).
+2. **Redirect the MQTT port to the HA proxy.** In `/etc/config/firewall`:
+
+   ```
+   config redirect
+       option name 'SF-MQTT'
+       option src 'lan'
+       option proto 'tcp'
+       option src_dport '8883'       # what the controllers dial
+       option dest_ip '<HA_IP>'
+       option dest_port '8000'       # the integration's listen port
+       option target 'DNAT'
+   ```
+
+3. **Keep masquerade on so replies get rewritten back (this is the #1 cause of a
+   silent failure).** A redirect that only rewrites the *destination* (DNAT) isn't
+   enough: the controller validates the endpoint and dialed the cloud IP, so if HA
+   replies straight from its own address the controller **RSTs the connection right
+   after the TCP handshake and never starts TLS**. With HA upstream of the GL.iNet
+   (the layout above), the default **lan → wan masquerade** already fixes this. If
+   instead HA sits on the **same subnet** as the controllers, enable
+   masquerade/SNAT (NAT reflection) on the redirect so the return path goes back
+   through the router — or put the controllers on their own subnet/VLAN as above.
+4. Apply and power-cycle a controller:
+   `/etc/init.d/dnsmasq restart && /etc/init.d/firewall restart`.
+5. **Verify:** from a client on the router, `nslookup sf.mqtt.spider-farmer.com`
+   should return the **router** IP (not HA); `logread | grep 8883` and the
+   firewall rule's hit counter confirm the redirect is firing; the integration's
+   log / proxy should then show the device connecting on `:8000`. If DNS returns
+   the HA IP, or there's no redirect, you'll hit the "offline" mistake above.
+
+> **Symptom decoder.** A `tcpdump -i any -n port 8883 or port 8000` on the HA host
+> while the controller retries tells you where it's stuck:
+> - **SYN → SYN/ACK → RST, no TLS** = the masquerade/return-path problem in step 3
+>   (DNAT without SNAT). Add masquerade.
+> - **No `:8883` at all, only connections to `:1883`** = the controller is reaching
+>   HA's MQTT broker directly (usually a leftover/retry when the 8883 path never
+>   completes). Fix the 8883 redirect + masquerade first; the `:1883` noise stops
+>   once the controller establishes its real TLS session to the proxy.
+> - **Nothing reaches HA** = DNS still points at HA on a flat LAN (device talks to
+>   HA directly, router never sees it) or the firewall rule/interface is wrong.
+
 ## Configuration (gear icon → Configure)
 
 - **Settings** — listen port, upstream host/port, **Allow device control**

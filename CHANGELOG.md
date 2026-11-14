@@ -3,7 +3,511 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
-## 3.19.425 
+## 3.20.35 — Adaptive climate: clean/profile actions refresh the card instantly
+
+### Fixed
+- **"Clean learning data" now updates the card immediately.** The wipe always took effect
+  right away in the store, but with a throttled Re-fit cadence the card kept showing the old
+  sample count and history span until the next scheduled fit (up to your cadence later) — so
+  it looked like the reset hadn't worked or had re-imported history. Clean (and loading,
+  saving or deleting a profile) now forces an immediate re-fit and re-publish, so the numbers
+  update at once. No data behaviour changed: clean still only wipes, and the *only* thing that
+  pre-populates the store is loading a saved profile — there is no history backfill on reset.
+
+## 3.20.34 — Adaptive climate: live updates + clean = start over
+
+### Changed
+- **The models now update live.** The OLS fit is cheap, so adaptive climate re-fits
+  continuously (~15 s) by default instead of on a 3-hour timer — confidence, the per-metric
+  models and the capture-rate readout all track new data almost immediately. The AI card
+  shows "Updating live". You can still throttle it to a fixed interval from the card's
+  **Re-fit cadence** (now defaulting to **Live**) to cut Home Assistant recorder writes if
+  you don't need it live.
+- **"Clean learning data" now starts over.** It wipes all captured learning data and begins
+  fresh from live capture, instead of only trimming imported history. **Saved learning
+  profiles are kept** (stored separately) and can be reloaded afterwards. The confirmation
+  spells out that it can't be undone.
+- The capture-rate readout is now a live rolling rate (last 5 min, shown as rows/hr) rather
+  than a lifetime average.
+
+### Removed
+- The **"Run learning now"** button on the AI card — redundant now that learning runs live.
+
+### Notes
+- Live re-fitting increases recorder write volume for the AI confidence sensors; pick a
+  Re-fit cadence interval if you'd rather keep that down.
+
+## 3.20.33 — Adaptive climate: live capture-rate readout
+
+### Added
+- **Capture rate** on the AI Stats card's store status — the number of snapshots stored in
+  the last hour (rows/hr), so you can see event-driven capture working: it climbs while the
+  tent is actively swinging and reads `0/hr (steady)` when nothing's moving and the store is
+  idling. Confirms at a glance that the store is densifying during transients.
+
+## 3.20.32 — Adaptive climate: event-driven capture (catches fast swings)
+
+### Changed
+- **Capture is now event-driven instead of fixed-interval.** A small tent swings in
+  *seconds* (pulling cold, dry winter air into an 80 °F tent moves temperature and humidity
+  fast), so a fixed 2-minute snapshot missed most of what a device actually did. Capture now
+  stores a reading the moment a device switches on/off or the air actually moves — at the
+  controller's own frame rate (~6 s, measured, the real sensor floor) — and goes quiet when
+  the tent is steady. So fast transients are captured in full without piling up redundant
+  rows, and there's **no capture-interval setting to tune** — it's automatic and the same for
+  everyone. (The learning-speed levels still let you pick how much history the model fits.)
+- Temperature denoising is now sized to the capture rate (a couple of frames) rather than a
+  flat 5-minute window, so it removes sensor jitter **without** flattening the real
+  seconds-scale swings in a small tent.
+
+## 3.20.31 — Adaptive climate: 4 learning speeds + window-aware confidence
+
+### Changed
+- **Learning speed now has four levels** — Slow (all data, most stable), Medium (~7 days),
+  Fast (~3 days), and **I Want It Now (~1 day)** for the quickest re-learn after a tent
+  change. And the confidence gauge is now **window-aware**: each speed reaches full
+  confidence when *its own* window fills (I Want It Now in ~a day, Slow in ~10 days),
+  instead of a fast level being stuck low because it uses less data. So a faster level is a
+  real "re-learn quickly" mode, not a permanently low gauge.
+
+## 3.20.30 — Adaptive climate: no control needed + learning speed
+
+### Changed
+- **Adaptive climate no longer requires "device control" to turn on.** It's observe-only —
+  it learns from your data and shows the models, it never actuates anything — so you can
+  enable it on its own and watch the learned data without handing the integration control of
+  your gear.
+
+### Added
+- **Learning speed (Slow / Medium / Fast)** on the AI Stats card. Slow (default) learns from
+  all your data for the most stable model; Fast fits only recent data so the model re-learns
+  quickly after a tent change (adding or removing a device) — switch to Fast after a change,
+  then back to Slow once it settles. Keep the tent closed and unchanged while it learns.
+- The AI Stats card's per-metric models are now collapsible, a learning-speed selector, and a
+  note that a live intake reference is recommended for learning.
+
+## 3.20.29 — Adaptive climate: saved learning profiles
+
+### Added
+- **Save and reuse learned data across grows.** You can now snapshot a grow's captured
+  training data as a named "learning profile" and load it into a future grow with the same
+  setup — so the new grow warm-starts from what the last one learned instead of starting from
+  scratch. New services `sf.ai_save_profile`, `sf.ai_load_profile` (merge or replace), and
+  `sf.ai_delete_profile`, plus a Learning Profiles section on the AI Stats card to save, list,
+  load and delete them. Loading warns if the profile's device set differs from the current
+  grow (so you don't apply a model that doesn't fit). Profiles are stored in the integration's
+  own data folder (`/config/sf`), alongside the training store.
+
+## 3.20.28 — Adaptive climate: clean keeps your captured data
+
+### Changed
+- **The learning-data cleanup now keeps the clean data you've already captured** instead of
+  wiping everything. The action removes only the device-blind rows imported from Home
+  Assistant history (the hourly, on/off-blind statistics backfill), identified by sample
+  spacing, and leaves the dense, device-complete data the integration recorded live. So you
+  don't lose the days you've already banked — confidence settles to the honest level of that
+  clean data and climbs from there, rather than restarting from zero. The action is now
+  "AI clean learning data (remove imported history)".
+
+## 3.20.27 — Adaptive climate: learn from live capture only (no history import)
+
+### Changed
+- **Learning no longer imports any Home Assistant history — it trains only on the data the
+  integration captures itself, live, from when adaptive climate was turned on.** HA history
+  is a poor source for this: the recorder window is short (often only a couple of days), and
+  on/off devices (heater, humidifier, dehumidifier, outlets) have no long-term statistics,
+  so older imported samples are "device-blind" (the metric moves but every device reads off)
+  and quietly bias the models. Seeding from the recorder/statistics is removed. Instead the
+  durable store fills from the integration's own 2-minute capture of full device state, so
+  every sample is clean and device-complete. Confidence starts near zero and climbs honestly
+  as real data accumulates (~a week to a trustworthy number), rather than showing an inflated
+  figure propped up by blind filler.
+- The "Rebuild from HA history" action is now **"Reset AI learning (start fresh)"** — it
+  clears the store so learning restarts cleanly from live capture. Run it once after updating
+  to clear any blind data an earlier version imported.
+
+## 3.20.26 — Adaptive climate: train on device-complete data only
+
+### Changed
+- **Learning no longer trains on "device-blind" history, which was quietly dragging the
+  models down.** Seeding used to reach past the recorder's ~10-day window by importing
+  older metric history from long-term statistics — but on/off devices (heater, humidifier,
+  dehumidifier, outlets) have no statistics, so in that older stretch the metrics moved
+  while every device read "off." The fit couldn't attribute those changes to anything and
+  just soaked them into drift and noise, lowering R² (worst for humidity). Since ~10 days
+  of 2-minute capture already maxes the confidence volume term, that older data added no
+  benefit and only hurt. Seeding is now fine, device-complete history only; depth comes
+  from the integration's own forward capture (which records full device state going
+  forward). On a "Rebuild from HA history" the store also trims any device-blind rows an
+  earlier seed left behind — keeping all device-complete data. Expect humidity R² (and the
+  confidence gauge) to improve after a rebuild.
+
+## 3.20.25 — Adaptive climate: temperature denoising
+
+### Changed
+- **Temperature learning is denoised, which roughly doubles its model quality.** The fit
+  works on the rate of change, and the derivative of a slightly jittery sensor is mostly
+  noise — which was capping the temperature model's R². It now runs the temperature signal
+  and the device channels through the same short (±5 min) time-window average before
+  fitting; smoothing both sides keeps the learned gains unbiased. Measured on live data,
+  temperature R² went from ~0.14 to ~0.31. This lifts the temperature half of the learning
+  confidence noticeably. Applied to temperature only: humidity responds in fast bursts, so
+  the same smoothing would erase its signal — it (and VPD) are left untouched. The window
+  is time-based, so it has no effect on the coarse hourly portion of the training store.
+
+## 3.20.24 — Adaptive climate: confidence calibration + intake capture
+
+### Changed
+- **The "learning confidence" gauge is recalibrated so it reflects real progress.** It
+  was pinned near the bottom because it scored fit quality against a perfect R² = 1.0 —
+  which is physically impossible for a rate-of-change model of a noisy, living tent — and
+  its data-volume half maxed out after just a few hours. It now scores volume against
+  ~10 days of data and quality against an achievable good fit, so a well-trained model
+  climbs toward 100% over roughly 7–12 days instead of sitting in the low teens. The
+  gauge still needs both data and a real fit; it can't reach full on volume alone.
+
+### Added
+- **Optional intake-air capture.** When an intake (lung-room/outside) temp or humidity
+  sensor is set on the AI Stats card, its readings are now recorded alongside each tent
+  sample (as `ambient_*`). Current learning ignores them; this just accumulates aligned
+  history so a future ventilation term can use it. No effect if no intake sensor is set.
+
+## 3.20.23 — Adaptive climate: role-tagged Manual outlets
+
+### Added
+- **You can now teach the AI about a plug outlet that isn't in an SF environment mode** by
+  tagging it with a role (Humidifier, Heater, Dehumidifier, Cooler, Light). This covers a
+  grouped setup where the climate runs on AC power strips with no local temp/humidity
+  sensor: SF's environment modes won't hold there, so the outlet runs in **Manual** (often
+  driven by a Home Assistant automation). A tagged outlet joins the learning fit from its
+  on/off switch, just like an environment-mode outlet, and shows on the card as e.g.
+  "Outlet 3 · Humidifier". Outlets already in an SF environment mode are still detected
+  automatically. Roles are assigned from the AI Stats card's Settings tab (Device roles),
+  stored server-side so they persist across devices and reloads.
+
+## 3.20.22 — Adaptive climate: reliable "next update" countdown
+
+### Fixed
+- **The AI Stats card's "Next update" countdown no longer sticks at "due now."** Each
+  learning pass now stamps the AI confidence sensor with an explicit `last_fit` timestamp,
+  and the card counts down from `last_fit + cadence` — so the timer resets right on the
+  mark at every pass. Previously the card keyed off Home Assistant's `last_updated`, which
+  HA only bumps when the state or attributes actually change; once a model settled, an
+  identical re-fit left the timestamp stale and the countdown stuck at "due now" (most
+  visible on the 5-minute cadence). The fresh `last_fit` each pass also guarantees the
+  sensor's `last_updated` advances.
+
+### Changed
+- AI Stats card (dev preview): the "Next update" block is centered, and the "Per-Metric
+  Response Models" heading is title-cased.
+
+## 3.20.21 — Adaptive climate: re-fit cadence control
+
+### Added
+- **The AI Stats card's Settings tab has a "Re-fit cadence" dropdown** (5 / 15 / 30 / 60 min,
+  2 h, 3 h) — how often the models recompute from stored data. A fixed 5-minute heartbeat
+  only re-fits once the chosen interval has elapsed, so changing it takes effect without a
+  reload. The Overview countdown reflects the chosen cadence. Faster just surfaces recent
+  data sooner — accuracy still comes from data volume, and capture stays at 2 minutes.
+- The zone composition line now sits above the "next update" line on the Overview.
+
+## 3.20.20 — Adaptive climate: zone composition on the card
+
+### Added
+- **The AI Stats card's zone badge now shows which controllers a zone includes, with a
+  learnable-device count each** (e.g. "Grow Tent · dp1 · sensor · 5 dev · ac10 · 1 dev ·
+  1 external"). A controller listed with "0 dev" is in the zone but contributing nothing —
+  the fastest way to spot an outlet that isn't in an environment mode, or a controller
+  added by mistake. The sensor's `zone` attribute now carries the `panels` breakdown +
+  `external` count.
+
+## 3.20.19 — Adaptive climate: drop constant devices from a fit (cleaner models)
+
+### Fixed
+- **Devices that don't vary in a given regime no longer get a spurious learned gain.**
+  In the night model the grow light is always off, so its coefficient was fitting pure
+  noise (e.g. a fake light→temperature gain at night). Any device whose output has no
+  real variance across the training rows is now dropped from that fit with its gain
+  pinned to 0, which cleans up the day/night models and generally sharpens the fits.
+
+## 3.20.18 — Fix AI card "days history" stuck at 10
+
+### Fixed
+- **The AI Stats card's "days history" tile showed the recorder window (10), not the
+  real span.** The sensor exposed the fixed `days` setting instead of the durable
+  store's actual coverage, so a 44-day store still read "10 days". It now reports the
+  store span (and grows as capture extends it); falls back to the recorder window when
+  the store is off.
+
+## 3.20.17 — Fix integration failing to reload with the durable store on
+
+### Fixed
+- **The integration could go into an error state (red) on reload when the durable AI
+  store was enabled** — e.g. right after adding a climate zone. The store's unload
+  hook was a lambda that returned the executor Future; Home Assistant tried to turn
+  that into a task (`TypeError: a coroutine was expected, got Future`), the unload
+  failed, and the entry got stuck in `FAILED_UNLOAD` and couldn't reload. It's now a
+  proper async unload callback. **If your integration is currently red, restart Home
+  Assistant once after updating** to clear the stuck state.
+- **Also really silenced the "Unable to remove unknown job listener" log noise.** The
+  3.20.7 attempt wrapped the stale unsubscribe in try/except, but Home Assistant logs
+  that removal internally, so the message still appeared. The start-event listeners now
+  track whether they've fired and skip the stale unsubscribe entirely.
+
+## 3.20.16 — Adaptive climate: separate day & night learning
+
+### Added
+- **Day and night are now learned as separate models.** They're genuinely different
+  regimes — lights add heat and drive plant transpiration during the day, targets differ,
+  and the idle drift isn't the same — so a single model let night data bias the daytime
+  response and vice-versa. Each pass now also fits a **day** model set (lights on) and a
+  **night** set (lights off), split by the grow lights' state, alongside the combined
+  model. The AI Confidence sensor carries `day` and `night` ({models, samples, confidence}).
+- The AI Stats card's Overview gains a **Combined / ☀ Day / ☾ Night** selector (shown when
+  the panel/zone has grow lights) to view each regime's gains and confidence.
+
+## 3.20.15 — Adaptive climate: fix rebuild wiping the recent window
+
+### Fixed
+- **The 3.20.14 rebuild could blank the recent window instead of filling it.** The
+  recent-window grid wasn't anchored to the metrics, so a gear device whose first recent
+  state was late truncated it to almost nothing — the rebuild deleted the recent hourly
+  rows and re-added only a handful (store dropped, e.g. ~1,045 → ~806). The recent grid
+  is now anchored to the metrics' start like the older path, so the rebuild fills the
+  last ~10 days with the recorder's fine, dense detail as intended. Run **"Rebuild from
+  HA history"** once on 3.20.15 to restore the detailed recent window.
+
+## 3.20.14 — Adaptive climate: seed uses fine recorder detail for the recent window
+
+### Fixed
+- **The seed/rebuild now pulls the recorder's fine states for the recent ~10 days**, not
+  hourly statistics. The seed had only ever used hourly long-term statistics for the
+  metrics — so the detailed recent data in the store actually came from the 2-minute
+  forward capture, and a rebuild left the recent window coarse (hourly) even though HA's
+  recorder still held the fine data. Seeding/rebuild now uses **fine recorder states for
+  the last ~10 days** and **hourly statistics only for older than that**, so the recent
+  window is dense immediately.
+- **"Rebuild from HA history"** (the former re-seed button) now refreshes the recent
+  window to full detail and extends older history, while keeping fine data you've
+  accumulated beyond the recorder's window. Run it once to restore a recent window that a
+  previous rebuild had flattened to hourly.
+
+## 3.20.13 — Adaptive climate: re-seed is now non-destructive
+
+### Fixed
+- **Re-seed no longer wipes your dense capture data.** The previous re-seed cleared the
+  store and rebuilt it from hourly statistics, which replaced the fine 2-minute capture
+  (e.g. ~7,500 samples over 10 days) with ~1 sample/hour (e.g. ~1,000 over 6 weeks) —
+  more time span, far fewer samples. It now **only prepends older history** (hourly rows
+  older than what you already have) and keeps all existing dense data intact. The card
+  button is renamed **"Backfill older history"** to match. (If you already re-seeded, your
+  recent dense window re-densifies on its own as the 2-minute capture runs.)
+
+## 3.20.12 — Docs: networking / "device won't connect" guidance
+
+### Changed
+- **README networking help expanded.** Added an OpenWrt / GL.iNet travel-router walkthrough
+  (dnsmasq + firewall redirect), an explicit "a DNS override alone isn't enough — you also
+  need the 8883→listen-port redirect" callout, a note that **DNAT needs masquerade/SNAT**
+  (the controller RSTs before TLS otherwise — the most common silent failure), and a
+  tcpdump symptom decoder (SYN/ACK→RST = masquerade; only `:1883` = the 8883 path never
+  completed; nothing at HA = DNS/redirect problem). Docs only — no code changes.
+
+## 3.20.11 — Adaptive climate: multi-controller zones
+
+### Added
+- **Zones — learn one grow that spans several controllers (and external HA devices).**
+  A single tent often isn't one SF unit: a DP may hold the environment sensor while a
+  non-DP AC5/AC10 runs the outlets for that tent, and some devices (e.g. a second,
+  non-smart humidifier) are plain Home Assistant switches toggled by automations. A
+  **zone** groups one *sensor controller* with devices gathered from additional
+  controllers **and** external HA entities, and learns them **jointly** against that
+  sensor's readings — so cross-controller effects (an AC5 cooling outlet pulling down
+  the DP's temperature) are finally visible to the model.
+  - Define zones in the integration options → **Adaptive climate zones**: pick the
+    sensor controller, add the other controllers, and add external HA switches.
+  - A zone's result is published on its sensor controller's existing **AI Confidence**
+    sensor; controllers added to a zone stop learning on their own. Controllers in no
+    zone keep learning per-panel as before.
+  - On the AI Stats card, grouped devices are labeled by source — "AC5 · Outlet 3",
+    "Big Humidifier · Humidifier (external)" — and a zone badge shows on the Overview.
+- External HA devices are treated as on/off actuators for now (dimmable %/numeric is a
+  later enhancement).
+
+## 3.20.10 — Adaptive climate: re-seed the durable store
+
+### Added
+- **New `sf.ai_reseed` service (and a "Re-seed from statistics" button on the AI Stats
+  card).** Wipes the durable training store and rebuilds it from scratch, so a store that
+  was first seeded on an older build (recorder states only, ~10 days) picks up the fuller
+  long-term-statistics backfill (weeks). Only applies when the durable store is enabled;
+  it does not control any device.
+
+## 3.20.9 — Adaptive climate: learn plug-outlet devices + store size
+
+### Added
+- **Plug outlets set to an environment mode are now learned devices.** An AC5/AC10 is a
+  full controller (same sensors + built-in accessories as a DP) plus plug outlets — so a
+  device plugged into an outlet and set to **Temperature, Humidity, or CO2** mode is a real
+  climate actuator. The learner now folds each such outlet in as an on/off (0/100) input,
+  the same way it handles the heater/dehumidifier, and labels it with the outlet's number
+  and configured direction (e.g. "Outlet 3 · Cooling") on the AI Stats card. Outlets in
+  Manual / Time Slot / Cycle / Drip Irrigation / Light Env are left out. (This makes the
+  learner work for AC5/AC10-only setups, where the climate devices live on outlets.)
+- **The durable store reports its database size** (`store_bytes`), shown on the AI Stats card.
+
+### Fixed
+- **The store's sample count is now the real sample count.** It previously reported raw
+  key-rows (each timestamp stores several metric/device rows), inflating the number ~8×;
+  it now counts distinct timestamps — the samples the learner actually trains on.
+
+## 3.20.8 — Adaptive climate: publish durable-store status
+
+### Added
+- **The AI Confidence sensor now reports the durable store's coverage** — `store_enabled`,
+  `store_rows`, `store_days` (span), and `store_first`/`store_last` (range) — refreshed
+  on each learning pass. The AI Stats card uses this to show the real training span
+  ("N samples · M days") instead of a recorder-window input once the store is on. The
+  Overview "days history" tile also reflects the store's true span rather than the
+  requested window. When the store is off, the history-window input still applies as before.
+
+### Notes
+- Context: with the durable store on, the per-run "history window (days)" only affects the
+  one-time seed (and only its gear-device fallback); ongoing learning trains from the whole
+  store. Surfacing the store's actual coverage makes that clear instead of showing a knob
+  that no longer does anything after seeding.
+
+## 3.20.7 — Fix "unable to remove unknown job listener" on reload
+
+### Fixed
+- **Reloading the integration (or changing options) no longer logs a `ValueError:
+  list.remove(x): x not in list` from HA core.** Two startup hooks — the Lovelace
+  card re-check and the time-lapse auto-start — registered a one-time
+  `homeassistant_started` listener and stored its unsubscribe via `async_on_unload`.
+  A one-time listener removes itself when it fires, so that stored unsubscribe went
+  stale, and the next unload/reload tried to remove an already-removed listener. Both
+  now go through a single helper that runs the hook immediately if HA is already up,
+  and otherwise registers the listener with an unsubscribe that's safe to call after
+  it has fired. (Surfaced more often now that AI-store option changes trigger a
+  reload.) No behavior change beyond removing the error.
+
+## 3.20.6 — Adaptive climate: backfill from long-term statistics
+
+### Changed
+- **The durable store now seeds from Home Assistant's long-term statistics, not just
+  the ~10-day states history.** HA keeps hourly history for numeric sensors far
+  longer than the recorder's raw states window, so the one-shot backfill now reaches
+  weeks back (whatever statistics exist) for the metrics and the continuous devices
+  (blower, fan, lights) — instead of the ~10 days it saw before. The gear devices
+  (heater / humidifier / dehumidifier on-off + level) are binary/enum and have **no**
+  long-term statistics, so their older history genuinely isn't recoverable; they seed
+  from the 10-day states window and build full history going forward via the capture
+  tick. Net: with the store on, learning starts with weeks of real data for the
+  dominant drivers instead of days.
+- The learner's usable-interval cap widened from 15 min to 65 min so the hourly
+  backfill rows count as training intervals, while multi-hour gaps (restarts, outages)
+  are still dropped.
+
+### Notes
+- This is why the 30-day learn earlier only ever saw ~10 days: it read the recorder's
+  short-term states history, which is purged on `purge_keep_days` (default ~10), not
+  the long-term statistics the history chart draws from.
+
+## 3.20.5 — Adaptive climate: optional durable training store
+
+### Added
+- **A dedicated, opt-in store for AI training data, independent of the recorder.**
+  Home Assistant's recorder purges old history on a global schedule (default ~10 days),
+  which caps how far back the AI can learn — so a 30-day learn only ever saw ~10 days.
+  Turn on **"Keep a dedicated AI training store"** (under adaptive climate in the
+  integration options) and the integration keeps its own compact SQLite copy of each
+  tent's climate metrics + device efforts under `/config/sf/ai_store.db`, captured every
+  2 minutes and seeded once from whatever the recorder still has. Learning then trains
+  from this store, so it keeps growing past the recorder's window. A **retention** setting
+  (days; **0 = keep everything**) controls how much is kept; at ~1–2 MB per month per tent,
+  keeping it all is cheap.
+- **This is a user choice and off by default.** If you already keep SF data in the recorder
+  long-term, or have excluded SF from purge, you don't need it — leave it off and the AI
+  reads the recorder as before. Only available when adaptive climate is enabled.
+
+### Notes
+- All store I/O runs off Home Assistant's event loop (executor jobs), consistent with the
+  loop-safety rules — no blocking the loop, capture/purge/seed are isolated per panel.
+
+## 3.20.4 — Adaptive climate: drop circulation fan, add lights as a driver
+
+### Changed
+- **The internal circulation fan is no longer a learned device**, and the **grow
+  lights are now a learned input.** On live data the fan picked up by far the largest
+  response coefficients — but the fan only circulates air inside the tent and doesn't
+  actually move temperature or humidity. Its schedule merely *correlated* with the
+  light day/night cycle (the tent's real heat source, which wasn't modelled), so the fit
+  blamed the fan for the lights' heat. The fan is dropped; light brightness is added as a
+  **disturbance input** (observed, never actuated) so the model attributes the day/night
+  swing correctly. This should raise confidence and clean up the per-device gains. Re-run
+  `sf.ai_learn` after updating.
+
+## 3.20.3 — Adaptive climate: fix periodic-learn threading error
+
+### Fixed
+- **The periodic learning tick no longer logs a thread-safety error.** The timer
+  callback was a plain sync function, so Home Assistant ran it in an executor thread
+  where its `hass.async_create_task(...)` call is unsafe (`RuntimeError: ... calls
+  hass.async_create_task from a thread other than the event loop`). It's now an async
+  callback that runs on the event loop and awaits the learning pass directly. No change
+  to what it does — this only removes the error.
+
+## 3.20.2 — Adaptive climate: fix history backfill
+
+### Fixed
+- **The learning pass no longer fails reading recorder history.** It read each history
+  row's timestamp assuming a datetime, but Home Assistant returns compressed rows with
+  the time as an ISO-8601 string — so every panel's learn pass raised `ValueError` and
+  the AI Confidence sensor stayed `unknown` / 0 samples. Timestamps are now parsed from
+  datetime, epoch number, or ISO string. After updating, run **sf.ai_learn** (or wait for
+  the periodic pass) and confidence + models populate. (Panels with no climate devices,
+  e.g. a display panel with no heater/humidifier/etc., correctly stay at 0 — there's
+  nothing to learn there.)
+
+## 3.20.1 — Adaptive climate: opt-in + gated on device control
+
+### Changed
+- **Adaptive climate is now opt-in and off by default.** A new **"Enable adaptive
+  climate (AI)"** checkbox sits directly under **Enable device control** in the
+  integration options. It can only be turned on when device control is on (you'll get
+  an error otherwise), and it switches off automatically if device control is turned
+  off. When off, no learning runs and the **AI Confidence** sensor is not created (and
+  an existing one is removed) — nothing runs in the background for users who don't want
+  it. The option carries a warning about requiring a stable HA instance + network, and
+  that control (future) depends on HA staying up and reachable. Still observe-only.
+- **Renamed the "offline_timeout" option to "Device Offline Timeout"** with a clearer
+  description.
+
+## 3.20.0 — Adaptive climate control: foundation (observe-only)
+
+Baseline for the new adaptive-climate (AI) layer. **This release observes and learns
+only — it does NOT control any device.** Actuation comes in a later phase, after the
+learning can be reviewed on the (upcoming) AI Stats card.
+
+### Added
+- **Per-panel learning engine.** For each controller that reports humidity, the
+  integration learns from Home Assistant **recorder history** how each climate device
+  (blower, fan, heater, humidifier, dehumidifier) moves temperature / humidity / VPD —
+  including cross-effects (e.g. the blower drying the air, a dehumidifier warming it) —
+  as a per-metric response model. Humidifier and dehumidifier gears map onto a 0–100
+  "effort" scale alongside the continuous fan/blower speeds.
+- **`AI Confidence` diagnostic sensor** (`sensor.sf_<panel>_ai_confidence`, 0–100 %):
+  how trained the learner is for that panel, with the per-metric model summary (drift,
+  per-device gains, confidence, sample count) in its attributes. Learning runs shortly
+  after startup and every few hours.
+- **`sf.ai_learn` service** to run an observe-only pass on demand — the one-shot
+  **historical backfill** that warm-starts the models from existing (and prior-run)
+  recorder history. Optional `days` window (default 10).
+
+Learned models are cached per panel in `.storage`. No new device control, options, or
+actuation ships here. Design + roadmap: internal `AI_CLIMATE_DESIGN.md`.
+
+## 3.19.425 (card 0.21.133)
 
 ### Fixed
 - **The Settings → Soil sensors section now opens instantly.** It had been left out
@@ -12,7 +516,7 @@ Each section below is ready to paste into the matching GitHub release.
   Added it to the allowlist; it now opens like every other Settings section
   (measured ~29 ms, matching the others).
 
-## 3.19.424 
+## 3.19.424 (card 0.21.132)
 
 ### Added
 - **Soil sensor tile layouts.** A new Settings → Soil sensors section lets each card
@@ -26,7 +530,7 @@ Each section below is ready to paste into the matching GitHub release.
   **Keep** (averages too), or **Stats only** (keep just the All Soil Stats tile). The
   choice persists server-side and commits through the card's Apply/Discard bar.
 
-## 3.19.423 
+## 3.19.423 (card 0.21.131)
 
 ### Added
 - **Hide the tab bar for a compact card.** A new Settings → Tile extras toggle,

@@ -331,6 +331,14 @@ def build_device_entities(
             d("sensor", "hw_version", "Hardware Version",
               icon="mdi:memory", entity_category="diagnostic"),
         ]
+    # Adaptive-climate learning confidence (0–100 %) — a per-panel diagnostic for
+    # controllers that report humidity (i.e. have an environment to learn). The
+    # ai_learn task publishes a JSON payload {confidence, models, …}; SfAiSensor
+    # surfaces confidence as the value and the model summary as attributes.
+    # Observe-only (P0): no device is actuated. (v3.20.0)
+    if dtype in _FULL_TYPES and want("sensor:humi"):
+        defs.append(d("sensor", "ai_confidence", "AI Confidence",
+            unit="%", entity_category="diagnostic", icon="mdi:brain", kind="ai"))
     # ── System/health diagnostics (v3.19.42): the "sys" block ─────────────
     # Uptime / Wi-Fi / Ethernet stay gated on the sys evidence block; harmless
     # if it never fires (no spurious "unknown" entities for devices that don't

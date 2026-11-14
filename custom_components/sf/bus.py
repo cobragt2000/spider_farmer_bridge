@@ -218,6 +218,7 @@ class SfBus:
         self._ready: set[str] = set()                # platforms whose adder is connected
         self._pending: dict[str, list[SfDef]] = {}   # platform -> defs waiting for adder
         self._slot_cache: dict[str, str] = {}        # mac -> slot (mirrors entry options)
+        self.ai_enabled: bool = False                # adaptive-climate opt-in (gates ai_confidence)
         self._soil_cache: dict[str, str] = {}        # serial -> soil slot
         self._soil_attach: dict[str, str] = {}       # serial -> mac (this run)
         self.device_display: dict[str, tuple[str, str]] = {}  # mac -> (name, model)
@@ -2900,6 +2901,10 @@ class SfBus:
             DIAG.bus_event(f"prune_blocks {_mac(device_cfg.get('mac',''))} removed={removed}")
 
     def _add_defs(self, defs: list[SfDef]) -> None:
+        # Adaptive-climate opt-in: when off, never create the ai_confidence sensor
+        # (single choke point — gates it no matter which caller produced the def).
+        if not self.ai_enabled:
+            defs = [d for d in defs if d.field != "ai_confidence"]
         registry = er.async_get(self.hass)
         from .const import DOMAIN as _DOM
         new: dict[str, list[SfDef]] = {}

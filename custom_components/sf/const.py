@@ -10,6 +10,42 @@ DEFAULT_LISTEN_PORT   = 8000
 DEFAULT_UPSTREAM_HOST = "sf.mqtt.spider-farmer.com"
 DEFAULT_UPSTREAM_PORT = 8883   # real Spider Farmer cloud port (unchanged)
 CONF_ALLOW_CONTROL = "allow_control"
+# Adaptive climate (AI) learning (v3.20.1): opt-in. Requires CONF_ALLOW_CONTROL —
+# the AI feature is gated on device control being on (its purpose is control; it
+# also needs HA up + reachable). When enabled, the integration learns each panel's
+# device→metric response from recorder history and creates the AI Confidence
+# sensor; when off, none of that runs or exists. Default off.
+CONF_AI_LEARN = "ai_learn"
+DEFAULT_AI_LEARN = False
+# Durable AI training store (v3.20.5): OPT-IN, user choice. HA's recorder purges
+# globally (purge_keep_days, default ~10 days) and an integration can't change
+# that or request per-entity retention. When this is ON, the AI layer keeps its
+# OWN compact SQLite time-series of SF climate metrics + device efforts (under
+# /config/sf/), independent of the recorder, so learning isn't capped at the
+# recorder's window — the learner reads from this store instead of the recorder.
+# When OFF (default), nothing extra is stored and the learner reads the recorder
+# as before — the right choice for users who already keep SF in the recorder
+# long-term or have excluded SF from purge. Only meaningful when CONF_AI_LEARN is
+# on. Retention is in DAYS; 0 = keep everything (never purge).
+CONF_AI_STORE = "ai_store"
+DEFAULT_AI_STORE = False
+CONF_AI_RETENTION_DAYS = "ai_retention_days"
+DEFAULT_AI_RETENTION_DAYS = 0        # 0 = keep all SF data forever
+# Adaptive-climate ZONES (v3.20.11). One grow can span several SF controllers (e.g. a
+# DP holds the tent sensor while a non-DP AC5/AC10 runs outlets for devices in that
+# same tent), plus non-SF HA devices (an external humidifier toggled by automations).
+# A zone groups ONE sensor controller with devices gathered from additional
+# controllers + external HA entities, learned JOINTLY. A zone's learned result is
+# published onto its sensor controller's existing ai_confidence sensor (no new
+# entity). Controllers listed as a zone's device_panels are absorbed — not learned on
+# their own. Controllers in no zone keep per-panel learning. options[CONF_AI_ZONES] =
+#   [{ "id": slug, "name": str, "sensor_panel": slot,
+#      "device_panels": [slot, ...],
+#      "external": [{"entity_id": "switch.x", "role": "humidifier"}] }]
+CONF_AI_ZONES = "ai_zones"
+# Roles for an external (non-SF) HA entity, so the learner can label its effect. All
+# are treated as on/off actuators for now (dimmable %/numeric is a later enhancement).
+AI_EXTERNAL_ROLES = ("heater", "humidifier", "dehumidifier", "cooler", "fan", "light", "other")
 CONF_BLOCK_CLOUD = "block_cloud"
 CONF_KEEP_OFFLINE = "keep_offline_entities"
 # Device offline (data-staleness) timeout in seconds (v3.19.320): a controller

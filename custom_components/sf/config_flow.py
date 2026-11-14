@@ -16,6 +16,14 @@ from .const import (
     DEFAULT_UPSTREAM_HOST,
     DEFAULT_UPSTREAM_PORT,
     CONF_ALLOW_CONTROL,
+    CONF_AI_LEARN,
+    DEFAULT_AI_LEARN,
+    CONF_AI_STORE,
+    DEFAULT_AI_STORE,
+    CONF_AI_RETENTION_DAYS,
+    DEFAULT_AI_RETENTION_DAYS,
+    CONF_AI_ZONES,
+    AI_EXTERNAL_ROLES,
     CONF_BLOCK_CLOUD,
     CONF_DIAG_PER_BOOT,
     CONF_KEEP_OFFLINE,
@@ -55,11 +63,12 @@ def _readonly_port():
         return vol.All(int, vol.Range(min=1, max=65535))
 
 
-def _base_schema(current: dict) -> vol.Schema:
+def _base_schema(current: dict, include_ai: bool = False) -> vol.Schema:
     """Setup/settings fields shared by initial config and the options flow.
     Built at call time (not import) so the read_only selectors are only
-    validated against the running HA, never at module import."""
-    return vol.Schema({
+    validated against the running HA, never at module import. `include_ai` (options
+    flow only) adds the adaptive-climate toggle directly under device control."""
+    fields: dict = {
         vol.Required(
             CONF_LISTEN_PORT,
             default=current.get(CONF_LISTEN_PORT, DEFAULT_LISTEN_PORT),
@@ -76,11 +85,34 @@ def _base_schema(current: dict) -> vol.Schema:
             CONF_ALLOW_CONTROL,
             default=current.get(CONF_ALLOW_CONTROL, False),
         ): bool,
-        vol.Required(
-            CONF_KEEP_OFFLINE,
-            default=current.get(CONF_KEEP_OFFLINE, True),
-        ): bool,
-    })
+    }
+    # Adaptive climate (AI) sits right under device control — it depends on it.
+    # Only turning ON is enforced (you can't enable AI without device control);
+    # unchecking device control also turns AI off at runtime. (v3.20.1)
+    if include_ai:
+        fields[vol.Required(
+            CONF_AI_LEARN,
+            default=bool(current.get(CONF_AI_LEARN, DEFAULT_AI_LEARN)),
+        )] = bool
+        # Durable AI training store (opt-in). When on, the integration keeps its own
+        # SQLite copy of SF climate data so learning isn't limited to the recorder's
+        # purge window; off is right for users who already retain SF long-term in the
+        # recorder. Retention in days, 0 = keep everything. (v3.20.5)
+        fields[vol.Required(
+            CONF_AI_STORE,
+            default=bool(current.get(CONF_AI_STORE, DEFAULT_AI_STORE)),
+        )] = bool
+        fields[vol.Required(
+            CONF_AI_RETENTION_DAYS,
+            default=int(current.get(CONF_AI_RETENTION_DAYS, DEFAULT_AI_RETENTION_DAYS) or 0),
+        )] = selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, max=3650, step=1, unit_of_measurement="days", mode="box"))
+    fields[vol.Required(
+        CONF_KEEP_OFFLINE,
+        default=current.get(CONF_KEEP_OFFLINE, True),
+    )] = bool
+    return vol.Schema(fields)
 
 
 def _normalize_timelapse_dir(raw: str) -> str:
@@ -162,25 +194,115 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
                 "settings": "Settings (ports, control, diagnostic log)",
                 "mappings": "Device mappings (logical slots for entity IDs)",
                 "components": "Device accessories (Light 2 / Fan per device)",
+                "ai_zones": "Adaptive climate zones (group controllers for one grow)",
                 "migrate": "Migrate device (replace hardware, keep history)",
                 "replace_soil": "Replace soil probe (swap hardware, keep history)",
             },
         )
 
-    async def async_step_settings(self, user_input=None):
-        current = {**self._entry.data, **(self._entry.options or {})}
+    # ── Adaptive-climate zones ────────────────────────────────────────────────
+    def _controller_slots(self) -> list:
+        """Sorted controller slots (dp1/ac5/…) available to build zones from."""
+        slots = (self._entry.options or {}).get("device_slots", {}) or {}
+        present = present_macs(self.hass, self._entry)
+        return sorted({s for m, s in slots.items() if m in present})
+
+    async def async_step_ai_zones(self, user_input=None):
+        """Pick a zone to edit, or add a new one. A zone groups one sensor controller
+        with devices from other controllers + external HA entities, learned together."""
+        zones = list((self._entry.options or {}).get(CONF_AI_ZONES) or [])
+        NEW = "➕ Add a new zone"
+        if user_input is not None:
+            choice = user_input["zone"]
+            self._zone_edit_id = None if choice == NEW else choice
+            return await self.async_step_ai_zone_edit()
+
+        options = [selector.SelectOptionDict(value=z["id"],
+                   label=f'{z.get("name", z["id"])}  (sensor: {z.get("sensor_panel","?")})')
+                   for z in zones]
+        options.append(selector.SelectOptionDict(value=NEW, label=NEW))
+        schema = vol.Schema({vol.Required("zone", default=NEW):
+                             selector.SelectSelector(selector.SelectSelectorConfig(options=options))})
+        summary = "\n".join(
+            f'• {z.get("name", z["id"])}: sensor {z.get("sensor_panel")}, '
+            f'+devices {", ".join(z.get("device_panels") or []) or "—"}, '
+            f'{len(z.get("external") or [])} external'
+            for z in zones) or "No zones yet — each controller learns on its own."
+        return self.async_show_form(
+            step_id="ai_zones", data_schema=schema,
+            description_placeholders={"zones": summary})
+
+    async def async_step_ai_zone_edit(self, user_input=None):
+        import re
+        zones = list((self._entry.options or {}).get(CONF_AI_ZONES) or [])
+        editing = getattr(self, "_zone_edit_id", None)
+        cur = next((z for z in zones if z["id"] == editing), None) if editing else None
+        slots = self._controller_slots()
+        errors: dict = {}
 
         if user_input is not None:
-            # MERGE into existing options — returning only the form fields
-            # would wipe keys other steps own (device_slots!), since HA
-            # replaces entry.options wholesale with this payload.
+            if user_input.get("delete") and cur is not None:
+                zones = [z for z in zones if z["id"] != editing]
+                return self._save_zones(zones)
+            name = (user_input.get("name") or "").strip()
+            sensor = user_input.get("sensor_panel")
+            dev = [p for p in (user_input.get("device_panels") or []) if p != sensor]
+            ext = [{"entity_id": e, "role": "other"} for e in (user_input.get("external") or [])]
+            if not name:
+                errors["base"] = "zone_no_name"
+            elif not sensor:
+                errors["base"] = "zone_no_sensor"
+            else:
+                zid = editing or re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") or "zone"
+                new_zone = {"id": zid, "name": name, "sensor_panel": sensor,
+                            "device_panels": dev, "external": ext}
+                zones = [new_zone if z["id"] == zid else z for z in zones]
+                if not any(z["id"] == zid for z in zones):
+                    zones.append(new_zone)
+                return self._save_zones(zones)
+
+        slot_opts = [selector.SelectOptionDict(value=s, label=s) for s in slots]
+        fields: dict = {
+            vol.Required("name", default=(cur or {}).get("name", "")): str,
+            vol.Required("sensor_panel", default=(cur or {}).get("sensor_panel",
+                         slots[0] if slots else "")):
+                selector.SelectSelector(selector.SelectSelectorConfig(options=slot_opts)),
+            vol.Optional("device_panels", default=(cur or {}).get("device_panels", [])):
+                selector.SelectSelector(selector.SelectSelectorConfig(
+                    options=slot_opts, multiple=True)),
+            vol.Optional("external", default=[e["entity_id"] for e in (cur or {}).get("external", [])]):
+                selector.EntitySelector(selector.EntitySelectorConfig(
+                    domain=["switch", "input_boolean", "light", "fan"], multiple=True)),
+        }
+        if cur is not None:
+            fields[vol.Optional("delete", default=False)] = bool
+        return self.async_show_form(
+            step_id="ai_zone_edit", data_schema=vol.Schema(fields), errors=errors)
+
+    def _save_zones(self, zones: list):
+        self.hass.config_entries.async_update_entry(
+            self._entry, options={**(self._entry.options or {}), CONF_AI_ZONES: zones})
+        self.hass.async_create_task(
+            self.hass.config_entries.async_reload(self._entry.entry_id))
+        return self.async_create_entry(title="", data=dict(self._entry.options or {}))
+
+    async def async_step_settings(self, user_input=None):
+        current = {**self._entry.data, **(self._entry.options or {})}
+        errors: dict = {}
+
+        if user_input is not None:
+            # Adaptive climate (AI) is observe-only (it never actuates), so it can be
+            # enabled WITHOUT device control — users can watch the learned models without
+            # handing the integration control of their gear. (v3.20.30) MERGE into existing
+            # options — returning only the form fields would wipe keys other steps own
+            # (device_slots!), since HA replaces entry.options wholesale with this payload.
             return self.async_create_entry(
                 title="",
                 data={**(self._entry.options or {}), **user_input},
             )
 
         # Ports + Spider Farmer cloud host/port (host/port are read-only).
-        schema = _base_schema(current).extend({
+        schema = _base_schema(current, include_ai=True).extend({
             vol.Required(
                 CONF_BLOCK_CLOUD,
                 default=current.get(CONF_BLOCK_CLOUD, False),
@@ -215,7 +337,8 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
                     min=0, max=600, step=5, unit_of_measurement="s", mode="box")),
         })
 
-        return self.async_show_form(step_id="settings", data_schema=schema)
+        return self.async_show_form(
+            step_id="settings", data_schema=schema, errors=errors)
 
     async def async_step_components(self, user_input=None):
         """Per-device accessory tree. Each controller is a section (collapsed by

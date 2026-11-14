@@ -8,7 +8,7 @@ import ssl
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.service import async_register_admin_service
 
@@ -19,7 +19,10 @@ from .cert_manager import ensure_certs, cert_paths, upstream_ca_path
 from .const import (
     DOMAIN, CONF_LISTEN_PORT, CONF_UPSTREAM_HOST, CONF_UPSTREAM_PORT,
     DEFAULT_LISTEN_PORT, DEFAULT_UPSTREAM_HOST, DEFAULT_UPSTREAM_PORT,
-    CONF_ALLOW_CONTROL, CONF_BLOCK_CLOUD, CONF_DIAG_PER_BOOT,
+    CONF_ALLOW_CONTROL, CONF_AI_LEARN, DEFAULT_AI_LEARN,
+    CONF_AI_STORE, DEFAULT_AI_STORE,
+    CONF_AI_RETENTION_DAYS, DEFAULT_AI_RETENTION_DAYS, CONF_AI_ZONES,
+    CONF_BLOCK_CLOUD, CONF_DIAG_PER_BOOT,
     CONF_KEEP_OFFLINE, CONF_OFFLINE_TIMEOUT, DEFAULT_OFFLINE_TIMEOUT,
     CONF_STRIP_SENSORS, CONF_SMART_CONTROL, CONF_OUTLET_ENV, DATA_BUS,
     DATA_PROXY, DATA_PROXY_TASK, PLATFORMS,
@@ -33,6 +36,38 @@ _LOGGER = logging.getLogger(__name__)
 
 # Background config sync interval — not exposed in UI
 _POLL_INTERVAL_SEC = 600
+
+
+@callback
+def _run_when_ha_started(hass: HomeAssistant, entry: ConfigEntry, action) -> None:
+    """Run `action` (an async callable taking an optional event arg) once HA is
+    fully started — immediately if it already is, otherwise on the start event.
+
+    Why not just async_on_unload(async_listen_once(...)): a one-time listener
+    removes ITSELF when the start event fires, so the unsub stored via
+    async_on_unload goes stale. Calling it on the next unload makes HA log 'Unable
+    to remove unknown job listener … x not in list' — and HA logs that INTERNALLY
+    (a try/except around the unsub does NOT suppress it). So we track whether the
+    listener has fired and only call the unsub when it is still pending (entry
+    unloaded before HA finished starting)."""
+    if hass.is_running:
+        hass.async_create_task(action(None))
+        return
+
+    fired = {"v": False}
+
+    async def _wrapped(event) -> None:
+        fired["v"] = True          # it auto-removes now; don't unsub it later
+        await action(event)
+
+    unsub = hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _wrapped)
+
+    @callback
+    def _unsub_if_pending() -> None:
+        if not fired["v"]:
+            unsub()                # still registered → safe, normal removal
+
+    entry.async_on_unload(_unsub_if_pending)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -137,6 +172,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # ── State bus (replaces the MQTT broker) ──────────────────────────────
     bus = SfBus(hass, entry.entry_id)
     bus.keep_offline = bool(cfg.get(CONF_KEEP_OFFLINE, True))
+    # Adaptive climate (AI) is opt-in. It's observe-only — it learns and shows the models,
+    # it never actuates — so it does NOT require device control (v3.20.30). Just the AI
+    # flag turns on the learning + the AI Confidence sensor. Set before platforms load so
+    # _add_defs filters the entity correctly from the start.
+    ai_enabled = bool(cfg.get(CONF_AI_LEARN, DEFAULT_AI_LEARN))
+    bus.ai_enabled = ai_enabled
+    if not ai_enabled:
+        _migrate_remove_ai_confidence(hass, entry)
+    # Durable AI training store (opt-in, only when AI is on). Keeps SF climate data
+    # independent of the recorder's purge so learning isn't capped at the recorder
+    # window; off by default — users who already retain SF in the recorder don't
+    # need it. Created below once the DB path is ready; held per-entry.
+    ai_store_on = ai_enabled and bool(cfg.get(CONF_AI_STORE, DEFAULT_AI_STORE))
+    # Adaptive-climate zones (v3.20.11): group a sensor controller with devices from
+    # other controllers + external HA entities, learned jointly. Held on the bus so
+    # the learn/capture passes resolve each panel against them. Empty = per-panel.
+    bus._ai_zones = list(cfg.get(CONF_AI_ZONES) or []) if ai_enabled else []
 
     # ── Proxy — publishes decoded state into the bus ─────────────────────
     proxy_config = {
@@ -190,6 +242,112 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _async_register_services(hass)
 
+    # Adaptive-climate learning (v3.20.0, P0 — OBSERVE ONLY, no actuation): learn
+    # each panel's device→metric response from recorder history shortly after
+    # startup, then every few hours, publishing a 0–100 % confidence + model
+    # summary onto the ai_confidence sensor. Per-entry timers, auto-cancelled on
+    # unload. See ai_learn.py / _backlog_private/AI_CLIMATE_DESIGN.md.
+    if ai_enabled:
+        from datetime import timedelta as _td
+        from homeassistant.helpers.event import (
+            async_call_later as _call_later, async_track_time_interval as _track_interval,
+        )
+        from .ai_learn import (
+            async_learn_bus as _ai_learn_bus,
+            async_capture_bus as _ai_capture_bus,
+            async_purge_store as _ai_purge_store,
+            CAPTURE_POLL_S as _AI_CAPTURE_POLL_S,
+        )
+
+        # Durable store: build it (off-loop — sqlite connect + table create is I/O)
+        # and stash it per-entry so the service + timers share one handle.
+        ai_store = None
+        if ai_store_on:
+            from .ai_store import AiStore
+            import os as _os
+            db_dir = hass.config.path("sf")      # /config/sf — survives integration updates
+            db_path = hass.config.path("sf", "ai_store.db")
+
+            def _open_store():
+                _os.makedirs(db_dir, exist_ok=True)
+                return AiStore(db_path)
+
+            try:
+                ai_store = await hass.async_add_executor_job(_open_store)
+                hass.data[DOMAIN][entry.entry_id]["ai_store"] = ai_store
+
+                # Close the DB on unload. MUST be a coroutine/callback that returns
+                # None — a lambda returning the executor Future makes HA try to task
+                # it ("a coroutine was expected, got Future") and the entry hits
+                # FAILED_UNLOAD, so it can't reload. (v3.20.17)
+                async def _close_ai_store(_store=ai_store) -> None:
+                    await hass.async_add_executor_job(_store.close)
+                entry.async_on_unload(_close_ai_store)
+            except Exception:  # noqa: BLE001 — store is optional; learn falls back to recorder
+                _LOGGER.exception("sf ai_store: could not open durable store; using recorder")
+                ai_store = None
+
+        # Re-fit cadence. LIVE by default (v3.20.34): the OLS fit is cheap (ms of numpy),
+        # so the models, confidence and store/capture-rate readouts refresh every
+        # _AI_LIVE_S seconds — the card reflects new data almost immediately instead of on a
+        # 3-h timer. The user can still throttle it from the AI card (card_option
+        # dev_ai_refit_min, minutes) to cut recorder writes; unset = live. A fast heartbeat
+        # drives it, and the fit is both executor-offloaded and re-entrancy-guarded
+        # (bus._ai_learning), so a pass that ever runs longer than the heartbeat just makes
+        # the next ticks skip — it can't pile up or hog the loop.
+        import time as _time
+        _AI_LIVE_S = 15.0                 # live refresh period (and the heartbeat tick)
+
+        def _ai_cadence_s() -> float:
+            for _mac, _slot in dict(getattr(bus, "_slot_cache", {})).items():
+                _st = hass.states.get(f"sensor.sf_{_slot}_alarm_settings")
+                _co = (_st.attributes.get("card_options") if _st else None) or {}
+                _v = _co.get("dev_ai_refit_min")
+                if _v:
+                    try:
+                        return max(0.25, min(180.0, float(_v))) * 60.0   # explicit throttle
+                    except (ValueError, TypeError):
+                        pass
+            return _AI_LIVE_S             # unset → live
+
+        # Async callback — runs on the event loop (a plain sync callback gets run
+        # in an executor thread, where awaiting / create_task is unsafe). It awaits
+        # directly; the heavy work inside is already off-loaded via executor jobs.
+        async def _ai_tick(_now=None) -> None:
+            now = _time.monotonic()
+            last = getattr(bus, "_ai_last_fit", 0.0)
+            if last and (now - last) < _ai_cadence_s() - 1.0:
+                return                      # chosen interval hasn't elapsed yet
+            bus._ai_last_fit = now
+            await _ai_learn_bus(hass, bus, store=ai_store)
+
+        entry.async_on_unload(_call_later(hass, 20, _ai_tick))     # first fit soon after boot
+        entry.async_on_unload(
+            _track_interval(hass, _ai_tick, _td(seconds=_AI_LIVE_S)))  # live heartbeat
+
+        # When the durable store is on, capture a live snapshot on the learning grid
+        # cadence (so history grows past the recorder window), and purge on the
+        # user's retention daily (0 = keep everything → no purge).
+        if ai_store is not None:
+            retention_days = float(cfg.get(CONF_AI_RETENTION_DAYS, DEFAULT_AI_RETENTION_DAYS) or 0)
+            bus._ai_retention = retention_days      # so the options listener detects changes
+
+            # Event-driven capture: poll fast (CAPTURE_POLL_S); async_capture_bus itself
+            # stores a row only when something actually moved (device transition or a metric
+            # past its jitter epsilon) or the idle floor lapsed. So the store runs at the
+            # hardware frame rate through a swing and goes sparse when steady — no knob.
+            async def _ai_capture(_now=None) -> None:
+                await _ai_capture_bus(hass, bus, ai_store)
+
+            async def _ai_purge(_now=None) -> None:
+                await _ai_purge_store(hass, ai_store, retention_days)
+
+            entry.async_on_unload(
+                _track_interval(hass, _ai_capture, _td(seconds=_AI_CAPTURE_POLL_S)))
+            if retention_days > 0:
+                entry.async_on_unload(
+                    _track_interval(hass, _ai_purge, _td(hours=24)))
+
     # v3.9.0: with keep-offline on, resurrect entity objects for everything
     # already in the registry, so powered-off gear survives the restart
     # with restored state instead of vanishing until it next reports.
@@ -223,9 +381,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def _recheck_cards(_event) -> None:
         await _apply_card_option(hass, cfg)
 
-    entry.async_on_unload(
-        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _recheck_cards)
-    )
+    _run_when_ha_started(hass, entry, _recheck_cards)
 
     # Auto-start time-lapse capture once HA is fully up (the camera entity must
     # exist first). Stop cleanly on unload. (v3.19.358)
@@ -236,12 +392,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # each instance's 'enabled' flag.
             await timelapse.async_restore_all()
 
-        if hass.is_running:
-            hass.async_create_task(_start_timelapse())
-        else:
-            entry.async_on_unload(
-                hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _start_timelapse)
-            )
+        _run_when_ha_started(hass, entry, _start_timelapse)
         entry.async_on_unload(timelapse.cancel_all)
 
     # ── TLS server context (blocking load in executor) ────────────────────
@@ -678,6 +829,28 @@ def _migrate_remove_oplog(hass: HomeAssistant, entry: ConfigEntry) -> None:
                 pass
     if removed:
         _LOGGER.info("Removed %d retired Operations (oplog) sensor(s)", removed)
+
+
+def _migrate_remove_ai_confidence(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """v3.20.1: adaptive climate (AI) is opt-in + gated on device control. When it's
+    off, remove any existing ``ggs_<mac>_ai_confidence`` sensor so it doesn't linger
+    as a "no longer provided" ghost after the option is turned off. Idempotent; the
+    entity is recreated on the next setup when AI is (re)enabled."""
+    import re
+    from homeassistant.helpers import entity_registry as er
+
+    ent_reg = er.async_get(hass)
+    uid_re = re.compile(r"^ggs_[0-9a-f]+_ai_confidence$")
+    removed = 0
+    for e in list(er.async_entries_for_config_entry(ent_reg, entry.entry_id)):
+        if e.domain == "sensor" and uid_re.match(e.unique_id or ""):
+            try:
+                ent_reg.async_remove(e.entity_id)
+                removed += 1
+            except KeyError:
+                pass
+    if removed:
+        _LOGGER.info("Removed %d AI Confidence sensor(s) (adaptive climate off)", removed)
 
 
 def _migrate_remove_dehumidifier_gear(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -1147,6 +1320,163 @@ def _async_register_services(hass: HomeAssistant) -> None:
             DOMAIN, "set_outlet_env", _set_outlet_env,
             schema=_OUTLET_ENV_SCHEMA)
 
+    # Adaptive-climate: run an observe-only learning pass now (e.g. the one-shot
+    # historical backfill). OBSERVE ONLY — no device is actuated. (v3.20.0)
+    async def _ai_learn(call: ServiceCall) -> None:
+        from .ai_learn import async_learn_bus, BACKFILL_DAYS
+        days = float(call.data.get("days") or 0) or BACKFILL_DAYS
+        ran = False
+        for _data in list(hass.data.get(DOMAIN, {}).values()):
+            if isinstance(_data, dict) and _data.get(DATA_BUS) is not None:
+                _bus = _data[DATA_BUS]
+                if getattr(_bus, "ai_enabled", False):   # respect the opt-in gate
+                    # Fire-and-forget on the loop: a long backfill (big window / many
+                    # entities) must not block the service call and leave the card's
+                    # button stuck on "Learning…". The re-entrancy guard dedupes; the
+                    # AI Confidence sensor updates when each panel's pass finishes.
+                    _st = _data.get("ai_store")      # durable store when opted in, else None
+                    hass.async_create_task(async_learn_bus(hass, _bus, days, store=_st))
+                    ran = True
+        if not ran:
+            _LOGGER.warning(
+                "sf.ai_learn: adaptive climate is off — enable device control + "
+                "adaptive climate in the integration options first")
+
+    if not hass.services.has_service(DOMAIN, "ai_learn"):
+        hass.services.async_register(
+            DOMAIN, "ai_learn", _ai_learn,
+            schema=vol.Schema({vol.Optional("days"): vol.Coerce(float)}))
+
+    # Re-seed: wipe the durable store and rebuild it from scratch, so a store first
+    # seeded on an older build picks up the fuller long-term-statistics backfill.
+    async def _ai_reseed(call: ServiceCall) -> None:
+        from .ai_learn import async_reseed_bus, BACKFILL_DAYS
+        days = float(call.data.get("days") or 0) or BACKFILL_DAYS
+        ran = False
+        for _data in list(hass.data.get(DOMAIN, {}).values()):
+            if isinstance(_data, dict) and _data.get(DATA_BUS) is not None:
+                _bus = _data[DATA_BUS]
+                _st = _data.get("ai_store")
+                if getattr(_bus, "ai_enabled", False) and _st is not None:
+                    hass.async_create_task(async_reseed_bus(hass, _bus, _st, days))
+                    ran = True
+        if not ran:
+            _LOGGER.warning(
+                "sf.ai_reseed: the durable AI store is off — enable it in the "
+                "integration options first")
+
+    if not hass.services.has_service(DOMAIN, "ai_reseed"):
+        hass.services.async_register(
+            DOMAIN, "ai_reseed", _ai_reseed,
+            schema=vol.Schema({vol.Optional("days"): vol.Coerce(float)}))
+
+    # ── Saved learning profiles (v3.20.29): snapshot a grow's captured dataset so a new
+    # grow with the same setup can warm-start from it. ───────────────────────────────
+    def _ai_store_bus():
+        """The (bus, store) of the enabled adaptive-climate instance, or (None, None)."""
+        for _data in list(hass.data.get(DOMAIN, {}).values()):
+            if isinstance(_data, dict) and _data.get(DATA_BUS) is not None:
+                _bus = _data[DATA_BUS]
+                _st = _data.get("ai_store")
+                if getattr(_bus, "ai_enabled", False) and _st is not None:
+                    return _bus, _st
+        return None, None
+
+    def _ai_target_panel(bus, panel):
+        """Resolve the sensor/zone panel to act on: the given one if valid, else the first
+        non-absorbed learnable slot."""
+        from .ai_learn import resolve_panel
+        zones = getattr(bus, "_ai_zones", []) or []
+        slots = list(dict(getattr(bus, "_slot_cache", {})).values())
+        if panel and panel in slots:
+            return panel
+        for slot in slots:
+            if resolve_panel(slot, zones)[0] != "absorbed":
+                return slot
+        return panel or (slots[0] if slots else "")
+
+    def _ai_profile_meta(bus, panel):
+        """Metadata saved with a profile — the device set (for a match check on load) and
+        the zone name. Classifies on the loop (cheap, like the capture tick)."""
+        from .ai_learn import (
+            resolve_panel, classify_zone, classify_panel, read_outlet_roles, roles_for_slot,
+        )
+        zones = getattr(bus, "_ai_zones", []) or []
+        kind, z = resolve_panel(panel, zones)
+
+        def _get(eid):
+            s = hass.states.get(eid)
+            return s.state if s is not None else None
+        eids = list(hass.states.async_entity_ids())
+        roles = read_outlet_roles(hass, panel)
+        classified = (classify_zone(eids, z, get_state=_get, roles=roles) if kind == "zone"
+                      else classify_panel(eids, panel, get_state=_get,
+                                          roles=roles_for_slot(roles, panel)))
+        return {"devices": sorted(classified.get("devices", {}).keys()),
+                "zone": (z or {}).get("name"), "panel": panel}
+
+    async def _ai_save_profile(call: ServiceCall) -> None:
+        bus, st = _ai_store_bus()
+        if st is None:
+            _LOGGER.warning("sf.ai_save_profile: the durable AI store is off")
+            return
+        name = str(call.data.get("name") or "").strip()
+        if not name:
+            _LOGGER.warning("sf.ai_save_profile: a profile name is required")
+            return
+        panel = _ai_target_panel(bus, call.data.get("panel"))
+        meta = _ai_profile_meta(bus, panel)
+        await hass.async_add_executor_job(st.save_profile, name, panel, meta)
+        _LOGGER.info("sf.ai_save_profile: saved '%s' from panel %s", name, panel)
+        from .ai_learn import async_learn_bus
+        await async_learn_bus(hass, bus, store=st, force=True)   # refresh the profile list now
+
+    async def _ai_load_profile(call: ServiceCall) -> None:
+        bus, st = _ai_store_bus()
+        if st is None:
+            _LOGGER.warning("sf.ai_load_profile: the durable AI store is off")
+            return
+        panel = _ai_target_panel(bus, call.data.get("panel"))
+        replace = bool(call.data.get("replace", False))
+        pid = call.data.get("id")
+        if pid is None:
+            name = str(call.data.get("name") or "")
+            profs = await hass.async_add_executor_job(st.list_profiles)
+            match = next((p for p in profs if p["name"] == name), None)
+            pid = match["id"] if match else None
+        if pid is None:
+            _LOGGER.warning("sf.ai_load_profile: profile not found")
+            return
+        added = await hass.async_add_executor_job(st.load_profile, int(pid), panel, replace)
+        _LOGGER.info("sf.ai_load_profile: loaded profile %s into %s (+%s rows, replace=%s)",
+                     pid, panel, added, replace)
+        from .ai_learn import async_learn_bus
+        await async_learn_bus(hass, bus, store=st, force=True)   # re-fit on the loaded data now
+
+    async def _ai_delete_profile(call: ServiceCall) -> None:
+        bus, st = _ai_store_bus()
+        if st is None:
+            return
+        pid = call.data.get("id")
+        if pid is None:
+            await hass.async_add_executor_job(st.delete_profile_by_name, str(call.data.get("name") or ""))
+        else:
+            await hass.async_add_executor_job(st.delete_profile, int(pid))
+        from .ai_learn import async_learn_bus
+        await async_learn_bus(hass, bus, store=st, force=True)   # refresh the profile list now
+
+    _profile_schema = vol.Schema({
+        vol.Optional("name"): cv.string,
+        vol.Optional("id"): vol.Coerce(int),
+        vol.Optional("panel"): cv.string,
+        vol.Optional("replace"): cv.boolean,
+    })
+    for _svc, _fn in (("ai_save_profile", _ai_save_profile),
+                      ("ai_load_profile", _ai_load_profile),
+                      ("ai_delete_profile", _ai_delete_profile)):
+        if not hass.services.has_service(DOMAIN, _svc):
+            hass.services.async_register(DOMAIN, _svc, _fn, schema=_profile_schema)
+
     # ── Time-lapse capture controls (v3.19.362: per-instance, keyed by tl_id) ──
     async def _timelapse_start(call):
         # No caller-supplied `session`: capture always uses a fresh, safe
@@ -1518,6 +1848,28 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         await hass.config_entries.async_reload(entry.entry_id)
         return
     cfg = {**entry.data, **(entry.options or {})}
+    # Adaptive climate (AI) toggling — or device control (which it depends on)
+    # flipping its effective state — changes which entities/timers exist, so take
+    # the reload path to create/remove them cleanly rather than live-patching.
+    new_ai = (bool(cfg.get(CONF_ALLOW_CONTROL, False))
+              and bool(cfg.get(CONF_AI_LEARN, DEFAULT_AI_LEARN)))
+    if bus is not None and bool(getattr(bus, "ai_enabled", False)) != new_ai:
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
+    # Durable AI store toggling (opens/closes the DB + adds/removes capture & purge
+    # timers) or its retention changing (re-arms the daily purge) — reload to rebuild
+    # cleanly rather than live-patch timers.
+    new_store = new_ai and bool(cfg.get(CONF_AI_STORE, DEFAULT_AI_STORE))
+    store_now = data.get("ai_store") is not None
+    new_retention = float(cfg.get(CONF_AI_RETENTION_DAYS, DEFAULT_AI_RETENTION_DAYS) or 0)
+    if new_store != store_now or (new_store and new_retention != getattr(bus, "_ai_retention", new_retention)):
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
+    # Zone definitions changed → reload (changes which panels are absorbed and what
+    # each sensor panel learns).
+    if bus is not None and (list(cfg.get(CONF_AI_ZONES) or []) != list(getattr(bus, "_ai_zones", []))):
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
     await hass.async_add_executor_job(_apply_diag_options, hass, cfg)
     # NB: do NOT re-register the dashboard cards here. Card registration happens
     # once at setup; re-doing it on every options change made the frontend reload

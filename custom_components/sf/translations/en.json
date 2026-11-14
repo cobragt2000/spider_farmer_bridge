@@ -24,8 +24,10 @@
         "title": "Spider Farmer Bridge",
         "menu_options": {
           "settings": "Settings (ports, control, diagnostic log)",
+          "mappings": "Device mappings (logical slots for entity IDs)",
+          "components": "Device accessories (Light 2 / Fan per device)",
           "migrate": "Migrate device (replace hardware, keep history)",
-          "mappings": "Device mappings (logical slots for entity IDs)"
+          "replace_soil": "Replace soil probe (swap hardware, keep history)"
         }
       },
       "settings": {
@@ -99,6 +101,929 @@
       "no_devices": "No devices have been assigned slots yet — connect a device first.",
       "need_two_probes": "At least two soil probes are needed to perform a replacement.",
       "no_components": "No devices with a toggleable Light 2 or Fan were found yet — connect the device first."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "active": {
+        "name": "Active"
+      },
+      "daytime_light_sensor": {
+        "name": "Daytime (Light Sensor)"
+      },
+      "daytime_schedule": {
+        "name": "Daytime (Schedule)"
+      },
+      "dehumidifier_active": {
+        "name": "Dehumidifier Active"
+      },
+      "ethernet_connected": {
+        "name": "Ethernet Connected"
+      },
+      "fan_natural_wind": {
+        "name": "Fan Natural Wind"
+      },
+      "heater_active": {
+        "name": "Heater Active"
+      },
+      "humidifier_active": {
+        "name": "Humidifier Active"
+      },
+      "sensor_cleaning": {
+        "name": "Sensor Cleaning"
+      },
+      "wifi_connected": {
+        "name": "WiFi Connected"
+      }
+    },
+    "button": {
+      "reboot": {
+        "name": "Reboot"
+      }
+    },
+    "fan": {
+      "blower": {
+        "name": "Blower"
+      },
+      "fan": {
+        "name": "Fan"
+      }
+    },
+    "light": {
+      "light": {
+        "name": "Light"
+      },
+      "light_n": {
+        "name": "Light {n}"
+      }
+    },
+    "number": {
+      "air_humidity_calibration": {
+        "name": "Air Humidity Calibration"
+      },
+      "air_temp_calibration": {
+        "name": "Air Temp Calibration"
+      },
+      "blower_cycle_times": {
+        "name": "Blower Cycle Times"
+      },
+      "blower_running_speed": {
+        "name": "Blower Running Speed"
+      },
+      "blower_speed_set": {
+        "name": "Blower Speed (set)"
+      },
+      "blower_standby_speed": {
+        "name": "Blower Standby Speed"
+      },
+      "co2_calibration": {
+        "name": "CO2 Calibration"
+      },
+      "co2_dead_zone": {
+        "name": "CO2 Dead Zone"
+      },
+      "co2_target_day": {
+        "name": "CO2 Target Day"
+      },
+      "co2_target_night": {
+        "name": "CO2 Target Night"
+      },
+      "dehumidifier_cycle_times": {
+        "name": "Dehumidifier Cycle Times"
+      },
+      "display_off": {
+        "name": "Display Off"
+      },
+      "fan_cycle_times": {
+        "name": "Fan Cycle Times"
+      },
+      "fan_oscillation_set": {
+        "name": "Fan Oscillation (set)"
+      },
+      "fan_schedule_gear": {
+        "name": "Fan Schedule Gear"
+      },
+      "fan_speed_set": {
+        "name": "Fan Speed (set)"
+      },
+      "fan_standby_speed": {
+        "name": "Fan Standby Speed"
+      },
+      "heater_cycle_times": {
+        "name": "Heater Cycle Times"
+      },
+      "heater_level_set": {
+        "name": "Heater Level (set)"
+      },
+      "humidifier_cycle_times": {
+        "name": "Humidifier Cycle Times"
+      },
+      "humidifier_level_set": {
+        "name": "Humidifier Level (set)"
+      },
+      "humidity_dead_zone": {
+        "name": "Humidity Dead Zone"
+      },
+      "humidity_target_day": {
+        "name": "Humidity Target Day"
+      },
+      "humidity_target_night": {
+        "name": "Humidity Target Night"
+      },
+      "leaf_offset_day": {
+        "name": "Leaf Offset (Day)"
+      },
+      "leaf_offset_night": {
+        "name": "Leaf Offset (Night)"
+      },
+      "leaf_vpd_max": {
+        "name": "Leaf VPD Max"
+      },
+      "leaf_vpd_min": {
+        "name": "Leaf VPD Min"
+      },
+      "light_n_dimming_range_max": {
+        "name": "Light {n} Dimming Range Max"
+      },
+      "light_n_dimming_range_min": {
+        "name": "Light {n} Dimming Range Min"
+      },
+      "light_n_fade": {
+        "name": "Light {n} Fade"
+      },
+      "light_n_go_dark": {
+        "name": "Light {n} Go Dark"
+      },
+      "light_n_ppfd_fade": {
+        "name": "Light {n} PPFD Fade"
+      },
+      "light_n_ppfd_target": {
+        "name": "Light {n} PPFD Target"
+      },
+      "light_n_schedule_brightness": {
+        "name": "Light {n} Schedule Brightness"
+      },
+      "light_n_turn_off": {
+        "name": "Light {n} Turn Off"
+      },
+      "outlet_n_average_target": {
+        "name": "Outlet {n} Average Target"
+      },
+      "outlet_n_execution_times": {
+        "name": "Outlet {n} Execution Times"
+      },
+      "outlet_n_off_duration_min": {
+        "name": "Outlet {n} Off Duration Min"
+      },
+      "outlet_n_run_duration_min": {
+        "name": "Outlet {n} Run Duration Min"
+      },
+      "ppfd_calibration": {
+        "name": "PPFD Calibration"
+      },
+      "schedule_brightness": {
+        "name": "Schedule Brightness"
+      },
+      "soil_probe_cal_ec": {
+        "name": "Soil {probe} EC Calibration"
+      },
+      "soil_probe_cal_moisture": {
+        "name": "Soil {probe} Moisture Calibration"
+      },
+      "soil_probe_cal_temp": {
+        "name": "Soil {probe} Temp Calibration"
+      },
+      "sunrise_sunset_fade": {
+        "name": "Sunrise/Sunset Fade"
+      },
+      "temp_dead_zone": {
+        "name": "Temp Dead Zone"
+      },
+      "temp_target_day": {
+        "name": "Temp Target Day"
+      },
+      "temp_target_night": {
+        "name": "Temp Target Night"
+      }
+    },
+    "select": {
+      "blower_mode_set": {
+        "name": "Blower Mode (set)"
+      },
+      "blower_run_mode": {
+        "name": "Blower Run Mode"
+      },
+      "dehumidifier_level_set": {
+        "name": "Dehumidifier Level (set)"
+      },
+      "dehumidifier_mode_set": {
+        "name": "Dehumidifier Mode (set)"
+      },
+      "fan_mode_set": {
+        "name": "Fan Mode (set)"
+      },
+      "fan_run_mode": {
+        "name": "Fan Run Mode"
+      },
+      "heater_gear": {
+        "name": "Heater Gear"
+      },
+      "heater_mode_set": {
+        "name": "Heater Mode (set)"
+      },
+      "humidifier_gear": {
+        "name": "Humidifier Gear"
+      },
+      "humidifier_mode_set": {
+        "name": "Humidifier Mode (set)"
+      },
+      "light_n_mode": {
+        "name": "Light {n} Mode"
+      },
+      "mode_set": {
+        "name": "Mode (set)"
+      },
+      "operating_mode": {
+        "name": "Operating Mode"
+      },
+      "outlet_n_device_type": {
+        "name": "Outlet {n} Device Type"
+      },
+      "outlet_n_mode": {
+        "name": "Outlet {n} Mode"
+      },
+      "outlet_n_sensor": {
+        "name": "Outlet {n} Sensor"
+      },
+      "outlet_n_week": {
+        "name": "Outlet {n} Week"
+      },
+      "soil_probe_substrate": {
+        "name": "Soil {probe} Substrate"
+      }
+    },
+    "sensor": {
+      "alarm_settings": {
+        "name": "Alarm Settings"
+      },
+      "alarms": {
+        "name": "Alarms"
+      },
+      "blower_mode": {
+        "name": "Blower Mode"
+      },
+      "blower_speed": {
+        "name": "Blower Speed"
+      },
+      "brightness": {
+        "name": "Brightness"
+      },
+      "co2": {
+        "name": "CO2"
+      },
+      "current": {
+        "name": "Current"
+      },
+      "dehumidifier_level": {
+        "name": "Dehumidifier Level"
+      },
+      "dehumidifier_mode": {
+        "name": "Dehumidifier Mode"
+      },
+      "dehumidifier_tank": {
+        "name": "Dehumidifier Tank"
+      },
+      "energy": {
+        "name": "Energy"
+      },
+      "fan_mode": {
+        "name": "Fan Mode"
+      },
+      "fan_oscillation": {
+        "name": "Fan Oscillation"
+      },
+      "fan_speed": {
+        "name": "Fan Speed"
+      },
+      "firmware_version": {
+        "name": "Firmware Version"
+      },
+      "hardware_version": {
+        "name": "Hardware Version"
+      },
+      "heater_level": {
+        "name": "Heater Level"
+      },
+      "heater_mode": {
+        "name": "Heater Mode"
+      },
+      "heater_status": {
+        "name": "Heater Status"
+      },
+      "humidifier_level": {
+        "name": "Humidifier Level"
+      },
+      "humidifier_mode": {
+        "name": "Humidifier Mode"
+      },
+      "humidifier_tank": {
+        "name": "Humidifier Tank"
+      },
+      "humidity": {
+        "name": "Humidity"
+      },
+      "light_n_brightness": {
+        "name": "Light {n} Brightness"
+      },
+      "mode": {
+        "name": "Mode"
+      },
+      "operations": {
+        "name": "Operations"
+      },
+      "outlet_n_schedule": {
+        "name": "Outlet {n} Schedule"
+      },
+      "planting_plan": {
+        "name": "Planting Plan"
+      },
+      "power": {
+        "name": "Power"
+      },
+      "ppfd": {
+        "name": "PPFD"
+      },
+      "schedule": {
+        "name": "Schedule"
+      },
+      "sensor_cleaning_phase": {
+        "name": "Sensor Cleaning Phase"
+      },
+      "sensor_cleaning_time": {
+        "name": "Sensor Cleaning Time"
+      },
+      "soil_avg_ec": {
+        "name": "Soil Avg EC"
+      },
+      "soil_avg_moisture": {
+        "name": "Soil Avg Moisture"
+      },
+      "soil_avg_temperature": {
+        "name": "Soil Avg Temperature"
+      },
+      "soil_named_ec": {
+        "name": "{label} EC"
+      },
+      "soil_named_moisture": {
+        "name": "{label} Moisture"
+      },
+      "soil_named_temperature": {
+        "name": "{label} Temperature"
+      },
+      "soil_probe_ec": {
+        "name": "Soil {probe} EC"
+      },
+      "soil_probe_moisture": {
+        "name": "Soil {probe} Moisture"
+      },
+      "soil_probe_temperature": {
+        "name": "Soil {probe} Temperature"
+      },
+      "temperature": {
+        "name": "Temperature"
+      },
+      "timelapse": {
+        "name": "SF Timelapse {name}",
+        "state": {
+          "capturing": "Capturing",
+          "idle": "Idle"
+        }
+      },
+      "uptime": {
+        "name": "Uptime"
+      },
+      "voltage": {
+        "name": "Voltage"
+      },
+      "vpd_air": {
+        "name": "VPD Air"
+      },
+      "vpd_leaf": {
+        "name": "VPD Leaf"
+      },
+      "wifi_signal": {
+        "name": "WiFi Signal"
+      }
+    },
+    "switch": {
+      "blower_close_co2": {
+        "name": "Blower Close CO2"
+      },
+      "dehumidifier": {
+        "name": "Dehumidifier"
+      },
+      "fan_natural_wind_set": {
+        "name": "Fan Natural Wind (set)"
+      },
+      "heater": {
+        "name": "Heater"
+      },
+      "humidifier": {
+        "name": "Humidifier"
+      },
+      "indicator_light": {
+        "name": "Indicator Light"
+      },
+      "outlet_n": {
+        "name": "Outlet {n}"
+      },
+      "planting_plan_enabled": {
+        "name": "Planting Plan Enabled"
+      }
+    },
+    "text": {
+      "blower_cycle_off": {
+        "name": "Blower Cycle Off"
+      },
+      "blower_cycle_run": {
+        "name": "Blower Cycle Run"
+      },
+      "blower_cycle_start": {
+        "name": "Blower Cycle Start"
+      },
+      "blower_schedule_start": {
+        "name": "Blower Schedule Start"
+      },
+      "blower_schedule_stop": {
+        "name": "Blower Schedule Stop"
+      },
+      "day_cycle_start": {
+        "name": "Day Cycle Start"
+      },
+      "day_cycle_stop": {
+        "name": "Day Cycle Stop"
+      },
+      "dehumidifier_cycle_off": {
+        "name": "Dehumidifier Cycle Off"
+      },
+      "dehumidifier_cycle_run": {
+        "name": "Dehumidifier Cycle Run"
+      },
+      "dehumidifier_cycle_start": {
+        "name": "Dehumidifier Cycle Start"
+      },
+      "dehumidifier_schedule_start": {
+        "name": "Dehumidifier Schedule Start"
+      },
+      "dehumidifier_schedule_stop": {
+        "name": "Dehumidifier Schedule Stop"
+      },
+      "fan_cycle_off": {
+        "name": "Fan Cycle Off"
+      },
+      "fan_cycle_run": {
+        "name": "Fan Cycle Run"
+      },
+      "fan_cycle_start": {
+        "name": "Fan Cycle Start"
+      },
+      "fan_schedule_start": {
+        "name": "Fan Schedule Start"
+      },
+      "fan_schedule_stop": {
+        "name": "Fan Schedule Stop"
+      },
+      "heater_cycle_off": {
+        "name": "Heater Cycle Off"
+      },
+      "heater_cycle_run": {
+        "name": "Heater Cycle Run"
+      },
+      "heater_cycle_start": {
+        "name": "Heater Cycle Start"
+      },
+      "heater_schedule_start": {
+        "name": "Heater Schedule Start"
+      },
+      "heater_schedule_stop": {
+        "name": "Heater Schedule Stop"
+      },
+      "humidifier_cycle_off": {
+        "name": "Humidifier Cycle Off"
+      },
+      "humidifier_cycle_run": {
+        "name": "Humidifier Cycle Run"
+      },
+      "humidifier_cycle_start": {
+        "name": "Humidifier Cycle Start"
+      },
+      "humidifier_schedule_start": {
+        "name": "Humidifier Schedule Start"
+      },
+      "humidifier_schedule_stop": {
+        "name": "Humidifier Schedule Stop"
+      },
+      "light_n_ppfd_start": {
+        "name": "Light {n} PPFD Start"
+      },
+      "light_n_ppfd_stop": {
+        "name": "Light {n} PPFD Stop"
+      },
+      "light_n_schedule_start": {
+        "name": "Light {n} Schedule Start"
+      },
+      "light_n_schedule_stop": {
+        "name": "Light {n} Schedule Stop"
+      },
+      "outlet_n_start": {
+        "name": "Outlet {n} Start"
+      },
+      "outlet_n_stop": {
+        "name": "Outlet {n} Stop"
+      },
+      "schedule_start": {
+        "name": "Schedule Start"
+      },
+      "schedule_stop": {
+        "name": "Schedule Stop"
+      }
+    }
+  },
+  "device": {
+    "environment": {
+      "name": "{device} Environment"
+    }
+  },
+  "selector": {
+    "accessory": {
+      "options": {
+        "light": "Light 1",
+        "light2": "Light 2",
+        "fan": "Fan"
+      }
+    },
+    "strip_sensor_source": {
+      "options": {
+        "sf": "Spider Farmer sensor",
+        "external": "External sensor"
+      }
+    }
+  },
+  "exceptions": {
+    "proxy_not_running": {
+      "message": "Spider Farmer Bridge proxy is not running"
+    },
+    "control_disabled": {
+      "message": "Device control is disabled — enable it in the Spider Farmer Bridge integration options"
+    },
+    "control_disabled_reboot": {
+      "message": "Device control is disabled — enable it in the Spider Farmer Bridge integration options to reboot a device"
+    },
+    "control_disabled_cleaning": {
+      "message": "Device control is disabled — enable it in the Spider Farmer Bridge integration options to start/stop sensor cleaning"
+    },
+    "device_offline_reboot": {
+      "message": "Device is offline — it must be connected to the bridge to reboot"
+    }
+  },
+  "services": {
+    "set_se_schedule": {
+      "name": "Set SE light schedule",
+      "description": "Write the full multi-period, weekday-aware schedule to a Spider Farmer SE-series light. Used by the Spider Light card; can also be called from automations.",
+      "fields": {
+        "entity_id": {
+          "name": "Light",
+          "description": "The SE light (or any of its entities) to write the schedule to."
+        },
+        "periods": {
+          "name": "Periods",
+          "description": "List of schedule periods. Each period is a mapping with keys: days (list of 0-6, 0=Sunday), start (\"HH:MM\"), end (\"HH:MM\"), brightness (11-100), fade (sunrise/sunset minutes, 0-30), enabled (0 or 1)."
+        }
+      }
+    },
+    "set_outlet_schedule": {
+      "name": "Set outlet Time Slot schedule",
+      "description": "Write an outlet's Time Slot schedule (up to 12 weekday-aware on/off slots) to a Spider Farmer power strip / display panel. Used by the tent card's Outlets tab; can also be called from automations.",
+      "fields": {
+        "entity_id": {
+          "name": "Outlet",
+          "description": "Any entity of the outlet to schedule (e.g. its switch or mode)."
+        },
+        "periods": {
+          "name": "Slots",
+          "description": "List of up to 12 time slots. Each is a mapping with keys: days (list of 0-6, 0=Sunday), start (\"HH:MM\"), end (\"HH:MM\")."
+        }
+      }
+    },
+    "set_outlet_config": {
+      "name": "Set outlet mode + config",
+      "description": "Set an outlet's mode and its config fields (Cycle timings, device dropdown) in one atomic write, so picking a mode and configuring it commits together. Used by the tent card's Outlets tab.",
+      "fields": {
+        "entity_id": {
+          "name": "Outlet",
+          "description": "Any entity of the outlet (e.g. its switch or mode select)."
+        },
+        "mode": {
+          "name": "Mode",
+          "description": "Outlet mode: Manual, Time Slot, Cycle, Temperature, Humidity, CO2."
+        },
+        "config": {
+          "name": "Config",
+          "description": "Mapping of the mode's config subfields to values, e.g. for Cycle: cycle_start \"12:00\", cycle_run 5, cycle_off 7, cycle_times 3."
+        }
+      }
+    },
+    "set_alarm_settings": {
+      "name": "Set alarm thresholds",
+      "description": "Write the controller's alarm threshold settings (climate, substrate, and other-device alerts). Used by the tent card's Alerts tab; can also be called from automations.",
+      "fields": {
+        "entity_id": {
+          "name": "Controller",
+          "description": "Any entity of the controller whose alarms to set (e.g. its Alarm Settings sensor)."
+        },
+        "settings": {
+          "name": "Settings",
+          "description": "The decoded threshold groups (climate, substrate, other). Each metric is a mapping with key, enabled (0/1), and max/min (temps in °F)."
+        }
+      }
+    },
+    "apply_bundle": {
+      "name": "Apply settings bundle",
+      "description": "Commit several staged sub-settings to one device module (fan, blower, heater, humidifier, dehumidifier, light, light2) as a single block-preserving write. Used by the tent card's Save buttons; can also be called from automations.",
+      "fields": {
+        "entity_id": {
+          "name": "Device entity",
+          "description": "Any entity of the device to write to (e.g. its mode select)."
+        },
+        "module": {
+          "name": "Module",
+          "description": "The device module to write: fan, blower, heater, humidifier, dehumidifier, light, light2 (light_1/light_2 accepted)."
+        },
+        "settings": {
+          "name": "Settings",
+          "description": "Mapping of sub-setting keys to values, e.g. mode \"Cycle\", cycle_start \"08:00\", cycle_times 4."
+        }
+      }
+    },
+    "set_card_option": {
+      "name": "Set card option",
+      "description": "Persist a per-panel card display option (e.g. the out-of-range colour mode) in the config entry so it survives upgrades and syncs across devices. Used by the tent card's Settings tab; not usually called by hand.",
+      "fields": {
+        "entity_id": {
+          "name": "Panel entity",
+          "description": "The panel's Alarm Settings sensor (identifies the controller)."
+        },
+        "key": {
+          "name": "Key",
+          "description": "Option name, e.g. \"colors\"."
+        },
+        "value": {
+          "name": "Value",
+          "description": "Option value, e.g. \"tile\", \"text\", or \"off\"."
+        }
+      }
+    },
+    "set_sensor_heating": {
+      "name": "Sensor cleaning (start/stop)",
+      "description": "Start or stop the air temp/humidity sensor self-clean heat cycle (the SF app's \"Sensor cleaning\"). Requires \"Allow device control\". Used by the tent card's Calibration tab.",
+      "fields": {
+        "entity_id": {
+          "name": "Controller entity",
+          "description": "Any Spider Farmer entity on the target controller."
+        },
+        "on": {
+          "name": "Start",
+          "description": "On = start cleaning, Off = stop."
+        }
+      }
+    },
+    "set_strip_sensor": {
+      "name": "Strip temperature source",
+      "description": "Choose the temperature/humidity source for an outlet-only power strip (AC5/ AC10/S-Station): its own SF sensor, or a 3rd-party HA temp/humidity entity mirrored onto the strip for outlet automations. Used by the tent card's Settings tab.",
+      "fields": {
+        "entity_id": {
+          "name": "Strip entity",
+          "description": "Any Spider Farmer entity on the target strip."
+        },
+        "source": {
+          "name": "Source",
+          "description": "sf = the strip's own sensor; external = a 3rd-party HA sensor."
+        },
+        "temp_entity": {
+          "name": "External temperature entity",
+          "description": "HA temperature entity to mirror (when source = external)."
+        },
+        "humi_entity": {
+          "name": "External humidity entity",
+          "description": "HA humidity entity to mirror (when source = external)."
+        }
+      }
+    },
+    "set_smart_control": {
+      "name": "Smart control (dehumidifier)",
+      "description": "Enable/disable and tune the integration's closed-loop humidity control for a device. WARNING: when enabled, the integration drives the dehumidifier gear (full Manual) and overrides SF's own automation. Used by the tent card's Settings tab.",
+      "fields": {
+        "entity_id": {
+          "name": "Device entity",
+          "description": "Any Spider Farmer entity on the target device."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "On = integration drives the dehumidifier; Off = hand control back."
+        },
+        "settings": {
+          "name": "Settings",
+          "description": "Tuning dict: humidity (entity_id), target, deadband, escalate_after_s, escalate_drop, ease_band, min_on_s, min_off_s."
+        }
+      }
+    },
+    "set_outlet_env": {
+      "name": "Env outlet control (sensorless strip)",
+      "description": "Enable/disable integration-driven Temperature (Cooling/Heating) control for a single outlet on a strip that has no SF air sensor (AC5/AC10 on an external temp source). The outlet can't run this on the device, so the integration drives it from the mirrored temperature and the strip's env target. WARNING: when enabled, the integration owns that outlet (held in Manual on the device); the card still shows the chosen Temperature/Cooling mode. Used by the tent card's outlet popup on external strips.",
+      "fields": {
+        "entity_id": {
+          "name": "Outlet entity",
+          "description": "Any entity of the target outlet (its switch or mode select)."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "On = integration drives the outlet; Off = hand control back to the device."
+        },
+        "mode": {
+          "name": "Mode",
+          "description": "Env mode to hold — Temperature or Humidity."
+        },
+        "direction": {
+          "name": "Direction",
+          "description": "Temperature: Cooling (on when warm) or Heating (on when cold). Humidity: Dehumidifying (on when humid) or Humidifying (on when dry)."
+        },
+        "settings": {
+          "name": "Settings",
+          "description": "Optional tuning dict: deadband, min_on_s, min_off_s."
+        }
+      }
+    },
+    "reboot_device": {
+      "name": "Reboot device",
+      "description": "Reboot a Spider Farmer controller via the bridge (the firmware's setDevRestart). The controller reconnects on its own once it's back up. Requires \"Allow device control\" to be enabled in the integration options; a controller that is offline is skipped.",
+      "fields": {
+        "entity_id": {
+          "name": "Device",
+          "description": "Any entity belonging to the controller you want to reboot."
+        }
+      }
+    },
+    "timelapse_configure": {
+      "name": "Time-lapse configure",
+      "description": "Create or update one time-lapse instance. Supply tl_id (a slug) or let it be derived from name/camera; a new tl_id creates a new time-lapse. Storage must be a secure, non-web-served folder (never under /www or /config/www).",
+      "fields": {
+        "tl_id": {
+          "name": "Instance id",
+          "description": "Stable slug for this time-lapse. New id = new instance."
+        },
+        "name": {
+          "name": "Name",
+          "description": "Instance name (drives the tl_id slug). Defaults from the camera when blank."
+        },
+        "label": {
+          "name": "Display name",
+          "description": "Optional header title shown on the card. Leave blank to fall back to the camera's friendly name. Does not change the tl_id."
+        },
+        "camera": {
+          "name": "Camera"
+        },
+        "storage_dir": {
+          "name": "Storage folder",
+          "description": "Secure absolute path (never /www or /config/www)."
+        },
+        "interval": {
+          "name": "Interval (s)"
+        },
+        "retention": {
+          "name": "Keep (days)"
+        },
+        "enabled": {
+          "name": "Enable capture"
+        },
+        "overlay": {
+          "name": "Env overlay"
+        },
+        "overlay_burn": {
+          "name": "Burn overlay into video"
+        },
+        "overlay_panel": {
+          "name": "Read env from panel"
+        },
+        "overlay_fields": {
+          "name": "Overlay fields",
+          "description": "Any of: temp, humidity, vpd, co2, ppfd, timestamp, day."
+        },
+        "overlay_color": {
+          "name": "Overlay text colour",
+          "description": "Hex colour, e.g. \"#ffffff\"."
+        },
+        "overlay_grouped": {
+          "name": "Overlay grouped",
+          "description": "All readings in one box (selection order) vs. placed per field."
+        },
+        "overlay_orient": {
+          "name": "Overlay layout",
+          "description": "\"v\" (stacked) or \"h\" (one row) for the grouped box."
+        },
+        "overlay_labels": {
+          "name": "Overlay labels",
+          "description": "Off shows just values (e.g. 72°F) without the Temp/RH labels."
+        },
+        "overlay_font": {
+          "name": "Overlay text size",
+          "description": "Overlay text size in px as shown on the card (default 12)."
+        },
+        "overlay_pos": {
+          "name": "Overlay positions",
+          "description": "Anchor positions: field or \"group\" mapped to [xPct, yPct]."
+        },
+        "align": {
+          "name": "Start on the mark",
+          "description": "On = first frame on the next clock mark; off = start immediately."
+        },
+        "daily_at": {
+          "name": "Capture daily at",
+          "description": "\"HH:MM\" time-of-day for a 1-day interval."
+        }
+      }
+    },
+    "timelapse_start": {
+      "name": "Time-lapse start",
+      "description": "Begin or resume capture for one instance.",
+      "fields": {
+        "tl_id": {
+          "name": "Instance id"
+        },
+        "interval": {
+          "name": "Interval (s)"
+        }
+      }
+    },
+    "timelapse_stop": {
+      "name": "Time-lapse stop",
+      "description": "Stop capture for one instance (does not resume after a reboot).",
+      "fields": {
+        "tl_id": {
+          "name": "Instance id"
+        }
+      }
+    },
+    "timelapse_set_interval": {
+      "name": "Time-lapse set interval",
+      "description": "Change the capture interval for one instance (while capturing).",
+      "fields": {
+        "tl_id": {
+          "name": "Instance id"
+        },
+        "interval": {
+          "name": "Interval (s)"
+        }
+      }
+    },
+    "timelapse_export": {
+      "name": "Time-lapse export MP4",
+      "description": "Render a session's frames to an .mp4 in the same secure folder.",
+      "fields": {
+        "tl_id": {
+          "name": "Instance id"
+        },
+        "session": {
+          "name": "Session"
+        },
+        "fps": {
+          "name": "Frames per second"
+        },
+        "name": {
+          "name": "Output file name"
+        }
+      }
+    },
+    "timelapse_remove": {
+      "name": "Time-lapse remove",
+      "description": "Delete one time-lapse instance (stops capture, drops its status sensor). With delete_images on, its captured frames/sessions/exports folder is deleted too.",
+      "fields": {
+        "tl_id": {
+          "name": "Instance id"
+        },
+        "delete_images": {
+          "name": "Delete images",
+          "description": "Also delete the captured frames/sessions/exports on disk."
+        }
+      }
+    },
+    "timelapse_clear": {
+      "name": "Time-lapse clear images",
+      "description": "Delete ALL captured images, sessions and exported videos for one time-lapse instance (keeps the instance itself). If it was capturing, it continues into a fresh, empty session. This cannot be undone.",
+      "fields": {
+        "tl_id": {
+          "name": "Instance id"
+        }
+      }
     }
   }
 }

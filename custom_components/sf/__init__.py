@@ -929,7 +929,8 @@ def _async_register_services(hass: HomeAssistant) -> None:
             if not getattr(proxy, "allow_control", False):
                 raise HomeAssistantError(
                     "Device control is disabled — enable it in the Spider Farmer "
-                    "Bridge integration options to start/stop sensor cleaning")
+                    "Bridge integration options to start/stop sensor cleaning",
+                    translation_domain=DOMAIN, translation_key="control_disabled_cleaning")
             await proxy.set_sensor_heating(mac, on)
 
     async def _reboot_device(call: ServiceCall) -> None:
@@ -955,7 +956,8 @@ def _async_register_services(hass: HomeAssistant) -> None:
             if not getattr(proxy, "allow_control", False):
                 raise HomeAssistantError(
                     "Device control is disabled — enable it in the Spider Farmer "
-                    "Bridge integration options to reboot a device")
+                    "Bridge integration options to reboot a device",
+                    translation_domain=DOMAIN, translation_key="control_disabled_reboot")
             await proxy.reboot_device(mac)
 
     async def _set_card_option(call: ServiceCall) -> None:

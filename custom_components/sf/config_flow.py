@@ -153,18 +153,34 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, config_entry):
         self._entry = config_entry
 
+    async def _texts(self, category: str, prefix: str, english: dict) -> dict:
+        """{key: label} in Home Assistant's language from translations/<lang>.json
+        (``component.sf.<prefix>.<key>``), each falling back to its English text —
+        so a label never shows as a raw key, even right after an update when HA's
+        translation cache still holds the previous version's strings."""
+        from homeassistant.helpers.translation import async_get_translations
+
+        try:
+            tr = await async_get_translations(
+                self.hass, self.hass.config.language, category, {DOMAIN})
+        except Exception:  # pragma: no cover - never block the flow on translations
+            tr = {}
+        return {k: tr.get(f"component.{DOMAIN}.{prefix}.{k}") or v
+                for k, v in english.items()}
+
     async def async_step_init(self, user_input=None):
-        # Labels provided inline — immune to HA's translation caching,
-        # which only reloads custom-integration strings at core startup.
+        # Labels passed inline (translated, English fallback) rather than via
+        # menu_options keys — immune to HA's translation caching, which only
+        # reloads custom-integration strings at core startup.
         return self.async_show_menu(
             step_id="init",
-            menu_options={
+            menu_options=await self._texts("options", "options.step.init.menu_options", {
                 "settings": "Settings (ports, control, diagnostic log)",
                 "mappings": "Device mappings (logical slots for entity IDs)",
                 "components": "Device accessories (Light 2 / Fan per device)",
                 "migrate": "Migrate device (replace hardware, keep history)",
                 "replace_soil": "Replace soil probe (swap hardware, keep history)",
-            },
+            }),
         )
 
     async def async_step_settings(self, user_input=None):
@@ -226,6 +242,8 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
         (blower, humidifier, sensors…) stays automatic."""
         from .entity_defs import COMPONENT_LABELS
 
+        labels = await self._texts("selector", "selector.accessory.options", COMPONENT_LABELS)
+
         # Ordered device list (reuse candidate enumeration → macs, SE excluded),
         # each with only the accessories it actually reports.
         macs = list(dict.fromkeys(m for m, _ in toggleable_candidates(self.hass, self._entry)))
@@ -266,7 +284,7 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
         def _picker(mac, blocks):
             """Compact checkbox list (denser than one boolean row per accessory)."""
             return selector.SelectSelector(selector.SelectSelectorConfig(
-                options=[selector.SelectOptionDict(value=b, label=COMPONENT_LABELS.get(b, b))
+                options=[selector.SelectOptionDict(value=b, label=labels.get(b, b))
                          for b in blocks],
                 multiple=True, mode="list",
             ))

@@ -3,6 +3,30 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.19.426
+
+### Added
+- **Translatable everywhere, German included.** Everything the integration and the
+  cards show can now be translated; a new language is one file each. German is complete.
+  - **Integration:** entity names, the Environment device name, the setup dialog, all
+    options pages (including the options menu and the Light 1 / Light 2 / Fan accessory
+    labels), the 18 services and their fields, and the error messages come from
+    `translations/<lang>.json`. Entity names follow Home Assistant's language
+    (Settings → System → General); **entity IDs, history and automations are unchanged**,
+    and in English every name is exactly what it was (a test checks all 660+ possible
+    entities). Names with numbers ("Outlet 3", "Light 1") need HA 2024.2+; older cores
+    keep the English name.
+  - **Cards:** every text in all four cards and their editors goes through a small
+    translation helper keyed by the English text (`card-src/src/i18n.ts`); tables live in
+    `card-src/src/translations/`. The cards follow the user's HA language. Device values
+    (modes like "Manual" / "Time Slot") are translated only for display — what the card
+    sends to the controller is unchanged.
+  - **Time-lapse overlay:** the burned-in words (RH, Day) follow HA's language and match
+    the card's live overlay.
+  - New tests keep it complete: every translation has the English keys and placeholders,
+    every card text has an entry in every card table, and English names stay identical.
+- Card picker entries show their name and description in the frontend's language.
+
 ## 3.19.425 
 
 ### Fixed

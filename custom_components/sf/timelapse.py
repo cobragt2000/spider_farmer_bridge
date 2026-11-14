@@ -498,7 +498,8 @@ class TimelapseController:
             if self.overlay and self.overlay_burn:
                 items = _overlay_items(readings, stamp, self.overlay_fields,
                                        self.overlay_grouped, self.overlay_pos,
-                                       self.overlay_orient, self.overlay_labels)
+                                       self.overlay_orient, self.overlay_labels,
+                                       self.hass.config.language)
                 if items:
                     content = await self.hass.async_add_executor_job(
                         _burn_items, content, items, self.overlay_color, self.overlay_font)
@@ -693,7 +694,19 @@ class TimelapseManager:
 
 # ── filesystem helpers (run in executor) ─────────────────────────────────────
 _OVERLAY_LABELS = {"temp": "Temp", "humidity": "RH", "vpd": "VPD",
-                   "co2": "CO2", "ppfd": "PPFD"}
+                   "co2": "CO2", "ppfd": "PPFD", "day": "Day {n}"}
+# Overlay words in other languages (HA's language), burned into the frames. The card's
+# live overlay uses the same words from its own table (card-src/src/translations/),
+# so preview and video match; tests/test_i18n.py checks the two agree.
+_OVERLAY_LABELS_I18N = {
+    "de": {"humidity": "rF", "day": "Tag {n}"},
+}
+
+
+def _overlay_label(field: str, lang: str = "en") -> str:
+    lang = (lang or "en").lower()
+    table = _OVERLAY_LABELS_I18N.get(lang) or _OVERLAY_LABELS_I18N.get(lang.split("-")[0]) or {}
+    return table.get(field) or _OVERLAY_LABELS.get(field, field)
 
 
 def _fmt_stamp(stamp: str) -> str:
@@ -731,22 +744,23 @@ def _day_number(session: str, stamp: str) -> int | None:
         return None
 
 
-def _render_field(field: str, readings: dict, stamp: str, labels: bool = True) -> str | None:
+def _render_field(field: str, readings: dict, stamp: str, labels: bool = True,
+                  lang: str = "en") -> str | None:
     """The on-screen string for one overlay field (or None if it has no value).
     With labels=False the reading shows just its value (e.g. '72°F'), no 'Temp'."""
     if field == "timestamp":
         return _fmt_stamp(stamp)
     if field == "day":
         d = readings.get("day")
-        return f"Day {d}" if d else None
+        return _overlay_label("day", lang).format(n=d) if d else None
     r = readings.get(field)
     if not r:
         return None
-    return f"{_OVERLAY_LABELS.get(field, field)} {r}" if labels else f"{r}"
+    return f"{_overlay_label(field, lang)} {r}" if labels else f"{r}"
 
 
 def _overlay_items(readings: dict, stamp: str, fields, grouped: bool, pos,
-                   orient: str = "v", labels: bool = True) -> list:
+                   orient: str = "v", labels: bool = True, lang: str = "en") -> list:
     """Positioned overlay items to draw. Grouped → ONE item (all selected readings in
     selection order) at the group anchor, laid out vertically (stacked) or horizontally
     (one row) per `orient`; otherwise ONE item per field at its own anchor. Anchors are
@@ -756,7 +770,7 @@ def _overlay_items(readings: dict, stamp: str, fields, grouped: bool, pos,
     pos = pos if isinstance(pos, dict) else {}
     rendered = []  # [(field, text)] in selection order
     for f in (fields or []):
-        t = _render_field(f, readings, stamp, labels)
+        t = _render_field(f, readings, stamp, labels, lang)
         if t:
             rendered.append((f, t))
     if not rendered:

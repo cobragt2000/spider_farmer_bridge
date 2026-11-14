@@ -2941,29 +2941,36 @@ class SfBus:
     # ── Command gateway ────────────────────────────────────────────────────
 
     async def async_command(self, topic: str, payload: str) -> None:
+        from .const import DOMAIN
         if self.proxy is None:
-            raise HomeAssistantError("Spider Farmer Bridge proxy is not running")
+            raise HomeAssistantError("Spider Farmer Bridge proxy is not running",
+                                     translation_domain=DOMAIN, translation_key="proxy_not_running")
         if not self.proxy.allow_control:
             raise HomeAssistantError(
                 "Device control is disabled — enable it in the "
-                "Spider Farmer Bridge integration options"
+                "Spider Farmer Bridge integration options",
+                translation_domain=DOMAIN, translation_key="control_disabled",
             )
         await self.proxy.handle_command(topic, payload)
 
     async def reboot_device(self, mac: str) -> None:
         """Reboot a controller (setDevRestart), gated by Allow device control
         like every other actuation. Raised errors surface in the HA UI."""
+        from .const import DOMAIN
         if self.proxy is None:
-            raise HomeAssistantError("Spider Farmer Bridge proxy is not running")
+            raise HomeAssistantError("Spider Farmer Bridge proxy is not running",
+                                     translation_domain=DOMAIN, translation_key="proxy_not_running")
         if not self.proxy.allow_control:
             raise HomeAssistantError(
                 "Device control is disabled — enable it in the "
-                "Spider Farmer Bridge integration options to reboot a device"
+                "Spider Farmer Bridge integration options to reboot a device",
+                translation_domain=DOMAIN, translation_key="control_disabled_reboot",
             )
         ok = await self.proxy.reboot_device(mac)
         if not ok:
             raise HomeAssistantError(
-                "Device is offline — it must be connected to the bridge to reboot"
+                "Device is offline — it must be connected to the bridge to reboot",
+                translation_domain=DOMAIN, translation_key="device_offline_reboot",
             )
 
     # ── Convenience for entities ───────────────────────────────────────────

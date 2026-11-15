@@ -227,23 +227,28 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
         """Pick a zone to edit, or add a new one. A zone groups one sensor controller
         with devices from other controllers + external HA entities, learned together."""
         zones = list((self._entry.options or {}).get(CONF_AI_ZONES) or [])
-        NEW = "➕ Add a new zone"
+        NEW = "➕ Add a new zone"   # option value; its label is translated below
         if user_input is not None:
             choice = user_input["zone"]
             self._zone_edit_id = None if choice == NEW else choice
             return await self.async_step_ai_zone_edit()
 
+        # Words for the zone list in HA's language (English fallback), like the menu.
+        w = await self._texts("selector", "selector.ai_zone.options", {
+            "new": NEW, "sensor": "sensor", "devices": "devices", "external": "external",
+            "none": "No zones yet — each controller learns on its own.",
+        })
         options = [selector.SelectOptionDict(value=z["id"],
-                   label=f'{z.get("name", z["id"])}  (sensor: {z.get("sensor_panel","?")})')
+                   label=f'{z.get("name", z["id"])}  ({w["sensor"]}: {z.get("sensor_panel","?")})')
                    for z in zones]
-        options.append(selector.SelectOptionDict(value=NEW, label=NEW))
+        options.append(selector.SelectOptionDict(value=NEW, label=w["new"]))
         schema = vol.Schema({vol.Required("zone", default=NEW):
                              selector.SelectSelector(selector.SelectSelectorConfig(options=options))})
         summary = "\n".join(
-            f'• {z.get("name", z["id"])}: sensor {z.get("sensor_panel")}, '
-            f'+devices {", ".join(z.get("device_panels") or []) or "—"}, '
-            f'{len(z.get("external") or [])} external'
-            for z in zones) or "No zones yet — each controller learns on its own."
+            f'• {z.get("name", z["id"])}: {w["sensor"]} {z.get("sensor_panel")}, '
+            f'+{w["devices"]} {", ".join(z.get("device_panels") or []) or "—"}, '
+            f'{len(z.get("external") or [])} {w["external"]}'
+            for z in zones) or w["none"]
         return self.async_show_form(
             step_id="ai_zones", data_schema=schema,
             description_placeholders={"zones": summary})

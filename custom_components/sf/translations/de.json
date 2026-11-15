@@ -26,6 +26,7 @@
           "settings": "Einstellungen (Ports, Steuerung, Diagnoseprotokoll)",
           "mappings": "Gerätezuordnung (logische Slots für Entitäts-IDs)",
           "components": "Gerätezubehör (Licht 2 / Umluft je Gerät)",
+          "ai_zones": "Klimazonen für die KI (Controller für einen Grow zusammenfassen)",
           "migrate": "Gerät migrieren (Hardware tauschen, Verlauf behalten)",
           "replace_soil": "Bodensensor ersetzen (Hardware tauschen, Verlauf behalten)"
         }
@@ -44,12 +45,39 @@
           "allow_control": "Gerätesteuerung aktivieren (Befehle an die Geräte senden; aus = nur beobachten)",
           "block_cloud": "Cloud sperren (nur lokal – die Geräte erreichen die Server von Spider Farmer nicht mehr; HA steuert weiter, aber die Handy-App und Firmware-Updates aus der Cloud funktionieren dann nicht)",
           "diagnostic_log_path": "Pfad der Diagnoseprotokoll-Datei",
-          "diagnostic_log_days": "Diagnoseprotokoll aufbewahren (Tage)"
+          "diagnostic_log_days": "Diagnoseprotokoll aufbewahren (Tage)",
+          "ai_learn": "Adaptives Klima (KI) einschalten – aus dem Verlauf lernen (erfordert die Gerätesteuerung oben)",
+          "ai_store": "Eigenen KI-Trainingsspeicher führen (unabhängig vom Recorder)",
+          "ai_retention_days": "KI-Speicher aufbewahren (Tage) – 0 = alles behalten",
+          "offline_timeout": "Offline-Zeitlimit (Sekunden) – einen Controller nach so langer Zeit ohne Daten als nicht verfügbar markieren; 0 = aus"
+        },
+        "data_description": {
+          "ai_learn": "⚠ Experimentell. Erfordert die Gerätesteuerung. Die KI lernt aus dem Verlauf von Home Assistant, wie die Geräte jedes Zelts auf das Klima wirken, und wird (in einer späteren Version) die Klimageräte so steuern, dass deine Ziele gehalten werden. Nur mit einer STABILEN HA-Instanz und einem stabilen Netzwerk einschalten – die Steuerung hängt davon ab, dass HA läuft und die Geräte erreicht; fallen HA oder das Netz aus, behalten die Geräte ihren letzten Zustand. Derzeit beobachtet und lernt sie nur – sie steuert noch nichts.",
+          "ai_store": "Der Recorder von Home Assistant löscht alte Daten (standardmäßig nach etwa 10 Tagen); das begrenzt, wie weit zurück die KI lernen kann. Eingeschaltet führt die Integration eine eigene kompakte Kopie deiner SF-Klimadaten (unter /config/sf/), sodass das Lernen über das Recorder-Fenster hinaus weiterwächst. Lass es aus, wenn du SF-Daten ohnehin lange im Recorder behältst oder SF vom Löschen ausgenommen hast. Gilt nur, wenn das adaptive Klima eingeschaltet ist.",
+          "ai_retention_days": "Wie lange der eigene KI-Speicher Daten behält. 0 behält alles (löscht nie) – etwa 1–2 MB pro Monat und Zelt. Gib eine Anzahl Tage an, um ältere Daten zu kürzen."
         }
       },
       "components": {
         "title": "Gerätezubehör",
         "description": "Jeder Controller erscheint mit einem Kästchen für jedes Zubehör, das er meldet – Licht 1, Licht 2 und Umluft (Zubehör, das ein Gerät nicht meldet, fehlt). Es wird automatisch angelegt; wähle eines ab, um es auszublenden und zu entfernen (praktisch bei einem Phantom-Licht oder -Lüfter oder wenn nur ein Lüfter angeschlossen ist und der Lichtkanal aus bleiben soll). Alles andere (Abluft, Luftbefeuchter, Sensoren, Steckdosen) wird automatisch erkannt."
+      },
+      "ai_zones": {
+        "title": "Klimazonen (KI)",
+        "description": "Eine Zone fasst EINEN Sensor-Controller mit Geräten anderer Controller (und externen HA-Geräten) zusammen, damit ein Grow, der über mehrere SF-Geräte verteilt ist, gemeinsam gelernt wird – z. B. misst ein DP das Zelt, während ein AC5/AC10 ohne DP die Steckdosen schaltet. Das Ergebnis der Zone erscheint am Sensor KI-Zuverlässigkeit ihres Sensor-Controllers; Controller in einer Zone lernen nicht mehr für sich allein. Wähle eine Zone zum Bearbeiten oder lege eine neue an.\n\n{zones}",
+        "data": {
+          "zone": "Zone"
+        }
+      },
+      "ai_zone_edit": {
+        "title": "Klimazone bearbeiten",
+        "description": "Wähle den Controller, dessen Temperatur-/Feuchtesensor diesen Grow misst. Füge dann die anderen Controller hinzu, deren Geräte denselben Raum beeinflussen, und externe Schalter aus Home Assistant (z. B. einen Luftbefeuchter, der nicht von SF ist). Alles wird gemeinsam an den Messwerten des Sensor-Controllers gelernt.",
+        "data": {
+          "name": "Name der Zone",
+          "sensor_panel": "Sensor-Controller (seine Temperatur/Feuchte sind die Messgrundlage)",
+          "device_panels": "Weitere Controller (ihre Geräte wirken auf diesen Grow)",
+          "external": "Externe HA-Geräte (Schalter, die heizen / befeuchten / kühlen usw.)",
+          "delete": "Diese Zone löschen"
+        }
       },
       "migrate": {
         "title": "Gerät migrieren",
@@ -95,7 +123,10 @@
       "different_cb": "Beide Sensoren müssen am selben Gerät stecken.",
       "tl_dir_required": "Gib einen Speicherordner an.",
       "tl_dir_insecure": "Dieser Ordner wird ohne Anmeldung im Web ausgeliefert (ein /www-Pfad). Wähle einen privaten Pfad wie /media/sf_timelapse.",
-      "tl_dir_unwritable": "Home Assistant kann diesen Ordner nicht anlegen oder nicht hineinschreiben. Prüfe Pfad und Berechtigungen."
+      "tl_dir_unwritable": "Home Assistant kann diesen Ordner nicht anlegen oder nicht hineinschreiben. Prüfe Pfad und Berechtigungen.",
+      "ai_needs_control": "Schalte zuerst „Gerätesteuerung aktivieren“ ein – das adaptive Klima (KI) braucht sie und läuft ohne sie nicht.",
+      "zone_no_name": "Gib der Zone einen Namen.",
+      "zone_no_sensor": "Wähle den Controller, dessen Sensor diesen Grow misst."
     },
     "abort": {
       "no_devices": "Noch keinem Gerät ist ein Slot zugeordnet – verbinde zuerst ein Gerät.",
@@ -363,6 +394,9 @@
       }
     },
     "sensor": {
+      "ai_confidence": {
+        "name": "KI-Zuverlässigkeit"
+      },
       "alarm_settings": {
         "name": "Alarmeinstellungen"
       },
@@ -666,6 +700,15 @@
       "options": {
         "sf": "Spider-Farmer-Sensor",
         "external": "Externer Sensor"
+      }
+    },
+    "ai_zone": {
+      "options": {
+        "new": "➕ Neue Zone anlegen",
+        "sensor": "Sensor",
+        "devices": "Geräte",
+        "external": "extern",
+        "none": "Noch keine Zonen – jeder Controller lernt für sich."
       }
     }
   },
@@ -1022,6 +1065,70 @@
       "fields": {
         "tl_id": {
           "name": "Zeitraffer-ID"
+        }
+      }
+    },
+    "ai_learn": {
+      "name": "KI lernen (adaptives Klima)",
+      "description": "Startet jetzt einen Lerndurchlauf des adaptiven Klimas, der nur beobachtet – bildet für jedes Panel aus dem Verlauf von Home Assistant die Modelle, wie die Geräte auf die Messwerte wirken, und aktualisiert den Sensor KI-Zuverlässigkeit. Nützlich, um den Verlauf einmalig nachzuholen. Steuert KEIN Gerät.",
+      "fields": {
+        "days": {
+          "name": "Verlaufszeitraum (Tage)",
+          "description": "Wie weit zurück der Verlauf gelesen wird (Standard 10)."
+        }
+      }
+    },
+    "ai_reseed": {
+      "name": "KI-Lerndaten leeren (neu beginnen)",
+      "description": "Löscht ALLE gesammelten Lerndaten und beginnt neu – gelernt wird dann frisch aus den laufenden Messungen. Gespeicherte Lernprofile BLEIBEN erhalten (getrennt gespeichert) und lassen sich danach wieder laden. Anschließend werden die Modelle auf dem nun leeren Speicher neu gebildet. Es wird kein Verlauf importiert. Gilt nur, wenn der eigene KI-Speicher eingeschaltet ist. Lässt sich nicht rückgängig machen. Steuert KEIN Gerät."
+    },
+    "ai_save_profile": {
+      "name": "KI-Lernprofil speichern",
+      "description": "Speichert die gesammelten Trainingsdaten des aktuellen Grows als benanntes Lernprofil, damit ein späterer Grow mit demselben Aufbau mit diesem Vorwissen starten kann. Gilt nur, wenn der eigene KI-Speicher eingeschaltet ist. Steuert KEIN Gerät.",
+      "fields": {
+        "name": {
+          "name": "Profilname",
+          "description": "Ein Name für dieses Profil (ein vorhandener Name wird überschrieben)."
+        },
+        "panel": {
+          "name": "Panel/Zone",
+          "description": "Welches Lern-Panel gespeichert wird (Standard: das Haupt-Panel)."
+        }
+      }
+    },
+    "ai_load_profile": {
+      "name": "KI-Lernprofil laden",
+      "description": "Lädt die Daten eines gespeicherten Lernprofils, damit das Lernen mit diesem Vorwissen startet. Am besten zu Beginn eines neuen Grows mit demselben Aufbau wie im Profil. Steuert KEIN Gerät.",
+      "fields": {
+        "name": {
+          "name": "Profilname",
+          "description": "Das zu ladende Profil (oder die ID angeben)."
+        },
+        "id": {
+          "name": "Profil-ID",
+          "description": "Die ID des zu ladenden Profils (statt des Namens)."
+        },
+        "replace": {
+          "name": "Aktuelle Daten ersetzen",
+          "description": "An = frisch mit dem Profil beginnen; Aus (Standard) = mit den aktuellen Daten zusammenführen."
+        },
+        "panel": {
+          "name": "Panel/Zone",
+          "description": "In welches Lern-Panel geladen wird (Standard: das Haupt-Panel)."
+        }
+      }
+    },
+    "ai_delete_profile": {
+      "name": "KI-Lernprofil löschen",
+      "description": "Löscht ein gespeichertes Lernprofil samt seinen Daten.",
+      "fields": {
+        "name": {
+          "name": "Profilname",
+          "description": "Das zu löschende Profil (oder die ID angeben)."
+        },
+        "id": {
+          "name": "Profil-ID",
+          "description": "Die ID des zu löschenden Profils (statt des Namens)."
         }
       }
     }

@@ -23,6 +23,9 @@ Each section below is ready to paste into the matching GitHub release.
     sends to the controller is unchanged.
   - **Time-lapse overlay:** the burned-in words (RH, Day) follow HA's language and match
     the card's live overlay.
+  - **Adaptive climate:** the AI Confidence sensor, the five `ai_*` services, the AI
+    options (learning, training store, retention, zones) and the zone list's labels are
+    translatable too, German included.
   - New tests keep it complete: every translation has the English keys and placeholders,
     every card text has an entry in every card table, and English names stay identical.
 - Card picker entries show their name and description in the frontend's language.

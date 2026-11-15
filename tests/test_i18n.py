@@ -221,3 +221,24 @@ async def test_old_core_without_name_placeholders_keeps_english(hass: HomeAssist
         session.initial_poll_task.cancel()
     await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+@pytest.mark.parametrize(("language", "new_label", "none_text"), [
+    ("en", "➕ Add a new zone", "No zones yet — each controller learns on its own."),
+    ("de", "➕ Neue Zone anlegen", "Noch keine Zonen – jeder Controller lernt für sich."),
+])
+async def test_ai_zone_list_follows_ha_language(hass: HomeAssistant, language, new_label, none_text):
+    """The adaptive-climate zone list: the "add" option keeps its value (the flow
+    compares against it) but shows a translated label; the empty-list text too."""
+    entry = await _setup(hass, language)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "ai_zones"})
+    assert result["type"] == "form" and result["step_id"] == "ai_zones"
+    assert result["description_placeholders"]["zones"] == none_text
+    sel = result["data_schema"].schema["zone"]
+    opts = sel.config["options"]
+    assert opts[-1]["value"] == "➕ Add a new zone"
+    assert opts[-1]["label"] == new_label
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()

@@ -26,6 +26,7 @@
           "settings": "Settings (ports, control, diagnostic log)",
           "mappings": "Device mappings (logical slots for entity IDs)",
           "components": "Device accessories (Light 2 / Fan per device)",
+          "ai_zones": "Adaptive climate zones (group controllers for one grow)",
           "migrate": "Migrate device (replace hardware, keep history)",
           "replace_soil": "Replace soil probe (swap hardware, keep history)"
         }
@@ -393,6 +394,9 @@
       }
     },
     "sensor": {
+      "ai_confidence": {
+        "name": "AI Confidence"
+      },
       "alarm_settings": {
         "name": "Alarm Settings"
       },
@@ -696,6 +700,15 @@
       "options": {
         "sf": "Spider Farmer sensor",
         "external": "External sensor"
+      }
+    },
+    "ai_zone": {
+      "options": {
+        "new": "➕ Add a new zone",
+        "sensor": "sensor",
+        "devices": "devices",
+        "external": "external",
+        "none": "No zones yet — each controller learns on its own."
       }
     }
   },
@@ -1052,6 +1065,70 @@
       "fields": {
         "tl_id": {
           "name": "Instance id"
+        }
+      }
+    },
+    "ai_learn": {
+      "name": "AI learn (adaptive climate)",
+      "description": "Run an observe-only adaptive-climate learning pass now — fits each panel's device-to-metric response models from Home Assistant recorder history and updates the AI Confidence sensor. Useful as the one-shot historical backfill. This does NOT control any device.",
+      "fields": {
+        "days": {
+          "name": "History window (days)",
+          "description": "How far back to read recorder history (default 10)."
+        }
+      }
+    },
+    "ai_reseed": {
+      "name": "AI clean learning data (start over)",
+      "description": "Wipe ALL captured learning data and start over — learning begins fresh from live capture. Saved learning profiles are KEPT (stored separately) and can be reloaded afterwards. Then re-fit the models on the now-empty store. No history is imported. Only applies when the durable store is enabled. Cannot be undone. This does NOT control any device."
+    },
+    "ai_save_profile": {
+      "name": "AI save learning profile",
+      "description": "Save the current grow's captured training data as a named learning profile, so a future grow with the same physical setup can warm-start from it. Only applies when the durable store is enabled. Does NOT control any device.",
+      "fields": {
+        "name": {
+          "name": "Profile name",
+          "description": "A name for this saved profile (re-using a name overwrites it)."
+        },
+        "panel": {
+          "name": "Panel/zone",
+          "description": "Which learning panel to save (defaults to the main one)."
+        }
+      }
+    },
+    "ai_load_profile": {
+      "name": "AI load learning profile",
+      "description": "Load a saved learning profile's dataset so learning warm-starts from it. Best used when starting a new grow with the same setup as the saved profile. Does NOT control any device.",
+      "fields": {
+        "name": {
+          "name": "Profile name",
+          "description": "The profile to load (or use id)."
+        },
+        "id": {
+          "name": "Profile id",
+          "description": "The profile id to load (alternative to name)."
+        },
+        "replace": {
+          "name": "Replace current data",
+          "description": "On = start fresh from the profile; Off (default) = merge with current data."
+        },
+        "panel": {
+          "name": "Panel/zone",
+          "description": "Which learning panel to load into (defaults to the main one)."
+        }
+      }
+    },
+    "ai_delete_profile": {
+      "name": "AI delete learning profile",
+      "description": "Delete a saved learning profile and its data.",
+      "fields": {
+        "name": {
+          "name": "Profile name",
+          "description": "The profile to delete (or use id)."
+        },
+        "id": {
+          "name": "Profile id",
+          "description": "The profile id to delete (alternative to name)."
         }
       }
     }

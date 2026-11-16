@@ -287,28 +287,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.exception("sf ai_store: could not open durable store; using recorder")
                 ai_store = None
 
-        # Re-fit cadence. LIVE by default (v3.20.34): the OLS fit is cheap (ms of numpy),
-        # so the models, confidence and store/capture-rate readouts refresh every
-        # _AI_LIVE_S seconds — the card reflects new data almost immediately instead of on a
-        # 3-h timer. The user can still throttle it from the AI card (card_option
-        # dev_ai_refit_min, minutes) to cut recorder writes; unset = live. A fast heartbeat
-        # drives it, and the fit is both executor-offloaded and re-entrancy-guarded
-        # (bus._ai_learning), so a pass that ever runs longer than the heartbeat just makes
-        # the next ticks skip — it can't pile up or hog the loop.
+        # Re-fit: ALWAYS LIVE (v3.20.38 — the user-facing cadence setting was removed). The
+        # OLS fit is cheap (ms of numpy), so the models, confidence and store/capture-rate
+        # readouts refresh every _AI_LIVE_S seconds. A fast heartbeat drives it, and the fit
+        # is both executor-offloaded and re-entrancy-guarded (bus._ai_learning), so a pass
+        # that ever runs longer than the heartbeat just makes the next ticks skip — it can't
+        # pile up or hog the loop.
         import time as _time
         _AI_LIVE_S = 15.0                 # live refresh period (and the heartbeat tick)
-
-        def _ai_cadence_s() -> float:
-            for _mac, _slot in dict(getattr(bus, "_slot_cache", {})).items():
-                _st = hass.states.get(f"sensor.sf_{_slot}_alarm_settings")
-                _co = (_st.attributes.get("card_options") if _st else None) or {}
-                _v = _co.get("dev_ai_refit_min")
-                if _v:
-                    try:
-                        return max(0.25, min(180.0, float(_v))) * 60.0   # explicit throttle
-                    except (ValueError, TypeError):
-                        pass
-            return _AI_LIVE_S             # unset → live
 
         # Async callback — runs on the event loop (a plain sync callback gets run
         # in an executor thread, where awaiting / create_task is unsafe). It awaits
@@ -316,8 +302,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async def _ai_tick(_now=None) -> None:
             now = _time.monotonic()
             last = getattr(bus, "_ai_last_fit", 0.0)
-            if last and (now - last) < _ai_cadence_s() - 1.0:
-                return                      # chosen interval hasn't elapsed yet
+            if last and (now - last) < _AI_LIVE_S - 1.0:
+                return                      # a (forced) pass just ran — skip this tick
             bus._ai_last_fit = now
             await _ai_learn_bus(hass, bus, store=ai_store)
 

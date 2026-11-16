@@ -366,6 +366,10 @@ class SfAiSensor(SfSensor):
             "store_first": data.get("store_first"),
             "store_last": data.get("store_last"),
             "device_meta": data.get("device_meta", {}),
+            # Control readiness (v3.20.39): devices fitted as one linked group, and each
+            # device's measured switch-on response per metric. The forecast self-test
+            # result rides inside each model ("forecast").
+            "steps": data.get("steps", {}),
             "zone": data.get("zone"),      # set when this panel is a zone's sensor controller
             # Wall-clock epoch of the last learning pass — the card counts down from
             # last_fit + cadence so "next update" resets on the mark, independent of

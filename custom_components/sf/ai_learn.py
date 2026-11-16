@@ -19,6 +19,7 @@ and publish are the thin HA wrappers at the bottom.
 from __future__ import annotations
 
 import bisect
+from dataclasses import replace
 from typing import Mapping, Optional, Sequence
 
 import re
@@ -28,6 +29,9 @@ from .ai_climate import (
     fit_models, overall_confidence, split_day_night,
 )
 from .ai_history import build_samples, gear_effort, speed_effort
+from .ai_readiness import (
+    forecast_selftest, penalised_confidence, step_responses,
+)
 
 # Metrics the learner tracks (entity suffix == metric name). VPD included so it
 # can learn humidity/temp trade-offs later.
@@ -344,36 +348,64 @@ def _light_keys(devices) -> list:
 
 
 def _result(samples, metrics, devices, full_samples=FULL_SAMPLES,
-            denoise_sec=DENOISE_HALF_SEC) -> dict:
+            denoise_sec=DENOISE_HALF_SEC, slow=None) -> dict:
     """Fit the COMBINED model (all samples) plus separate DAY and NIGHT models when
     grow lights are present — day and night are different regimes, so learning them
     apart keeps night data from biasing the daytime response (and vice-versa).
     `full_samples` = the confidence 'enough data' bar, set by the learning-speed window.
-    `denoise_sec` = the cadence-scaled smoothing half-window for noise-limited metrics."""
+    `denoise_sec` = the cadence-scaled smoothing half-window for noise-limited metrics.
+
+    Control-readiness (v3.20.39, see ai_readiness):
+      - `slow` carries the step responses + forecast self-test from a recent pass; when None
+        they are computed now and returned under "_slow" for the caller to cache. A FAILED
+        self-test halves that model's learning %."""
     metrics = list(metrics)
     devices = list(devices)
-    out = _summarize(fit_models(samples, metrics, devices, full_samples, denoise_sec), len(samples))
-    lights = _light_keys(devices)
+    lights = _light_keys(devices)                 # day/night split uses the light keys
+    regimes = {"all": (samples, full_samples)}
     if lights:
         day, night = split_day_night(samples, lights)
         # Day/night each see about half the window, so their 'enough' bar is halved too.
         half = max(1.0, full_samples / 2.0)
-        out["day"] = _summarize(fit_models(day, metrics, devices, half, denoise_sec), len(day))
-        out["night"] = _summarize(fit_models(night, metrics, devices, half, denoise_sec), len(night))
+        regimes["day"] = (day, half)
+        regimes["night"] = (night, half)
+    fresh = slow is None
+    if fresh:
+        slow = {"steps": step_responses(samples, metrics, devices), "selftest": {}}
+        for reg, (rs, fs) in regimes.items():
+            slow["selftest"][reg] = forecast_selftest(
+                rs, metrics, devices,
+                lambda s, m, d, fs=fs: fit_models(s, m, d, fs, denoise_sec))
+    out: dict = {}
+    for reg, (rs, fs) in regimes.items():
+        tests = (slow.get("selftest") or {}).get(reg) or {}
+        models = {m: replace(md, confidence=penalised_confidence(md.confidence, tests.get(m)))
+                  for m, md in fit_models(rs, metrics, devices, fs, denoise_sec).items()}
+        summ = _summarize(models, len(rs))
+        for m, t in tests.items():
+            if m in summ["models"]:
+                summ["models"][m]["forecast"] = t
+        if reg == "all":
+            out = summ
+        else:
+            out[reg] = summ
+    out["steps"] = slow.get("steps") or {}
+    if fresh:
+        out["_slow"] = slow
     return out
 
 
-def learn(metric_series, output_series, *, step_s: float = 120.0) -> dict:
+def learn(metric_series, output_series, *, step_s: float = 120.0, slow=None) -> dict:
     """Fit all metric models from raw series (recorder path), with day/night split.
-    Returns {confidence, models, samples, [day], [night]}."""
+    Returns {confidence, models, samples, [day], [night], steps}."""
     samples = build_samples(metric_series, output_series, step_s=step_s)
-    return _result(samples, list(metric_series.keys()), list(output_series.keys()))
+    return _result(samples, list(metric_series.keys()), list(output_series.keys()), slow=slow)
 
 
 def learn_samples(samples, metrics, devices, full_samples=FULL_SAMPLES,
-                  denoise_sec=DENOISE_HALF_SEC) -> dict:
+                  denoise_sec=DENOISE_HALF_SEC, slow=None) -> dict:
     """Fit from pre-built Samples (the durable-store path), with day/night split."""
-    return _result(samples, metrics, devices, full_samples, denoise_sec)
+    return _result(samples, metrics, devices, full_samples, denoise_sec, slow)
 
 
 # ── pure: live snapshot encoding (for the durable capture tick) ───────────────
@@ -425,6 +457,9 @@ CAPTURE_EFFECTIVE_S = 60.0  # nominal avg sample spacing (active+idle) for the c
 # them. Any DEVICE on/off/level change always stores (that transition is the key event).
 CAPTURE_EPS = {"temperature": 0.15, "humidity": 0.6, "vpd": 0.04}
 CAPTURE_EPS_DEFAULT = 0.1
+# Step responses + the forecast self-test are heavier than a fit, so the live loop reuses
+# them for this long before recomputing (a user action — clean, profile load — forces it).
+SLOW_ANALYSIS_EVERY_S = 600.0
 DENSE_MAX_S = 600.0         # max gap still counted as "dense" forward/fine data (vs hourly stats)
 # Long-term statistics backfill. HA keeps hourly min/mean/max for numeric
 # `measurement` sensors far longer than states history (months/years), so the seed
@@ -448,15 +483,28 @@ def _store(hass, panel: str):
 # the learner trains from it instead of the recorder. All DB I/O here is sync, so
 # every caller wraps it in hass.async_add_executor_job (loop-safety — see CLAUDE.md).
 
+def card_opt(co, name: str):
+    """One AI-card setting from a panel's card_options. The production AI card stores
+    `ai_<name>`; the dev card stores `dev_ai_<name>`. The production key wins whenever it
+    is present — even an empty value, which is an explicit choice (e.g. "" = Live re-fit) —
+    otherwise fall back to the dev key so settings made on the dev card keep working."""
+    if not co:
+        return None
+    key = "ai_" + name
+    if key in co:
+        return co.get(key)
+    return co.get("dev_ai_" + name)
+
+
 def read_outlet_roles(hass, sensor_slot: str) -> dict:
     """Per-outlet learning roles the user assigned on the AI card, stored server-side as
-    card_option `dev_ai_outlet_roles` on the (sensor) panel's alarm_settings. Keys are
+    card_option `ai_outlet_roles` (dev card: `dev_ai_outlet_roles`) on the (sensor) panel's alarm_settings. Keys are
     panel-qualified ("ac10:outlet_3"); value is a role (humidifier/heater/…). Tolerates a
     JSON string (the card writes it stringified) or a dict. Empty when unset."""
     import json
     st = hass.states.get(f"sensor.sf_{sensor_slot}_alarm_settings")
     co = (st.attributes.get("card_options") if st else None) or {}
-    raw = co.get("dev_ai_outlet_roles")
+    raw = card_opt(co, "outlet_roles")
     if isinstance(raw, str):
         try:
             raw = json.loads(raw)
@@ -499,25 +547,25 @@ def snapshot_changed(prev: Optional[dict], vals: dict, metrics) -> bool:
 
 def read_learn_window(hass, sensor_slot: str) -> float:
     """Learning-speed level → fit WINDOW in days (0 = all data). Set on the AI card
-    (card_option dev_ai_learn_level). Slow uses everything (most stable); the faster levels
+    (card_option ai_learn_level / dev_ai_learn_level). Slow uses everything (most stable); the faster levels
     fit only recent data so the model re-learns quickly after a tent change (add/remove a
     device). Read like the re-fit cadence, from the panel's alarm_settings.
       now = 1 day, fast = 3, medium = 7, slow = all."""
     st = hass.states.get(f"sensor.sf_{sensor_slot}_alarm_settings")
     co = (st.attributes.get("card_options") if st else None) or {}
-    level = str(co.get("dev_ai_learn_level") or "slow").strip().lower()
+    level = str(card_opt(co, "learn_level") or "slow").strip().lower()
     return {"now": 1.0, "fast": 3.0, "medium": 7.0, "slow": 0.0}.get(level, 0.0)
 
 
 def read_ambient(hass, sensor_slot: str) -> tuple[str, str]:
     """Optional intake-air (lung-room / outside) reference entity ids the user set on the
-    AI card (dev_ai_ambient_temp / dev_ai_ambient_humidity). Returns ("","") when unset.
+    AI card (ai_ambient_temp / ai_ambient_humidity; dev card: dev_ai_*). Returns ("","") when unset.
     Captured into the store as ambient_temperature / ambient_humidity so a later backend
     (ventilation term) has intake history aligned with the tent samples."""
     st = hass.states.get(f"sensor.sf_{sensor_slot}_alarm_settings")
     co = (st.attributes.get("card_options") if st else None) or {}
-    return (str(co.get("dev_ai_ambient_temp") or ""),
-            str(co.get("dev_ai_ambient_humidity") or ""))
+    return (str(card_opt(co, "ambient_temp") or ""),
+            str(card_opt(co, "ambient_humidity") or ""))
 
 
 async def async_capture_bus(hass, bus, store) -> None:
@@ -807,6 +855,24 @@ def resolve_panel(panel: str, zones) -> tuple[str, Optional[dict]]:
     return ("panel", None)
 
 
+def _slow_cached(bus, panel: str):
+    """Recent step-response + self-test results for this panel, or None when they're
+    missing or older than SLOW_ANALYSIS_EVERY_S (→ recompute this pass)."""
+    import time as _t
+    ent = (getattr(bus, "_ai_slow", None) or {}).get(panel)
+    if ent and _t.time() - ent[0] < SLOW_ANALYSIS_EVERY_S:
+        return ent[1]
+    return None
+
+
+def _slow_store(bus, panel: str, slow: dict) -> None:
+    import time as _t
+    cache = getattr(bus, "_ai_slow", None)
+    if cache is None:
+        cache = bus._ai_slow = {}
+    cache[panel] = (_t.time(), slow)
+
+
 async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKFILL_DAYS,
                             store=None, zone: Optional[dict] = None) -> dict:
     """Full observe-only pass for one panel: classify → learn → cache → publish the
@@ -852,10 +918,11 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
 
         recent_win = 300.0                             # 5-min rolling window → live rows/hr
         recent_since = _t.time() - recent_win
+        slow = _slow_cached(bus, panel)
 
         def _fit():
             samples = store.samples(panel, metrics, since)
-            res = learn_samples(samples, metrics, devices, full, denoise)
+            res = learn_samples(samples, metrics, devices, full, denoise, slow=slow)
             res["_store_stats"] = store.stats(panel)   # rows + distinct-ts samples + range
             res["_store_bytes"] = store.size_bytes()   # whole-DB file size
             res["_store_recent"] = store.recent_samples(panel, recent_since)  # count in window
@@ -888,10 +955,13 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
             eids += [v for k, v in spec.items() if isinstance(v, str) and "." in v]
         raw = await async_fetch_history(hass, eids, days)
         # Series-building + the OLS fit are pure CPU — keep them off the loop too.
+        slow = _slow_cached(bus, panel)
         result = await hass.async_add_executor_job(
-            lambda: learn(*build_panel_series(raw, classified))
+            lambda: learn(*build_panel_series(raw, classified), slow=slow)
         )
         result["store_enabled"] = False
+    if "_slow" in result:
+        _slow_store(bus, panel, result.pop("_slow"))
     result["days"] = days
     if zone:
         # Per-controller breakdown so the card badge can show exactly what the zone
@@ -930,6 +1000,12 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
                 # card can label it "Outlet 3 · Humidifier" instead of a bare number.
                 if spec.get("role"):
                     m["role"] = spec.get("role")
+        else:
+            # Built-in accessory: its current SF mode (e.g. "Environment", "Manual") — tells
+            # a future controller whether SF is already driving it. (v3.20.39)
+            mode = _gs(f"sensor.sf_{m.get('panel') or panel}_{m.get('base') or name}_mode")
+            if mode not in (None, "", "unknown", "unavailable"):
+                m["mode"] = mode
         if m:
             meta[name] = m
     if meta:
@@ -971,6 +1047,7 @@ async def async_learn_bus(hass, bus, days: float = BACKFILL_DAYS, store=None,
     bus._ai_learning = True
     if force:
         bus._ai_last_fit = 0.0          # let the next heartbeat fire promptly too
+        bus._ai_slow = {}               # data changed — recompute step responses + self-test
     zones = getattr(bus, "_ai_zones", []) or []
     try:
         for mac, slot in dict(getattr(bus, "_slot_cache", {})).items():

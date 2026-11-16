@@ -11,10 +11,19 @@ import numpy as np
 from custom_components.sf.ai_learn import (
     build_panel_series, classify_panel, classify_zone, resolve_panel,
     device_effort_series, learn, learn_samples, roles_for_slot,
-    encode_snapshot, _row_ts, SEED_STEP_S, snapshot_changed, CAPTURE_EPS,
+    encode_snapshot, _row_ts, SEED_STEP_S, snapshot_changed, CAPTURE_EPS, card_opt,
 )
 from custom_components.sf.ai_history import build_samples
 from custom_components.sf.ai_climate import Sample, FULL_SAMPLES
+
+
+def test_card_opt_prefers_prod_key_and_falls_back_to_dev():
+    # 3.20.37: the production AI card stores ai_<name>; the dev card dev_ai_<name>.
+    assert card_opt({"dev_ai_learn_level": "fast"}, "learn_level") == "fast"          # dev only
+    assert card_opt({"ai_learn_level": "now", "dev_ai_learn_level": "fast"}, "learn_level") == "now"
+    # An empty prod value is an explicit choice (e.g. "" = Live re-fit) and must NOT fall back.
+    assert card_opt({"ai_refit_min": "", "dev_ai_refit_min": "5"}, "refit_min") == ""
+    assert card_opt({}, "refit_min") is None and card_opt(None, "refit_min") is None
 
 
 def test_snapshot_changed_event_gate():

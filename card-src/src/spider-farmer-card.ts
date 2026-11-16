@@ -13059,6 +13059,1007 @@ export class SpiderLightCardEditor extends LitElement {
   `;
 }
 
+// GUI config editor for the AI Stats card (no YAML needed), matching the other cards.
+export class SpiderAiStatsCardEditor extends LitElement {
+  @property({ attribute: false }) hass!: any;
+  @state() private _config: any = {};
+  setConfig(config: any) { this._config = config || {}; }
+  private _emit(patch: any) {
+    const config = { ...this._config, ...patch };
+    this._config = config;
+    this.dispatchEvent(new CustomEvent("config-changed", { detail: { config }, bubbles: true, composed: true }));
+  }
+  private _set(key: string, v: any) { this._emit({ [key]: v }); }
+  private _panels(): string[] {
+    const h = this.hass; if (!h) return [];
+    return Object.keys(h.states)
+      .map((e) => (e.match(/^sensor\.sf_(.+)_ai_confidence$/) || [])[1])
+      .filter(Boolean).sort();
+  }
+  render() {
+    const c = this._config || {};
+    const panels = this._panels();
+    return html`<div class="ped">
+      <div class="ped-note">${loc("Set up the Adaptive-climate AI Stats card. It's read-only — it visualises what the integration has learned and never controls a device.")}</div>
+      <label class="pf"><span>${loc("Title")}</span>
+        <input type="text" .value=${c.title || ""} placeholder=${loc("AI Climate Stats")}
+          @change=${(e: any) => this._set("title", e.target.value)}></label>
+      <label class="pf"><span>${loc("Panel")}</span>
+        <select .value=${live(c.panel || "")} @change=${(e: any) => this._set("panel", e.target.value)}>
+          <option value="" ?selected=${!c.panel}>${loc("Auto (first found)")}</option>
+          ${panels.map((p) => html`<option value=${p} ?selected=${c.panel === p}>${p}</option>`)}
+        </select></label>
+      ${panels.length === 0
+        ? html`<div class="ped-note">${loc("No learning sensor found yet — enable Adaptive climate (AI) in the integration options, then add this card.")}</div>`
+        : nothing}
+    </div>`;
+  }
+  static styles = css`
+    .ped { display: flex; flex-direction: column; gap: 10px; padding: 8px 4px; }
+    .ped-note { color: var(--secondary-text-color); font-size: .9em; }
+    .pf { display: flex; flex-direction: column; gap: 3px; font-size: .9em; }
+    .pf > span { color: var(--secondary-text-color); }
+    .pf select, .pf input { padding: 6px 8px; box-sizing: border-box; width: 100%;
+      border: 1px solid var(--divider-color); border-radius: 6px;
+      background: var(--card-background-color); color: var(--primary-text-color); font: inherit; }
+  `;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Adaptive-climate "AI Stats" card (v3.20.x). Visualises the learning the
+// integration exposes on sensor.sf_<panel>_ai_confidence: overall confidence,
+// per-metric response models (drift + per-device gains), the cross-coupling
+// grid, and sample/confidence detail. Observe-only — no control here. Overview +
+// Settings tabs. Reads only; the Settings tab can fire sf.ai_learn (backfill).
+// ─────────────────────────────────────────────────────────────────────────────
+type AiModel = { drift: number; gains: Record<string, number>; n: number; r2: number; confidence: number; forecast?: any };
+
+const AI_METRIC_META: Record<string, { label: string; unit: string; icon: string }> = {
+  temperature: { label: "Temperature", unit: "°/min", icon: "mdi:thermometer" },
+  humidity: { label: "Humidity", unit: "%/min", icon: "mdi:water-percent" },
+  vpd: { label: "VPD", unit: "kPa/min", icon: "mdi:water-opacity" },
+};
+const AI_DEVICE_LABEL: Record<string, string> = {
+  blower: "Blower", fan: "Fan", heater: "Heater",
+  humidifier: "Humidifier", dehumidifier: "Dehumidifier",
+  light_1: "Light 1", light_2: "Light 2",
+};
+// Learning roles the user can assign to a plug outlet (for Manual outlets on sensorless
+// AC strips). Mirrors the backend OUTLET_ROLES (external roles minus "fan"/"other").
+const AI_OUTLET_ROLES = ["humidifier", "heater", "dehumidifier", "cooler", "light"] as const;
+
+export class SpiderAiStatsCard extends LitElement {
+  @property({ attribute: false }) hass!: any;
+  @state() private _config: any = {};
+  @state() private _tab: "overview" | "settings" = "overview";
+  @state() private _panel = "";
+  @state() private _days = 10;
+  @state() private _busy = false;
+  @state() private _msg = "";
+  // Tab-bar hide (like the main Spider card): tap the card title to show/hide the
+  // tabs, with a toggle in Settings. Persisted server-side in the panel's
+  // card_options under a DISTINCT key (ai_hide_tabs) so it never collides with
+  // the main card's own hide_tabs. _optsPanel tracks which panel we loaded from.
+  @state() private _hideTabs = false;
+  // Per-outlet learning roles the user assigned (keyed "<panel>:outlet_<n>" → role).
+  // Lets a Manual outlet on a sensorless AC strip (driven by an HA automation) still be
+  // learned, by role, from its on/off switch. Persisted server-side (ai_outlet_roles),
+  // read by the backend classifier. Empty = use SF env modes only.
+  @state() private _outletRoles: Record<string, string> = {};
+  // Optional intake-air (lung-room / outside) reference sensors. Shown as a live
+  // tent-vs-intake comparison on the Overview; persisted server-side so a later backend
+  // can fold intake into learning (ventilation term). Empty = feature off.
+  @state() private _ambientTemp = "";
+  @state() private _ambientHumidity = "";
+  // Learning speed: slow (all data, stable) / medium / fast (recent window, re-learns
+  // quickly after a tent change). Persisted server-side (ai_learn_level).
+  @state() private _learnLevel = "slow";
+  private _optsPanel = "";
+  // Staged Settings edits, committed via the shared Apply/Discard bar (same pattern
+  // as the main Spider card). null = nothing staged. Only persisted display settings
+  // stage here; the panel picker + days input are live controls for the view / the
+  // Run action, not saved settings.
+  @state() private _draft:
+    { hideTabs?: boolean; days?: number;
+      outletRoles?: Record<string, string>;
+      ambientTemp?: string; ambientHumidity?: string; learnLevel?: string } | null = null;
+  // Transient per-view collapse from tapping the card title. Decoupled from the saved
+  // setting: null = follow the saved default (_hideTabs); true/false = this-view override.
+  // Tapping the title never moves the Settings toggle or persists anything.
+  @state() private _viewHidden: boolean | null = null;
+  // Which learned regime the Overview shows: combined, day (lights on) or night.
+  @state() private _regime: "all" | "day" | "night" = "all";
+  // Device-roles section (Settings) starts collapsed — a rig can have many outlets.
+  @state() private _rolesOpen = false;
+  // Draft name for saving a learning profile.
+  @state() private _profName = "";
+  // Per-metric model collapse (Overview). A metric name → true means its gain rows are
+  // hidden. When all are collapsed the explanatory note above is hidden too.
+  @state() private _closedMetrics: Record<string, boolean> = {};
+  // Per-metric collapse is a view preference, but persist it server-side (like the other
+  // options) so it survives a page refresh / new card instance and resumes on any device —
+  // an immediate write, not a staged Apply/Discard setting.
+  private _toggleMetric(mk: string): void {
+    this._closedMetrics = { ...this._closedMetrics, [mk]: !this._closedMetrics[mk] };
+    this._persistOpt("closed_models", JSON.stringify(this._closedMetrics));
+  }
+
+  setConfig(config: any) {
+    this._config = config || {};
+    if (config && config.panel) this._panel = String(config.panel);
+  }
+
+  static getConfigElement() { return document.createElement("spider-ai-card-editor"); }
+
+  willUpdate() {
+    if (this.hass) this._loadOpts();
+  }
+
+  // Live intake-vs-tent comparison (only when an intake sensor is configured). Airflow
+  // is intake → tent (the blower pulls lung-room/outside air in), so it's laid out that
+  // way. The TENT is the reference; the delta is intake − tent — how far the incoming air
+  // sits below/above the tent (negative = cooler/drier intake). Nothing rendered if unset.
+  private _intakeCompare() {
+    const at = this._ambientTemp, ah = this._ambientHumidity;
+    if (!at && !ah) return nothing;
+    const h = this.hass; if (!h) return nothing;
+    const p = this._activePanel();
+    const num = (eid?: string) => {
+      const s = eid ? h.states[eid] : undefined;
+      const v = s ? parseFloat(s.state) : NaN;
+      return { ok: Number.isFinite(v), v, unit: s?.attributes?.unit_of_measurement || "" };
+    };
+    const row = (label: string, tentEid: string, ambEid: string, icon: string) => {
+      const t = num(tentEid), a = num(ambEid);
+      if (!a.ok) return nothing;                 // intake unavailable → skip
+      const unit = t.unit || a.unit || "";
+      const d = t.ok ? a.v - t.v : NaN;          // intake − tent (intake relative to the tent)
+      const dcls = Number.isFinite(d) ? (d > 0 ? "up" : d < 0 ? "dn" : "") : "";
+      return html`<div class="ic-row">
+        <ha-icon icon=${icon}></ha-icon><span class="ic-l">${label}</span>
+        <span class="ic-v">${a.v.toFixed(1) + unit}</span>
+        <ha-icon class="ic-arrow" icon="mdi:arrow-right"></ha-icon>
+        <span class="ic-v">${t.ok ? t.v.toFixed(1) + unit : "—"}</span>
+        ${Number.isFinite(d) ? html`<span class="ic-d ${dcls}">${d > 0 ? "+" : ""}${d.toFixed(1)}${unit}</span>` : nothing}
+      </div>`;
+    };
+    return html`<div class="intake" title=${loc("Intake (lung-room/outside) air → tent reading, and the gap the blower works across")}>
+      <div class="ic-h">${loc("Intake air → Tent")}</div>
+      ${at ? row(loc("Temp"), `sensor.sf_${p}_temperature`, at, "mdi:thermometer") : nothing}
+      ${ah ? row(loc("Humidity"), `sensor.sf_${p}_humidity`, ah, "mdi:water-percent") : nothing}
+    </div>`;
+  }
+  // Ventilation (intake exchange) line for a metric's model. The blower pulls lung-room/
+  // outside air through the tent, so its effect scales with the intake-vs-tent gap; the
+  // backend learns that as md.vent.blower. We show it at a reference point — full blower
+  // with the intake 10° cooler / 10% drier — so the tiny coefficient reads as a real rate.
+  private _ventRow(mk: string, md: any) {
+    const vg = md?.vent?.blower;
+    if (typeof vg !== "number" || vg === 0) return nothing;
+    const unit = mk === "humidity" ? "%/min" : "°/min";
+    const refLabel = mk === "humidity" ? loc("intake 10% drier") : loc("intake 10° cooler");
+    const eff = vg * 100 * -10;           // 100% blower × 10-unit cooler/drier intake
+    return html`<div class="gain-row" title=${loc("Intake-air exchange (learned ventilation term): the blower pulls lung-room/outside air through the tent; its effect on {metric} scales with how far the intake sits from the tent.", { metric: loc(AI_METRIC_META[mk]?.label || mk) })}>
+      <span class="gain-dev"><ha-icon icon="mdi:weather-windy" style="--mdc-icon-size:13px;vertical-align:-2px;opacity:.75"></ha-icon> ${loc("Intake · blower")}</span>
+      <span style="flex:1;text-align:right;font-size:.74em;opacity:.65;padding-right:6px">${loc("at full blower, {ref}", { ref: refLabel })}</span>
+      <span class="gain-val">${eff >= 0 ? "+" : ""}${eff.toFixed(2)}${unit}</span>
+    </div>`;
+  }
+  // Forecast self-test (backend): hold back recent data, replay it 15 min ahead, compare with
+  // "no change". Failed → that model's learning % is halved until it passes.
+  private _forecastChip(f: any) {
+    if (!f || !f.status) return nothing;
+    const col = f.status === "passed" ? "#4caf50" : f.status === "failed" ? "#e57373" : "#9e9e9e";
+    const mark = f.status === "passed" ? "✓" : f.status === "failed" ? "✕" : "…";
+    const title = f.status === "pending"
+      ? loc("Forecast test: waiting for at least 6 hours of data")
+      : loc("Forecast test ({h} min ahead): skill {s}% vs. assuming no change",
+        { h: f.horizon_min ?? 15, s: Math.round((f.skill ?? 0) * 100) });
+    return html`<span class="chip" title=${title} style="background:${col}22;color:${col}">${mark} ${loc("forecast")}</span>`;
+  }
+  private _forecastRow(f: any) {
+    if (!f || !f.status) return nothing;
+    const v = { h: f.horizon_min ?? 15, s: Math.round((f.skill ?? 0) * 100) };
+    const txt = f.status === "passed"
+      ? loc("Forecast test passed — predicts {h} min ahead better than assuming no change (skill {s}%).", v)
+      : f.status === "failed"
+        ? loc("Forecast test failed — can't yet beat assuming no change {h} min ahead (skill {s}%). Learning % is halved until it passes.", v)
+        : loc("Forecast test pending — needs at least 6 hours of data.");
+    return html`<div class="fc-note ${f.status}">${txt}</div>`;
+  }
+  // Measured switch-on response per device for this metric (from every off→on edge).
+  private _stepRows(mk: string) {
+    const st = this._entity()?.attributes?.steps?.[mk];
+    if (!st || typeof st !== "object") return nothing;
+    const unit = mk === "temperature" ? "°" : mk === "humidity" ? "%" : " kPa";
+    const dp = mk === "vpd" ? 3 : 1;
+    const rows = Object.entries(st as Record<string, any>)
+      .sort((a, b) => Math.abs(b[1].change) - Math.abs(a[1].change)).slice(0, 6);
+    if (!rows.length) return nothing;
+    return html`<div class="sr-h">${loc("Switch-on response")}</div>
+      ${rows.map(([dev, v]) => {
+        const parts: string[] = [];
+        if (v.start_min != null) parts.push(loc("starts ~{a} min", { a: v.start_min }));
+        if (v.t63_min != null) parts.push(loc("63% by {b} min", { b: v.t63_min }));
+        parts.push(loc("{n} switch-ons", { n: v.events }));
+        return html`<div class="gain-row sr-row">
+          <span class="gain-dev">${this._devLabel(dev)}</span>
+          <span class="sr-d">${parts.join(" · ")}</span>
+          <span class="gain-val">${v.change >= 0 ? "+" : ""}${Number(v.change).toFixed(dp)}${unit}</span>
+        </div>`;
+      })}`;
+  }
+  // The models always re-fit live (~15 s), so instead of a countdown the card shows a
+  // live indicator. Hidden until the learning sensor has data.
+  private _countdown() {
+    const e = this._entity();
+    if (!e || e.state === "unknown" || e.state === "unavailable") return nothing;
+    return html`<div class="countdown" title=${loc("Model re-fits continuously")}>
+      <div class="cd-main">
+        <ha-icon icon="mdi:pulse"></ha-icon>
+        <span>${loc("Updating")} <b>${loc("live")}</b></span>
+      </div>
+      <span class="cd-sub">${loc("refits continuously")}</span>
+    </div>`;
+  }
+
+  // Load persisted card options once per active panel (and whenever it changes via
+  // the panel picker). Cheap: guarded on the panel actually changing.
+  private _loadOpts(): void {
+    const p = this._activePanel();
+    if (p === this._optsPanel) return;
+    this._optsPanel = p;
+    const co = p ? (this.hass?.states[`sensor.sf_${p}_alarm_settings`]
+      ?.attributes?.card_options as Record<string, string> | undefined) : undefined;
+    this._hideTabs = (co?.["ai_hide_tabs"] ?? co?.["dev_ai_hide_tabs"]) === "1";
+    this._viewHidden = null;                     // new panel → follow its saved default
+    const d = Number((co?.["ai_days"] ?? co?.["dev_ai_days"]));
+    if (d >= 1 && d <= 90) this._days = d;       // persisted history window (survives reload)
+    // Restore collapsed-model state (loaded once per panel, so live updates don't clobber it).
+    this._closedMetrics =
+      this._parseRoles((co?.["ai_closed_models"] ?? co?.["dev_ai_closed_models"])) as unknown as Record<string, boolean>;
+    this._outletRoles = this._parseRoles((co?.["ai_outlet_roles"] ?? co?.["dev_ai_outlet_roles"]));
+    this._ambientTemp = String((co?.["ai_ambient_temp"] ?? co?.["dev_ai_ambient_temp"]) || "");
+    this._ambientHumidity = String((co?.["ai_ambient_humidity"] ?? co?.["dev_ai_ambient_humidity"]) || "");
+    const lv = String((co?.["ai_learn_level"] ?? co?.["dev_ai_learn_level"]) || "slow").toLowerCase();
+    this._learnLevel = ["slow", "medium", "fast", "now"].includes(lv) ? lv : "slow";
+  }
+
+  // The outlet-role map is stored as a JSON string in card_options. Tolerant parse.
+  private _parseRoles(raw: unknown): Record<string, string> {
+    if (!raw) return {};
+    try {
+      const o = typeof raw === "string" ? JSON.parse(raw) : raw;
+      return (o && typeof o === "object") ? (o as Record<string, string>) : {};
+    } catch { return {}; }
+  }
+
+  private _persistOpt(key: string, value: string): void {
+    const p = this._activePanel();
+    const eid = p ? `sensor.sf_${p}_alarm_settings` : "";
+    if (eid && this.hass?.states[eid]) {
+      this.hass.callService("sf", "set_card_option",
+        { entity_id: eid, key: "ai_" + key, value });
+    }
+  }
+
+  // Is the tab bar currently shown? Transient title-tap override wins; otherwise the
+  // saved default. This drives ONLY the tab-bar visibility, never the Settings toggle.
+  private _tabsShown(): boolean {
+    return !(this._viewHidden ?? this._hideTabs);
+  }
+  // Tapping the card title collapses/expands the tab bar for THIS view only — it does
+  // not persist and does not move the Settings toggle (decoupled). It's the escape
+  // hatch back to the tabs when the saved default hides them.
+  private _toggleViewTabs(): void {
+    this._viewHidden = this._tabsShown();   // shown → now hidden, and vice-versa
+  }
+  // Every saved Settings control stages into one draft and commits on the shared
+  // Apply/Discard bar (like the main Spider card). Displayed value = staged if set,
+  // else committed. The title-tap (view collapse) stays separate/immediate.
+  private _effHideTabs(): boolean { return this._draft?.hideTabs ?? this._hideTabs; }
+  private _effDays(): number { return this._draft?.days ?? this._days; }
+  private _effRoles(): Record<string, string> { return this._draft?.outletRoles ?? this._outletRoles; }
+  private _effAmbTemp(): string { return this._draft?.ambientTemp ?? this._ambientTemp; }
+  private _effAmbHum(): string { return this._draft?.ambientHumidity ?? this._ambientHumidity; }
+  private _effLevel(): string { return this._draft?.learnLevel ?? this._learnLevel; }
+  private _stage(patch: { hideTabs?: boolean; days?: number;
+                          outletRoles?: Record<string, string>;
+                          ambientTemp?: string; ambientHumidity?: string; learnLevel?: string }): void {
+    this._draft = { ...(this._draft ?? {}), ...patch };
+  }
+  private _stageHideTabs(): void { this._stage({ hideTabs: !this._effHideTabs() }); }
+  // Stage a per-outlet role change. "" clears the assignment for that outlet.
+  private _stageOutletRole(key: string, role: string): void {
+    const next = { ...this._effRoles() };
+    if (role) next[key] = role; else delete next[key];
+    this._stage({ outletRoles: next });
+  }
+  private _settingsDirty(): boolean {
+    const d = this._draft;
+    if (!d) return false;
+    return (d.hideTabs !== undefined && d.hideTabs !== this._hideTabs)
+        || (d.days !== undefined && d.days !== this._days)
+        || (d.outletRoles !== undefined
+            && JSON.stringify(d.outletRoles) !== JSON.stringify(this._outletRoles))
+        || (d.ambientTemp !== undefined && d.ambientTemp !== this._ambientTemp)
+        || (d.ambientHumidity !== undefined && d.ambientHumidity !== this._ambientHumidity)
+        || (d.learnLevel !== undefined && d.learnLevel !== this._learnLevel);
+  }
+  private _applySettings(): void {
+    const d = this._draft;
+    if (d) {
+      if (d.hideTabs !== undefined) {
+        this._hideTabs = d.hideTabs;
+        this._persistOpt("hide_tabs", d.hideTabs ? "1" : "0");
+        this._viewHidden = null;       // view now follows the new saved default
+      }
+      if (d.days !== undefined) {
+        this._days = d.days;
+        this._persistOpt("days", String(d.days));
+      }
+      if (d.outletRoles !== undefined) {
+        this._outletRoles = d.outletRoles;
+        this._persistOpt("outlet_roles", JSON.stringify(d.outletRoles));
+      }
+      if (d.ambientTemp !== undefined) {
+        this._ambientTemp = d.ambientTemp;
+        this._persistOpt("ambient_temp", d.ambientTemp);
+      }
+      if (d.ambientHumidity !== undefined) {
+        this._ambientHumidity = d.ambientHumidity;
+        this._persistOpt("ambient_humidity", d.ambientHumidity);
+      }
+      if (d.learnLevel !== undefined) {
+        this._learnLevel = d.learnLevel;
+        this._persistOpt("learn_level", d.learnLevel);
+      }
+    }
+    this._draft = null;
+  }
+  private _discardSettings(): void {
+    this._draft = null;
+  }
+  getCardSize() { return 8; }
+  static getStubConfig() { return { type: "custom:spider-ai-card" }; }
+
+  // All AI-confidence sensors present, as {panel, eid}.
+  private _sensors(): { panel: string; eid: string }[] {
+    const h = this.hass; if (!h) return [];
+    const out: { panel: string; eid: string }[] = [];
+    for (const eid of Object.keys(h.states)) {
+      const m = eid.match(/^sensor\.sf_(.+)_ai_confidence$/);
+      if (m) out.push({ panel: m[1], eid });
+    }
+    return out.sort((a, b) => a.panel.localeCompare(b.panel));
+  }
+  private _activePanel(): string {
+    const list = this._sensors();
+    if (this._panel && list.some((s) => s.panel === this._panel)) return this._panel;
+    return list.length ? list[0].panel : "";
+  }
+  private _entity() {
+    const p = this._activePanel();
+    return p ? this.hass?.states[`sensor.sf_${p}_ai_confidence`] : undefined;
+  }
+  private accent() { return "var(--sf-ai-accent, #7c5cff)"; }
+
+  // Panels whose outlets can be role-tagged: the zone's controllers if this panel is a
+  // zone sensor, else just the active panel.
+  private _zonePanels(): string[] {
+    const z = this._entity()?.attributes?.zone;
+    const ps = z && Array.isArray(z.panels)
+      ? z.panels.map((p: any) => p?.slot).filter(Boolean) : [];
+    return ps.length ? ps : [this._activePanel()].filter(Boolean);
+  }
+  // Every plug outlet present across those panels, with its current SF mode. Outlets in
+  // an SF environment mode are auto-detected (env=true); the rest are role-assignable.
+  private _assignableOutlets(): { key: string; panel: string; n: number; mode: string; env: boolean }[] {
+    const h = this.hass; if (!h) return [];
+    const ENV = new Set(["Temperature", "Humidity", "CO2"]);
+    const out: { key: string; panel: string; n: number; mode: string; env: boolean }[] = [];
+    for (const panel of this._zonePanels()) {
+      for (let n = 1; n <= MAX_OUTLETS; n++) {
+        if (!h.states[`switch.sf_${panel}_outlet_${n}`]) continue;
+        const mode = String(h.states[`select.sf_${panel}_outlet_${n}_mode`]?.state || "").trim();
+        out.push({ key: `${panel}:outlet_${n}`, panel, n, mode, env: ENV.has(mode) });
+      }
+    }
+    return out;
+  }
+
+  private _confColor(c: number): string {
+    return c >= 66 ? "#3bbf6b" : c >= 33 ? "#e0a53b" : "#d1495b";
+  }
+
+  // SVG semicircle gauge for the overall confidence.
+  private _gauge(pct: number) {
+    const v = Math.max(0, Math.min(100, pct));
+    const R = 70, CX = 90, CY = 90, W = 16;
+    const ang = Math.PI * (1 - v / 100);     // 180deg..0
+    const x = CX + R * Math.cos(ang), y = CY - R * Math.sin(ang);
+    const arc = (a0: number, a1: number) =>
+      `M ${CX + R * Math.cos(a0)} ${CY - R * Math.sin(a0)} A ${R} ${R} 0 0 1 ${CX + R * Math.cos(a1)} ${CY - R * Math.sin(a1)}`;
+    const col = this._confColor(v);
+    return html`<svg viewBox="0 0 180 104" class="gauge" role="img" aria-label="AI confidence ${v.toFixed(0)}%">
+      <path d=${arc(Math.PI, 0)} stroke="var(--divider-color,#333)" stroke-width=${W} fill="none" stroke-linecap="round"></path>
+      <path d=${arc(Math.PI, ang)} stroke=${col} stroke-width=${W} fill="none" stroke-linecap="round"></path>
+      <circle cx=${x} cy=${y} r="7" fill=${col} stroke="var(--card-background-color,#111)" stroke-width="2"></circle>
+      <text x="90" y="78" text-anchor="middle" class="g-val">${v.toFixed(0)}<tspan class="g-pct">%</tspan></text>
+      <text x="90" y="98" text-anchor="middle" class="g-sub">${loc("learning confidence")}</text>
+    </svg>`;
+  }
+
+  // A device gain as a centre-anchored diverging bar (− left / + right).
+  private _gainBar(g: number, max: number) {
+    const frac = max > 0 ? Math.max(-1, Math.min(1, g / max)) : 0;
+    const pct = Math.abs(frac) * 50;
+    const pos = g >= 0;
+    const col = pos ? "#d1495b" : "#3a86ff";    // + warms/humidifies (warm) / − cools/dries (cool)
+    return html`<span class="gb">
+      <span class="gb-mid"></span>
+      <span class="gb-fill" style="left:${pos ? 50 : 50 - pct}%;width:${pct}%;background:${col}"></span>
+    </span>`;
+  }
+
+  // Whether this panel/zone has separate day & night models (has grow lights).
+  private _hasDayNight(): boolean {
+    const a = this._entity()?.attributes;
+    return !!(a?.day && a?.night);
+  }
+  // The {models, samples, confidence} for the currently selected regime.
+  private _regimeData(): { models: Record<string, AiModel>; samples: number; confidence: number } {
+    const e = this._entity();
+    const a = e?.attributes || {};
+    if (this._regime !== "all" && this._hasDayNight()) {
+      const d = a[this._regime] || {};
+      return { models: d.models || {}, samples: Number(d.samples ?? 0), confidence: Number(d.confidence ?? 0) };
+    }
+    return { models: (a.models && typeof a.models === "object") ? a.models : {},
+             samples: Number(a.samples ?? 0), confidence: parseFloat(e?.state) || 0 };
+  }
+  private _models(): Record<string, AiModel> {
+    return this._regimeData().models;
+  }
+  // Human label for a device key. Built-ins use the static map; plug outlets become
+  // "Outlet N · Cooling"; zone devices from another controller are prefixed with its
+  // slot ("AC5 · Outlet 3"); external HA devices show their name + role.
+  // Suffix for an outlet label: its SF direction (Cooling/Humidifying) when in an env
+  // mode, else the assigned role (Humidifier/Light/…), capitalized. "" when neither.
+  private _roleTag(meta: any): string {
+    if (meta?.dir) return loc(meta.dir);
+    if (meta?.role && meta.role !== "other") return loc(meta.role.charAt(0).toUpperCase() + meta.role.slice(1));
+    return "";
+  }
+  private _baseLabel(base: string, meta: any): string {
+    if (AI_DEVICE_LABEL[base]) return loc(AI_DEVICE_LABEL[base]);
+    const m = base.match(/^outlet_(\d+)$/);
+    if (m) { const t = this._roleTag(meta); return `${loc("Outlet {n}", { n: m[1] })}${t ? ` · ${t}` : ""}`; }
+    return base;
+  }
+  private _devLabel(dev: string): string {
+    const meta = this._entity()?.attributes?.device_meta?.[dev] || {};
+    if (meta.external || /^ext_\d+$/.test(dev)) {
+      const role = meta.role && meta.role !== "other"
+        ? loc(meta.role.charAt(0).toUpperCase() + meta.role.slice(1)) : loc("External");
+      const fn = meta.entity_id ? this.hass?.states?.[meta.entity_id]?.attributes?.friendly_name : "";
+      return fn ? `${fn} · ${role}` : loc("{role} (external)", { role });
+    }
+    const pm = dev.match(/^([a-z0-9]+):(.+)$/i);
+    if (pm && meta.panel) {
+      // Zone device from another controller. Outlets compact to "AC5-O4 · Light";
+      // built-in accessories stay "AC5 · Heater".
+      const om = pm[2].match(/^outlet_(\d+)$/);
+      if (om) { const t = this._roleTag(meta); return `${String(meta.panel).toUpperCase()}-O${om[1]}${t ? ` · ${t}` : ""}`; }
+      return `${String(meta.panel).toUpperCase()} · ${this._baseLabel(pm[2], meta)}`;
+    }
+    return this._baseLabel(dev, meta);
+  }
+
+  // Zone composition badge: a chip per controller with its learnable-device count
+  // (the sensor controller tagged), plus an external-devices chip. A controller
+  // showing "0 dev" is in the zone but contributes nothing — the quickest way to
+  // spot a mis-set outlet or a controller added by mistake.
+  private _zoneBadge(zone: any) {
+    const panels = Array.isArray(zone.panels) ? zone.panels : null;
+    if (!panels) {
+      return html`<div class="zone-badge"><ha-icon icon="mdi:vector-combine"></ha-icon>
+        ${loc("Zone")} <b>${zone.name}</b></div>`;
+    }
+    const chip = (label: string, sensor: boolean) => html`<span class="zchip ${sensor ? "zsensor" : ""}">${label}</span>`;
+    return html`<div class="zone-badge">
+      <ha-icon icon="mdi:vector-combine"></ha-icon>
+      <span class="zname">${zone.name}</span>
+      ${panels.map((p: any) => chip(
+        `${String(p.slot).toUpperCase()}${p.sensor ? ` · ${loc("sensor")}` : ""} · ${loc("{n} dev", { n: p.devices })}`, !!p.sensor))}
+      ${Number(zone.external) > 0 ? chip(loc("{n} external", { n: zone.external }), false) : nothing}
+    </div>`;
+  }
+
+  private _overview() {
+    const e = this._entity();
+    if (!e || e.state === "unknown" || e.state === "unavailable") {
+      return html`<div class="empty">
+        <ha-icon icon="mdi:brain"></ha-icon>
+        <div class="empty-t">${loc("No learning data yet")}</div>
+        <div class="empty-s">${loc("Enable")} <b>${loc("Adaptive climate (AI)")}</b> ${loc("in the integration options. It learns from live capture as soon as it's on — no device control needed.")}</div>
+      </div>`;
+    }
+    const rd = this._regimeData();
+    const conf = rd.confidence;
+    const samples = rd.samples;
+    const days = e.attributes?.history_days;
+    const models = rd.models;
+    const metrics = Object.keys(models);
+    const devices = Array.from(new Set(metrics.flatMap((k) => Object.keys(models[k].gains || {}))));
+    const regBtn = (id: "all" | "day" | "night", label: string) => html`<button
+      class="reg ${this._regime === id ? "on" : ""}" @click=${() => (this._regime = id)}>${label}</button>`;
+
+    return html`
+      <div class="ov">
+        ${this._hasDayNight() ? html`<div class="regime" title=${loc("Day and night are learned separately")}>
+          ${regBtn("all", loc("Combined"))}${regBtn("day", "☀ " + loc("Day"))}${regBtn("night", "☾ " + loc("Night"))}
+        </div>` : nothing}
+        <div class="meter">
+          ${this._gauge(conf)}
+          <div class="meter-stats">
+            <div class="ms"><span class="ms-v">${samples.toLocaleString()}</span><span class="ms-k">${loc("samples")}</span></div>
+            <div class="ms"><span class="ms-v">${metrics.length}</span><span class="ms-k">${loc("models")}</span></div>
+            <div class="ms"><span class="ms-v">${days ?? "—"}</span><span class="ms-k">${loc("days history")}</span></div>
+          </div>
+        </div>
+
+        ${e.attributes?.zone ? this._zoneBadge(e.attributes.zone) : nothing}
+        ${this._intakeCompare()}
+        ${this._countdown()}
+
+        <div class="sec-h">${loc("Per-Metric Response Models")}</div>
+        ${metrics.length === 0 ? html`<div class="note">${loc("No models yet.")}</div>` : html`
+          ${metrics.every((mk) => this._closedMetrics[mk]) ? nothing : html`<div class="note">${loc("Learned rate of change per minute = idle drift + each device's effect (gain × its output %).")}
+            <span class="lg"><i class="sw cool"></i>${loc("cools / dries")}</span>
+            <span class="lg"><i class="sw warm"></i>${loc("warms / humidifies")}</span></div>`}
+          ${metrics.map((mk) => {
+            const md = models[mk]; const meta = AI_METRIC_META[mk] || { label: mk, unit: "/min", icon: "mdi:chart-line" };
+            const gmax = Math.max(1e-6, ...Object.values(md.gains || {}).map((g) => Math.abs(g)));
+            const closed = !!this._closedMetrics[mk];
+            return html`<div class="model ${closed ? "closed" : ""}">
+              <div class="model-h" style="cursor:pointer" @click=${() => this._toggleMetric(mk)}>
+                <ha-icon icon=${meta.icon}></ha-icon>
+                <span class="model-name">${loc(meta.label)}</span>
+                <span class="chip" style="background:${this._confColor(md.confidence * 100)}22;color:${this._confColor(md.confidence * 100)}">
+                  ${(md.confidence * 100).toFixed(0)}% ${loc("conf")}</span>
+                ${this._forecastChip(md.forecast)}
+                <span class="model-meta">n=${md.n} · R²=${(md.r2 ?? 0).toFixed(2)} · ${loc("drift")} ${md.drift >= 0 ? "+" : ""}${md.drift.toFixed(3)} ${meta.unit}</span>
+                <ha-icon class="m-chev" icon=${closed ? "mdi:chevron-down" : "mdi:chevron-up"}></ha-icon>
+              </div>
+              ${closed || Object.keys(md.gains || {}).length === 0 ? nothing : Object.entries(md.gains).map(([dev, g]) => html`
+                <div class="gain-row">
+                  <span class="gain-dev">${this._devLabel(dev)}</span>
+                  ${this._gainBar(g as number, gmax)}
+                  <span class="gain-val">${(g as number) >= 0 ? "+" : ""}${(g as number).toFixed(3)}</span>
+                </div>`)}
+              ${closed ? nothing : this._ventRow(mk, md)}
+              ${closed ? nothing : this._forecastRow(md.forecast)}
+              ${closed ? nothing : this._stepRows(mk)}
+            </div>`;
+          })}`}
+
+        ${devices.length && metrics.length ? html`
+          <div class="sec-h">${loc("Cross-coupling grid")} <span class="sec-sub">${loc("device → metric gain")}</span></div>
+          <div class="grid" style="grid-template-columns:120px repeat(${metrics.length},1fr)">
+            <div class="gc gc-h"></div>
+            ${metrics.map((mk) => html`<div class="gc gc-h">${loc(AI_METRIC_META[mk]?.label || mk).slice(0, 4)}</div>`)}
+            ${devices.map((dev) => html`
+              <div class="gc gc-dev">${this._devLabel(dev)}</div>
+              ${metrics.map((mk) => {
+                const g = models[mk].gains?.[dev] ?? 0;
+                const gmax = Math.max(1e-6, ...metrics.flatMap((k) => Object.values(models[k].gains || {}).map((x) => Math.abs(x))));
+                const a = Math.min(1, Math.abs(g) / gmax);
+                const col = g >= 0 ? "209,73,91" : "58,134,255";
+                return html`<div class="gc gc-cell" style="background:rgba(${col},${(a * 0.8).toFixed(2)})"
+                  title="${this._devLabel(dev)} → ${loc(AI_METRIC_META[mk]?.label || mk)}: ${g.toFixed(3)}">${g ? g.toFixed(2) : "·"}</div>`;
+              })}`)}
+          </div>` : nothing}
+      </div>`;
+  }
+
+  // Durable store on for this panel? (published by the integration on the sensor.)
+  private _storeOn(): boolean {
+    return !!this._entity()?.attributes?.store_enabled;
+  }
+  // The history window STAGES into the draft (committed on Apply), like
+  // the hide-tabs toggle — the whole Settings tab is one Apply/Discard form.
+  private _stageDays(v: number): void {
+    this._stage({ days: Math.max(1, Math.min(90, Math.round(v) || 10)) });
+  }
+  // Read-only readout of the durable store's real coverage (rows + span + range).
+  private _fmtBytes(b: number): string {
+    if (!b) return "—";
+    if (b < 1024) return `${b} B`;
+    if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;
+    if (b < 1024 * 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(b / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
+  private _storeStatus() {
+    const a = this._entity()?.attributes || {};
+    const rows = Number(a.store_rows ?? 0);
+    const days = a.store_days;
+    const bytes = Number(a.store_bytes ?? 0);
+    const fmt = (ep: any) => ep ? new Date(ep * 1000).toLocaleDateString(undefined,
+      { month: "short", day: "numeric" }) : "—";
+    const range = (a.store_first && a.store_last)
+      ? `${fmt(a.store_first)} – ${fmt(a.store_last)}` : "—";
+    const recent = a.store_recent;                    // samples stored in the recent window
+    const win = Number(a.store_recent_s ?? 300) || 300;
+    const rph = recent == null ? null : Math.round(Number(recent) * 3600 / win);
+    const rate = rph == null ? "—"
+      : rph === 0 ? loc("0/hr (steady)")
+      : `${rph.toLocaleString()}/hr`;
+    return html`<div class="store-stat">
+      <div class="ss-row"><ha-icon icon="mdi:database"></ha-icon>
+        <span>${loc("Durable store")}</span><span class="ss-v">${loc("{n} samples", { n: rows.toLocaleString() })}</span></div>
+      <div class="ss-row"><ha-icon icon="mdi:pulse"></ha-icon>
+        <span>${loc("Capture rate")}</span><span class="ss-v">${rate}</span></div>
+      <div class="ss-row"><ha-icon icon="mdi:calendar-range"></ha-icon>
+        <span>${loc("Coverage")}</span><span class="ss-v">${days != null ? loc("{n} days", { n: days }) : "—"} · ${range}</span></div>
+      <div class="ss-row"><ha-icon icon="mdi:harddisk"></ha-icon>
+        <span>${loc("Database size")}</span><span class="ss-v">${this._fmtBytes(bytes)}</span></div>
+    </div>`;
+  }
+
+  private async _reseed() {
+    if (this._busy) return;
+    if (!confirm(loc("Clean learning data — start over?\n\nWipes ALL captured learning data and begins fresh from live capture. Saved learning profiles are kept and can be reloaded. This cannot be undone."))) return;
+    this._busy = true; this._msg = loc("Wiping — starting over (profiles kept)…");
+    try {
+      await this.hass.callService("sf", "ai_reseed", {});
+      this._msg = loc("Wiped — learning fresh from live capture. Saved profiles kept.");
+    } catch (err: any) {
+      this._msg = loc("Failed:") + " " + (err?.message || err);
+    } finally {
+      this._busy = false;
+      setTimeout(() => { this._msg = ""; }, 9000);
+    }
+  }
+
+  // Role picker: assign a learning role to a plug outlet so it's learned from its on/off
+  // state even in Manual mode (for outlets driven by an HA automation on a sensorless AC
+  // strip). Stages into the shared Settings draft; commits on Apply. Env-mode outlets are
+  // auto-detected and shown read-only.
+  // Optional intake-air reference sensors (lung-room / outside). Pure config here —
+  // shown live as a tent-vs-intake comparison on the Overview. Staged into the shared
+  // draft; persisted server-side so a later backend can fold intake into learning.
+  private _ambientSection() {
+    const pick = (label: string, val: string, key: "ambientTemp" | "ambientHumidity",
+                  dclass: string) => html`
+      <div class="amb-row">
+        <span>${label}</span>
+        <ha-entity-picker .hass=${this.hass} .value=${val} allow-custom-entity
+          .includeDomains=${["sensor"]} .includeDeviceClasses=${[dclass]}
+          @value-changed=${(e: any) => this._stage({ [key]: e.detail.value || "" })}>
+        </ha-entity-picker>
+      </div>`;
+    return html`
+      <div class="sec-h">${loc("Intake air")} <small>(${loc("recommended")})</small></div>
+      <div class="note">${loc("Point these at a lung-room or outside temp/humidity sensor to see a live tent-vs-intake comparison on the Overview.")} <b>${loc("A live intake reference is recommended for AI learning")}</b> ${loc("— the blower pulls this air, so it's a big driver of tent swings. Leave blank to hide.")}</div>
+      ${pick(loc("Intake temperature"), this._effAmbTemp(), "ambientTemp", "temperature")}
+      ${pick(loc("Intake humidity"), this._effAmbHum(), "ambientHumidity", "humidity")}`;
+  }
+
+  // ── Saved learning profiles ──────────────────────────────────────────────
+  private _profiles(): any[] {
+    const p = this._entity()?.attributes?.profiles;
+    return Array.isArray(p) ? p : [];
+  }
+  // Devices the current model knows about (union of gain keys) — for the load match check.
+  private _currentDevices(): string[] {
+    const m = this._models(); const s = new Set<string>();
+    for (const k of Object.keys(m)) for (const d of Object.keys(m[k].gains || {})) s.add(d);
+    return [...s].sort();
+  }
+  private async _saveProfile() {
+    const name = this._profName.trim();
+    if (!name || !this.hass || this._busy) return;
+    this._busy = true; this._msg = loc("Saving profile…");
+    try {
+      await this.hass.callService("sf", "ai_save_profile", { name });
+      this._profName = ""; this._msg = loc('Saved "{name}".', { name });
+    } catch (e: any) { this._msg = loc("Failed:") + " " + (e?.message || e); }
+    finally { this._busy = false; setTimeout(() => { this._msg = ""; }, 7000); }
+  }
+  private async _loadProfile(p: any) {
+    if (!this.hass || this._busy) return;
+    const cur = this._currentDevices();
+    const pd = Array.isArray(p.meta?.devices) ? [...p.meta.devices].sort() : [];
+    const mismatch = JSON.stringify(cur) !== JSON.stringify(pd);
+    const base = loc('Load "{name}"? Its saved data merges with your current learning.', { name: p.name });
+    const warn = `⚠ ${loc("This profile's device set differs from this grow — the saved model may not apply.")}\n\n`
+      + `${loc("Profile")}: ${pd.join(", ") || "—"}\n${loc("Now")}: ${cur.join(", ") || "—"}\n\n${loc("Load anyway?")}`;
+    if (!confirm(mismatch ? warn : base)) return;
+    this._busy = true; this._msg = loc('Loading "{name}"…', { name: p.name });
+    try {
+      await this.hass.callService("sf", "ai_load_profile", { id: p.id });
+      this._msg = loc('Loaded "{name}" — models re-fit on the combined data.', { name: p.name });
+    } catch (e: any) { this._msg = loc("Failed:") + " " + (e?.message || e); }
+    finally { this._busy = false; setTimeout(() => { this._msg = ""; }, 7000); }
+  }
+  private async _deleteProfile(p: any) {
+    if (!this.hass || !confirm(loc('Delete profile "{name}"?', { name: p.name }))) return;
+    try { await this.hass.callService("sf", "ai_delete_profile", { id: p.id }); }
+    catch { /* best-effort */ }
+  }
+  private _profilesSection() {
+    const profs = this._profiles();
+    return html`
+      <div class="sec-h">${loc("Learning profiles")}</div>
+      <div class="note">${loc("Save this grow's learned data as a named profile; load it into a new grow with the same setup to warm-start instead of learning from scratch.")}</div>
+      <div class="prof-save">
+        <input type="text" placeholder=${loc("Profile name")} .value=${this._profName}
+          @input=${(e: Event) => (this._profName = (e.target as HTMLInputElement).value)}>
+        <button class="run prof-btn" ?disabled=${this._busy || !this._profName.trim()}
+          @click=${() => this._saveProfile()}><ha-icon icon="mdi:content-save"></ha-icon>${loc("Save")}</button>
+      </div>
+      ${profs.length ? html`<div class="prof-list">${profs.map((p) => html`
+        <div class="prof-row">
+          <span class="prof-n" title="${(p.meta?.devices || []).join(', ')}">${p.name}</span>
+          <span class="prof-m">${loc("{n} pts", { n: p.samples })} · ${new Date((p.created || 0) * 1000).toLocaleDateString()}</span>
+          <button class="pseg" ?disabled=${this._busy} @click=${() => this._loadProfile(p)}>${loc("Load")}</button>
+          <button class="pseg pdel" title=${loc("Delete")} @click=${() => this._deleteProfile(p)}>✕</button>
+        </div>`)}</div>` : html`<div class="note">${loc("No saved profiles yet.")}</div>`}`;
+  }
+
+  private _deviceRolesSection() {
+    const outlets = this._assignableOutlets();
+    if (!outlets.length) return nothing;
+    const roles = this._effRoles();
+    const cap = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+    const assigned = outlets.filter((o) => !o.env && roles[o.key]).length;
+    const open = this._rolesOpen;
+    return html`
+      <div class="sec-h set-collapse-h" @click=${() => (this._rolesOpen = !open)}>
+        <span>${loc("Device roles")}${assigned ? html` <span class="count">${assigned}</span>` : nothing}</span>
+        <ha-icon icon=${open ? "mdi:chevron-up" : "mdi:chevron-down"}></ha-icon>
+      </div>
+      ${open ? html`
+        <div class="note">${loc("Tag a plug outlet so the AI learns it from its on/off state — use this for outlets you drive from an automation in")} <b>${loc("Manual")}</b> ${loc("(an AC strip has no local sensor, so SF's environment modes won't hold there). Outlets already in an SF environment mode are detected automatically.")}</div>
+        ${outlets.map((o) => html`
+          <div class="toggle-row"><span>${o.panel.toUpperCase()} · ${loc("Outlet {n}", { n: o.n })}</span>
+            ${o.env
+              ? html`<span class="auto-badge" title=${loc("Learned automatically from its SF {mode} mode", { mode: loc(o.mode) })}>${loc("Auto")} · ${loc(o.mode)}</span>`
+              : html`<select @change=${(e: Event) =>
+                  this._stageOutletRole(o.key, (e.target as HTMLSelectElement).value)}>
+                  <option value="" ?selected=${!roles[o.key]}>${loc("None")}</option>
+                  ${AI_OUTLET_ROLES.map((r) => html`<option value=${r} ?selected=${roles[o.key] === r}>${loc(cap(r))}</option>`)}
+                </select>`}
+          </div>`)}` : nothing}`;
+  }
+
+  private _settings() {
+    const list = this._sensors();
+    const active = this._activePanel();
+    return html`<div class="set">
+      ${list.length > 1 ? html`
+        <div class="toggle-row"><span>${loc("Panel")}</span>
+          <select @change=${(e: Event) => (this._panel = (e.target as HTMLSelectElement).value)}>
+            ${list.map((s) => html`<option value=${s.panel} ?selected=${s.panel === active}>${s.panel}</option>`)}
+          </select>
+        </div>` : nothing}
+      <div class="sec-h">${loc("Learning data")}</div>
+      ${this._storeOn()
+        ? html`<div class="note">${loc("Learns only from live capture once adaptive climate is on — stored the moment a device switches or the air moves, no HA history imported. Read-only.")}</div>
+          ${this._storeStatus()}
+          <button class="reseed" ?disabled=${this._busy} @click=${() => this._reseed()}>
+            <ha-icon icon="mdi:database-remove"></ha-icon>${loc("Clean learning data")}</button>`
+        : html`<div class="note">${loc("The durable training store is off, so it learns from Home Assistant's recorder history. It does not control anything.")}</div>
+          <div class="toggle-row"><span>${loc("History window")}</span>
+            <span class="daybox">
+              <input type="number" min="1" max="90" .value=${String(this._effDays())}
+                @change=${(e: Event) => this._stageDays(Number((e.target as HTMLInputElement).value))}>
+              <span class="unit">${loc("days")}</span>
+            </span>
+          </div>`}
+      ${this._msg ? html`<div class="msg">${this._msg}</div>` : nothing}
+      <div class="toggle-row"><span>${loc("Learning speed")}
+        <small>${loc("— how quickly the model adapts to changes")}</small></span>
+        <select @change=${(e: Event) => this._stage({ learnLevel: (e.target as HTMLSelectElement).value })}>
+          ${[["slow", loc("Slow (default)")], ["medium", loc("Medium")], ["fast", loc("Fast")], ["now", loc("I Want It Now")]].map(([v, l]) =>
+            html`<option value=${v} ?selected=${v === this._effLevel()}>${l}</option>`)}
+        </select>
+      </div>
+      <div class="note">${loc("Window the model fits on: Slow = all data (most stable), Medium ≈ 7 days, Fast ≈ 3 days,")} <b>${loc("I Want It Now ≈ 1 day")}</b>. ${loc("After a tent change (adding/removing a device) pick a faster level so it re-learns from recent data, then dial back to Slow once it settles.")} <b>${loc("Keep the tent closed and unchanged while it learns.")}</b></div>
+      <div class="note">${loc("Capture is automatic: a snapshot is stored the moment a device switches or the air actually moves (at your controller's ~6 s frame rate), and it idles when the tent is steady — so fast swings are caught without storing redundant rows. No setting.")}</div>
+      <div class="note set-note">${loc("Adaptive climate must be enabled in the integration options (Settings → Devices & services → Spider Farmer Bridge → Configure). It's read-only — it never actuates a device — so it does not need device control.")}</div>
+
+      ${this._deviceRolesSection()}
+      ${this._ambientSection()}
+      ${this._profilesSection()}
+
+      <div class="sec-h">${loc("Display")}</div>
+      <div class="toggle-row">
+        <span>${loc("Hide the tab bar")} <small>${loc("— tap the card title to show it again")}</small></span>
+        <button class="toggle ${this._effHideTabs() ? "on" : ""}" role="switch"
+          aria-checked=${this._effHideTabs() ? "true" : "false"} title=${loc("Hide the tab bar")}
+          @click=${() => this._stageHideTabs()}></button>
+      </div>
+      ${commitBar(this.accent(), this._settingsDirty(),
+        () => this._applySettings(), () => this._discardSettings(), "apply-bar")}
+    </div>`;
+  }
+
+  render() {
+    if (!this.hass) return nothing;
+    const title = this._config.title || loc("AI Climate Stats");
+    const hasTabs = this._tabsShown();
+    return html`<ha-card>
+      <div class="header">
+        <span class="title" style="cursor:pointer" title=${hasTabs ? loc("Hide the tabs") : loc("Show the tabs")}
+          @click=${() => this._toggleViewTabs()}><ha-icon icon="mdi:brain"></ha-icon>${title}</span>
+      </div>
+      ${hasTabs ? html`<div class="tabs">
+        <button class="tab ${this._tab === "overview" ? "active" : ""}" @click=${() => (this._tab = "overview")}>${loc("Overview")}</button>
+        <button class="tab ${this._tab === "settings" ? "active" : ""}" @click=${() => (this._tab = "settings")}>${loc("Settings")}</button>
+      </div>` : nothing}
+      ${this._tab === "overview" ? this._overview() : this._settings()}
+    </ha-card>`;
+  }
+
+  static styles = css`
+    ha-card { padding: 12px 14px 16px; --sf-ai-accent: #7c5cff; }
+    .header { margin-bottom: 8px; }
+    .title { font-size: 18px; font-weight: 500; display: inline-flex; align-items: center; gap: 7px; }
+    .title ha-icon { color: var(--sf-ai-accent); }
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--divider-color, #333); margin-bottom: 12px; }
+    .tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--secondary-text-color);
+      padding: 7px 12px; font: inherit; cursor: pointer; }
+    .tab.active { color: var(--sf-ai-accent); border-color: var(--sf-ai-accent); }
+    .empty { text-align: center; padding: 26px 12px; color: var(--secondary-text-color); }
+    .empty ha-icon { --mdc-icon-size: 40px; color: var(--sf-ai-accent); opacity: .7; }
+    .empty-t { font-size: 16px; color: var(--primary-text-color); margin: 8px 0 4px; }
+    .empty-s { font-size: 13px; line-height: 1.5; max-width: 360px; margin: 0 auto; }
+    .regime { display: flex; gap: 4px; justify-content: center; margin: 2px 0 10px; }
+    .reg { background: var(--secondary-background-color); color: var(--secondary-text-color);
+      border: 1px solid var(--divider-color, #444); border-radius: 7px; padding: 4px 12px;
+      font: inherit; font-size: 12px; cursor: pointer; }
+    .reg.on { background: var(--sf-ai-accent); color: #fff; border-color: var(--sf-ai-accent); }
+    .meter { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; justify-content: center; }
+    .gauge { width: 200px; height: auto; }
+    .g-val { font-size: 34px; font-weight: 700; fill: var(--primary-text-color); }
+    .g-pct { font-size: 16px; }
+    .g-sub { font-size: 9px; fill: var(--secondary-text-color); text-transform: uppercase; letter-spacing: .5px; }
+    .meter-stats { display: flex; gap: 10px; }
+    .ms { background: var(--secondary-background-color); border-radius: 10px; padding: 8px 12px; text-align: center; min-width: 64px; }
+    .ms-v { display: block; font-size: 18px; font-weight: 600; }
+    .ms-k { font-size: 10px; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: .4px; }
+    .countdown { display: flex; flex-direction: column; align-items: center; gap: 2px;
+      margin: 12px auto 2px; text-align: center; font-size: 13px; color: var(--primary-text-color); }
+    .countdown .cd-main { display: flex; align-items: center; gap: 8px; justify-content: center; }
+    .countdown ha-icon { --mdc-icon-size: 18px; color: var(--sf-ai-accent); }
+    .countdown b { font-variant-numeric: tabular-nums; }
+    .countdown .cd-sub { font-size: 11px; color: var(--secondary-text-color); }
+    .intake { margin: 8px auto 0; max-width: 320px; background: var(--secondary-background-color);
+      border-radius: 10px; padding: 7px 11px; }
+    .ic-h { font-size: 10px; text-transform: uppercase; letter-spacing: .4px;
+      color: var(--secondary-text-color); margin-bottom: 3px; }
+    .ic-row { display: flex; align-items: center; gap: 6px; font-size: 13px;
+      font-variant-numeric: tabular-nums; margin: 2px 0; }
+    .ic-row > ha-icon { --mdc-icon-size: 16px; color: var(--sf-ai-accent); }
+    .ic-l { width: 64px; color: var(--secondary-text-color); font-size: 12px; }
+    .ic-v { min-width: 56px; text-align: right; }
+    .ic-arrow { --mdc-icon-size: 14px; color: var(--secondary-text-color); }
+    .ic-d { margin-left: auto; font-size: 12px; padding: 1px 7px; border-radius: 9px;
+      background: var(--divider-color, #444); color: var(--secondary-text-color); }
+    .ic-d.up { background: #e0533b22; color: #e0533b; }
+    .ic-d.dn { background: #2f6fed22; color: #4a8cff; }
+    .amb-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0; }
+    .amb-row > span { color: var(--secondary-text-color); font-size: 13px; white-space: nowrap; }
+    .amb-row ha-entity-picker { flex: 1; min-width: 0; }
+    .prof-save { display: flex; gap: 8px; margin: 6px 0; }
+    .prof-save input { flex: 1; min-width: 0; background: var(--card-background-color);
+      color: var(--primary-text-color); border: 1px solid var(--divider-color, #444);
+      border-radius: 6px; padding: 6px 9px; font: inherit; }
+    .prof-btn { flex: 0 0 auto; }
+    .prof-list { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+    .prof-row { display: flex; align-items: center; gap: 8px; background: var(--secondary-background-color);
+      border-radius: 8px; padding: 5px 9px; }
+    .prof-n { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prof-m { margin-left: auto; font-size: 11px; color: var(--secondary-text-color);
+      white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .pseg { flex: 0 0 auto; border: 1px solid var(--divider-color, #555); background: transparent;
+      color: var(--primary-text-color); border-radius: 6px; padding: 3px 9px; font-size: 12px; cursor: pointer; }
+    .pseg:hover { border-color: var(--sf-ai-accent); }
+    .pseg.pdel { color: #d1495b; border-color: #d1495b55; padding: 3px 7px; }
+    .zone-badge { display: flex; align-items: center; gap: 7px; justify-content: center; margin: 6px 0 0;
+      flex-wrap: wrap; font-size: 12px; color: var(--secondary-text-color); }
+    .zone-badge ha-icon { --mdc-icon-size: 16px; color: var(--sf-ai-accent); }
+    .zone-badge b, .zone-badge .zname { color: var(--primary-text-color); font-weight: 500; }
+    .zchip { background: var(--secondary-background-color); color: var(--primary-text-color);
+      border-radius: 20px; padding: 2px 9px; font-size: 11px; font-variant-numeric: tabular-nums; }
+    .zchip.zsensor { background: color-mix(in srgb, var(--sf-ai-accent) 22%, transparent);
+      color: var(--sf-ai-accent); }
+    .sec-h { font-weight: 600; margin: 16px 0 6px; }
+    .set-collapse-h { display: flex; align-items: center; justify-content: space-between;
+      cursor: pointer; user-select: none; }
+    .set-collapse-h ha-icon { color: var(--secondary-text-color); --mdc-icon-size: 20px; }
+    .set-collapse-h .count { display: inline-flex; align-items: center; justify-content: center;
+      min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 11px;
+      font-weight: 600; color: #fff; background: var(--sf-ai-accent); vertical-align: middle; }
+    .sec-sub { font-weight: 400; font-size: 11px; color: var(--secondary-text-color); margin-left: 4px; }
+    .note { font-size: 12px; color: var(--secondary-text-color); line-height: 1.45; margin-bottom: 8px; }
+    .lg { margin-left: 8px; white-space: nowrap; } .lg .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 3px; vertical-align: -1px; }
+    .sw.cool { background: #3a86ff; } .sw.warm { background: #d1495b; }
+    .model { background: var(--secondary-background-color); border-radius: 10px; padding: 9px 11px; margin-bottom: 8px; }
+    .model-h { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .model-h ha-icon { --mdc-icon-size: 18px; color: var(--sf-ai-accent); }
+    .model-name { font-weight: 600; }
+    .chip { font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 9px; }
+    .model-meta { font-size: 11px; color: var(--secondary-text-color); margin-left: auto; font-variant-numeric: tabular-nums; }
+    .m-chev { --mdc-icon-size: 18px; color: var(--secondary-text-color); margin-left: 4px; }
+    .model.closed { padding-bottom: 6px; }
+    .gain-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    .fc-note { font-size: 11px; margin-top: 8px; padding: 5px 8px; border-radius: 6px;
+      color: var(--secondary-text-color); background: var(--secondary-background-color, rgba(127,127,127,.08)); }
+    .fc-note.failed { color: #e57373; }
+    .fc-note.passed { color: #4caf50; }
+    .sr-h { font-size: 11px; font-weight: 600; margin-top: 10px; color: var(--secondary-text-color); }
+    .sr-d { flex: 1 1 auto; font-size: 11px; color: var(--secondary-text-color); text-align: right; }
+    .gain-dev { width: 92px; font-size: 12px; flex: 0 0 auto; }
+    .gain-val { width: 56px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+    .gb { position: relative; flex: 1 1 auto; height: 12px; background: var(--card-background-color); border-radius: 6px; overflow: hidden; }
+    .gb-mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--divider-color, #444); }
+    .gb-fill { position: absolute; top: 2px; bottom: 2px; border-radius: 4px; }
+    .grid { display: grid; gap: 3px; font-size: 11px; }
+    .gc { padding: 5px 4px; border-radius: 5px; text-align: center; font-variant-numeric: tabular-nums; }
+    .gc-h { color: var(--secondary-text-color); font-weight: 600; }
+    .gc-dev { text-align: left; color: var(--primary-text-color); }
+    .gc-cell { background: var(--secondary-background-color); color: var(--primary-text-color); }
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; }
+    .toggle-row small { color: var(--secondary-text-color); font-size: 11px; }
+    .toggle { flex: 0 0 auto; width: 42px; height: 24px; border: none; border-radius: 12px; cursor: pointer;
+      background: var(--divider-color, #555); position: relative; transition: background .15s; }
+    .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+      border-radius: 50%; background: #fff; transition: left .15s; }
+    .toggle.on { background: var(--sf-ai-accent); }
+    .toggle.on::after { left: 21px; }
+    .toggle-row select, .daybox input { background: var(--card-background-color); color: var(--primary-text-color);
+      border: 1px solid var(--divider-color, #444); border-radius: 6px; padding: 5px 8px; font: inherit; }
+    .auto-badge { flex: 0 0 auto; font-size: 11px; color: var(--secondary-text-color);
+      background: var(--secondary-background-color); border-radius: 10px; padding: 3px 9px; }
+    .daybox { display: inline-flex; align-items: center; gap: 5px; } .daybox input { width: 68px; } .daybox .unit { color: var(--secondary-text-color); font-size: 12px; }
+    .store-stat { background: var(--secondary-background-color); border-radius: 10px; padding: 8px 11px; margin: 6px 0; }
+    .ss-row { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; }
+    .ss-row ha-icon { --mdc-icon-size: 17px; color: var(--sf-ai-accent); }
+    .ss-row .ss-v { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .run { margin-top: 10px; display: inline-flex; align-items: center; gap: 6px; background: var(--sf-ai-accent);
+      color: #fff; border: none; border-radius: 8px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer; }
+    .run[disabled] { opacity: .55; cursor: default; }
+    .reseed { margin: 8px 0 0 10px; display: inline-flex; align-items: center; gap: 6px;
+      background: transparent; color: var(--secondary-text-color); border: 1px solid var(--divider-color, #444);
+      border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer; }
+    .reseed ha-icon { --mdc-icon-size: 17px; }
+    .reseed[disabled] { opacity: .55; cursor: default; }
+    .msg { margin-top: 8px; font-size: 12px; color: var(--sf-ai-accent); }
+    .set-note { margin-top: 14px; }
+    /* Shared Apply/Discard bar (same wording + layout as the main Spider card). */
+    .save-bar { display: flex; justify-content: flex-end; gap: 8px;
+      padding: 10px 0 2px; border-top: 0.5px solid var(--divider-color, #333); }
+    .save-bar.apply-bar { margin-top: 14px; }
+    .save-bar button { font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+      border-radius: 8px; padding: 6px 16px; border: none; }
+    .save-btn { color: #fff; }
+    .save-btn[disabled] { background: var(--divider-color, #444) !important;
+      color: var(--secondary-text-color); cursor: default; }
+    .discard-btn { background: transparent; color: var(--secondary-text-color);
+      border: 1px solid var(--divider-color, #444) !important; }
+    .discard-btn[disabled] { opacity: 0.5; cursor: default; }
+  `;
+}
+
+if (!customElements.get("spider-ai-card")) {
+  customElements.define("spider-ai-card", SpiderAiStatsCard);
+}
+if (!customElements.get("spider-ai-card-editor")) {
+  customElements.define("spider-ai-card-editor", SpiderAiStatsCardEditor);
+}
 if (!customElements.get("spider-light-card-editor")) {
   customElements.define("spider-light-card-editor", SpiderLightCardEditor);
 }
@@ -13122,6 +14123,13 @@ _sfRegisterCard({
   preview: true,
   documentationURL: "https://github.com/cobragt2000/spider_farmer_bridge",
 });
+_sfRegisterCard({
+  type: "spider-ai-card",
+  name: "Spider AI Climate Stats",
+  description: "Adaptive-climate learning: confidence, per-metric response models, cross-coupling",
+  preview: true,
+  documentationURL: "https://github.com/cobragt2000/spider_farmer_bridge",
+});
 
 console.info(
   `%c SPIDER-FARMER-CARD %c v${CARD_VERSION} `,
@@ -13147,7 +14155,7 @@ console.info(
 // then stops — no observers left running.
 (() => {
   type Ctor = CustomElementConstructor;
-  const OUR_TAGS = ["spider-farmer-card", "spider-light-card", "ppfd-3d-card", "spider-timelapse-card"];
+  const OUR_TAGS = ["spider-farmer-card", "spider-light-card", "ppfd-3d-card", "spider-timelapse-card", "spider-ai-card"];
   const OUR_TYPES = new Set([
     ...OUR_TAGS,
     ...OUR_TAGS.map((t) => `custom:${t}`),
@@ -13162,6 +14170,8 @@ console.info(
       ["ppfd-3d-card", SpiderPpfdCard as unknown as Ctor],
       ["spider-timelapse-card", SpiderTimelapseCard as unknown as Ctor],
       ["spider-timelapse-card-editor", SpiderTimelapseCardEditor as unknown as Ctor],
+      ["spider-ai-card", SpiderAiStatsCard as unknown as Ctor],
+      ["spider-ai-card-editor", SpiderAiStatsCardEditor as unknown as Ctor],
     ];
     for (const [name, ctor] of defs) {
       if (!customElements.get(name)) {

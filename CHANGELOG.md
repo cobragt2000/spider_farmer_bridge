@@ -3,6 +3,76 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.20.41 — Linked-device grouping removed; every device learned separately
+
+### Changed
+- **Devices are learned separately again — no grouping.** 3.20.39 started fitting devices
+  that switch together (for example the small 1 L humidifier and the external one, or two
+  light groups) as a single combined effect, which made both show the same value as if
+  they did equal work. That wasn't right — the small humidifier contributes less than the
+  external one, and the lights differ too. Each device now gets its own learned value in
+  the response models, the switch-on response and the cross-coupling grid, as it did before
+  3.20.39. The forecast self-test and switch-on response are unchanged.
+
+## 3.20.40 — Linked devices shown separately on the card
+
+### Changed
+- **Linked devices now appear as separate rows on the AI card.** The learning still fits
+  devices that always switch together (for example the humidifier and its outlet-driven
+  partner) as one combined effect — their individual effects can't be told apart — but the
+  card no longer merges them into a single "A + B" row. Each device is listed on its own
+  row with that shared value and a small link icon, in the response models, the switch-on
+  response and the cross-coupling grid. The underlying learning is unchanged.
+
+## 3.20.39 — AI learning: linked devices, switch-on response, forecast test
+
+### Added
+- **Linked devices are learned as one.** Devices that almost always switch on and off
+  together (for example a small humidifier and an outlet-driven humidifier run by the same
+  automation) can't be told apart from the data, so the learning now detects them and
+  fits their combined effect as one group. The card shows them as "Device A + Device B".
+- **Switch-on response.** For each device the learning measures what actually happens
+  after it switches on: how much the reading changes, how long before it starts to move,
+  and when it reaches 63 % of the change. The card shows this under each response model.
+- **Forecast test.** The learning now checks itself: it holds back the most recent data,
+  replays it 15 minutes ahead with the learned model and compares the result with simply
+  assuming nothing changes. Each model shows passed, failed or pending (under 6 hours of
+  data). While a model fails, its learning % is halved, so the gauge only climbs when the
+  model can really predict.
+- The learning now also records each built-in accessory's current mode alongside its data,
+  in preparation for climate control.
+- The README now shows two integration badges: **integration release** (the latest
+  published GitHub release, what HACS installs) and **integration main** (the version
+  currently committed on `main`, in development).
+
+### Notes
+- Expect the learning % to drop after updating while the forecast test fails. That is the
+  honest result: the long-term fit explains the averages well, but SF's own Environment
+  modes react to the readings, which makes short-term prediction harder. It recovers as the
+  model gets more varied data.
+
+## 3.20.38 — AI Climate Stats card + always-live learning
+
+### Added
+- **AI Climate Stats card is now part of the dashboard cards.** The adaptive-climate card
+  (learning confidence, day/night models, per-metric response models with the intake-air
+  ventilation term, the cross-coupling grid, intake-vs-tent comparison, live capture
+  stats, learning speed, device roles, intake sensors and saved learning profiles) ships
+  in the main card bundle as **Spider AI Climate Stats** (`custom:spider-ai-card`), with a
+  visual editor. It follows your Home Assistant language, German included. Settings you
+  made on the test version of the card carry over automatically.
+
+### Changed
+- **Adaptive-climate learning is always live.** The models re-fit about every 15 seconds,
+  so confidence, the response models and the capture stats track new data almost
+  immediately. The **Re-fit cadence** setting has been removed (there's nothing to tune),
+  and the card shows "Updating live" instead of a countdown.
+
+### Fixed
+- The **Adaptive climate (AI)** option in the integration settings no longer says it
+  requires device control or learns from Home Assistant history. It doesn't need device
+  control (it only observes), and it learns from live capture.
+
 ## 3.20.37
 
 ### Added

@@ -46,13 +46,13 @@
           "block_cloud": "Block cloud (local-only — devices never reach Spider Farmer's servers; HA keeps control, but the phone app and cloud firmware updates stop working)",
           "diagnostic_log_path": "Diagnostic log file path",
           "diagnostic_log_days": "Diagnostic log retention (days)",
-          "ai_learn": "Enable adaptive climate (AI) — learn from history (requires device control above)",
+          "ai_learn": "Enable adaptive climate (AI) — learn how your devices move the climate",
           "ai_store": "Keep a dedicated AI training store (independent of the recorder)",
           "ai_retention_days": "AI store retention (days) — 0 = keep everything",
           "offline_timeout": "Device Offline Timeout (seconds) — flip a controller to unavailable after this long with no data; 0 = disabled"
         },
         "data_description": {
-          "ai_learn": "⚠ Experimental. Requires device control. The AI learns each tent's device→climate response from Home Assistant history and (in a later version) will drive the climate devices to hold your targets. Only enable with a STABLE HA instance and network — control depends on HA staying up and reaching the devices; if HA or the network drops, devices hold their last state. For now it only observes and learns — it does not control anything yet.",
+          "ai_learn": "⚠ Experimental. The AI learns from live capture how each tent's devices move temperature, humidity and VPD, and shows it on the Spider AI Climate Stats card. It only observes — it never controls a device, so it doesn't need device control.",
           "ai_store": "Home Assistant's recorder purges old data (default ~10 days), which caps how far back the AI can learn. Turn this on to have the integration keep its own compact copy of your SF climate data (under /config/sf/), so learning keeps growing past the recorder's window. Leave it off if you already keep SF data in the recorder long-term or have excluded SF from purge. Only applies when adaptive climate is on.",
           "ai_retention_days": "How long the dedicated AI store keeps data. 0 keeps everything (never deletes) — about 1–2 MB per month per tent. Set a number of days to trim older data."
         }

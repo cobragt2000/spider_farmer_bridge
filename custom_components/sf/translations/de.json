@@ -46,13 +46,13 @@
           "block_cloud": "Cloud sperren (nur lokal – die Geräte erreichen die Server von Spider Farmer nicht mehr; HA steuert weiter, aber die Handy-App und Firmware-Updates aus der Cloud funktionieren dann nicht)",
           "diagnostic_log_path": "Pfad der Diagnoseprotokoll-Datei",
           "diagnostic_log_days": "Diagnoseprotokoll aufbewahren (Tage)",
-          "ai_learn": "Adaptives Klima (KI) einschalten – aus dem Verlauf lernen (erfordert die Gerätesteuerung oben)",
+          "ai_learn": "Adaptives Klima (KI) einschalten – lernen, wie deine Geräte das Klima beeinflussen",
           "ai_store": "Eigenen KI-Trainingsspeicher führen (unabhängig vom Recorder)",
           "ai_retention_days": "KI-Speicher aufbewahren (Tage) – 0 = alles behalten",
           "offline_timeout": "Offline-Zeitlimit (Sekunden) – einen Controller nach so langer Zeit ohne Daten als nicht verfügbar markieren; 0 = aus"
         },
         "data_description": {
-          "ai_learn": "⚠ Experimentell. Erfordert die Gerätesteuerung. Die KI lernt aus dem Verlauf von Home Assistant, wie die Geräte jedes Zelts auf das Klima wirken, und wird (in einer späteren Version) die Klimageräte so steuern, dass deine Ziele gehalten werden. Nur mit einer STABILEN HA-Instanz und einem stabilen Netzwerk einschalten – die Steuerung hängt davon ab, dass HA läuft und die Geräte erreicht; fallen HA oder das Netz aus, behalten die Geräte ihren letzten Zustand. Derzeit beobachtet und lernt sie nur – sie steuert noch nichts.",
+          "ai_learn": "⚠ Experimentell. Die KI lernt aus der Live-Erfassung, wie die Geräte jedes Zelts Temperatur, Luftfeuchte und VPD beeinflussen, und zeigt das auf der Karte „Spider-KI-Klimastatistik“. Sie beobachtet nur – sie steuert nie ein Gerät und braucht deshalb keine Gerätesteuerung.",
           "ai_store": "Der Recorder von Home Assistant löscht alte Daten (standardmäßig nach etwa 10 Tagen); das begrenzt, wie weit zurück die KI lernen kann. Eingeschaltet führt die Integration eine eigene kompakte Kopie deiner SF-Klimadaten (unter /config/sf/), sodass das Lernen über das Recorder-Fenster hinaus weiterwächst. Lass es aus, wenn du SF-Daten ohnehin lange im Recorder behältst oder SF vom Löschen ausgenommen hast. Gilt nur, wenn das adaptive Klima eingeschaltet ist.",
           "ai_retention_days": "Wie lange der eigene KI-Speicher Daten behält. 0 behält alles (löscht nie) – etwa 1–2 MB pro Monat und Zelt. Gib eine Anzahl Tage an, um ältere Daten zu kürzen."
         }

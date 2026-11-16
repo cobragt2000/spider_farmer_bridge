@@ -28,5 +28,5 @@ def test_bundle_defines_every_card():
     js = open(
         os.path.join(_CARDS_DIR, "spider-farmer-card.js"), encoding="utf-8"
     ).read()
-    for tag in ("spider-farmer-card", "spider-light-card", "ppfd-3d-card"):
+    for tag in ("spider-farmer-card", "spider-light-card", "ppfd-3d-card", "spider-ai-card"):
         assert tag in js, f"bundle is missing the {tag} element"

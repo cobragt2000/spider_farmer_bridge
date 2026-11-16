@@ -185,19 +185,35 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, config_entry):
         self._entry = config_entry
 
+    async def _texts(self, category: str, prefix: str, english: dict) -> dict:
+        """{key: label} in Home Assistant's language from translations/<lang>.json
+        (``component.sf.<prefix>.<key>``), each falling back to its English text —
+        so a label never shows as a raw key, even right after an update when HA's
+        translation cache still holds the previous version's strings."""
+        from homeassistant.helpers.translation import async_get_translations
+
+        try:
+            tr = await async_get_translations(
+                self.hass, self.hass.config.language, category, {DOMAIN})
+        except Exception:  # pragma: no cover - never block the flow on translations
+            tr = {}
+        return {k: tr.get(f"component.{DOMAIN}.{prefix}.{k}") or v
+                for k, v in english.items()}
+
     async def async_step_init(self, user_input=None):
-        # Labels provided inline — immune to HA's translation caching,
-        # which only reloads custom-integration strings at core startup.
+        # Labels passed inline (translated, English fallback) rather than via
+        # menu_options keys — immune to HA's translation caching, which only
+        # reloads custom-integration strings at core startup.
         return self.async_show_menu(
             step_id="init",
-            menu_options={
+            menu_options=await self._texts("options", "options.step.init.menu_options", {
                 "settings": "Settings (ports, control, diagnostic log)",
                 "mappings": "Device mappings (logical slots for entity IDs)",
                 "components": "Device accessories (Light 2 / Fan per device)",
                 "ai_zones": "Adaptive climate zones (group controllers for one grow)",
                 "migrate": "Migrate device (replace hardware, keep history)",
                 "replace_soil": "Replace soil probe (swap hardware, keep history)",
-            },
+            }),
         )
 
     # ── Adaptive-climate zones ────────────────────────────────────────────────
@@ -211,23 +227,28 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
         """Pick a zone to edit, or add a new one. A zone groups one sensor controller
         with devices from other controllers + external HA entities, learned together."""
         zones = list((self._entry.options or {}).get(CONF_AI_ZONES) or [])
-        NEW = "➕ Add a new zone"
+        NEW = "➕ Add a new zone"   # option value; its label is translated below
         if user_input is not None:
             choice = user_input["zone"]
             self._zone_edit_id = None if choice == NEW else choice
             return await self.async_step_ai_zone_edit()
 
+        # Words for the zone list in HA's language (English fallback), like the menu.
+        w = await self._texts("selector", "selector.ai_zone.options", {
+            "new": NEW, "sensor": "sensor", "devices": "devices", "external": "external",
+            "none": "No zones yet — each controller learns on its own.",
+        })
         options = [selector.SelectOptionDict(value=z["id"],
-                   label=f'{z.get("name", z["id"])}  (sensor: {z.get("sensor_panel","?")})')
+                   label=f'{z.get("name", z["id"])}  ({w["sensor"]}: {z.get("sensor_panel","?")})')
                    for z in zones]
-        options.append(selector.SelectOptionDict(value=NEW, label=NEW))
+        options.append(selector.SelectOptionDict(value=NEW, label=w["new"]))
         schema = vol.Schema({vol.Required("zone", default=NEW):
                              selector.SelectSelector(selector.SelectSelectorConfig(options=options))})
         summary = "\n".join(
-            f'• {z.get("name", z["id"])}: sensor {z.get("sensor_panel")}, '
-            f'+devices {", ".join(z.get("device_panels") or []) or "—"}, '
-            f'{len(z.get("external") or [])} external'
-            for z in zones) or "No zones yet — each controller learns on its own."
+            f'• {z.get("name", z["id"])}: {w["sensor"]} {z.get("sensor_panel")}, '
+            f'+{w["devices"]} {", ".join(z.get("device_panels") or []) or "—"}, '
+            f'{len(z.get("external") or [])} {w["external"]}'
+            for z in zones) or w["none"]
         return self.async_show_form(
             step_id="ai_zones", data_schema=schema,
             description_placeholders={"zones": summary})
@@ -349,6 +370,8 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
         (blower, humidifier, sensors…) stays automatic."""
         from .entity_defs import COMPONENT_LABELS
 
+        labels = await self._texts("selector", "selector.accessory.options", COMPONENT_LABELS)
+
         # Ordered device list (reuse candidate enumeration → macs, SE excluded),
         # each with only the accessories it actually reports.
         macs = list(dict.fromkeys(m for m, _ in toggleable_candidates(self.hass, self._entry)))
@@ -389,7 +412,7 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
         def _picker(mac, blocks):
             """Compact checkbox list (denser than one boolean row per accessory)."""
             return selector.SelectSelector(selector.SelectSelectorConfig(
-                options=[selector.SelectOptionDict(value=b, label=COMPONENT_LABELS.get(b, b))
+                options=[selector.SelectOptionDict(value=b, label=labels.get(b, b))
                          for b in blocks],
                 multiple=True, mode="list",
             ))

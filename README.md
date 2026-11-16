@@ -227,8 +227,7 @@ What it shows:
 - **Learning profiles** — save and reload named datasets, kept in a durable per-panel
   store that survives recorder purges.
 
-It follows your Home Assistant language (German included). The learning model is
-documented per entity in [`docs/ENTITIES.md`](docs/ENTITIES.md#adaptive-climate-ai-learning).
+The learning model is documented per entity in [`docs/ENTITIES.md`](docs/ENTITIES.md#adaptive-climate-ai-learning).
 
 ## Time-lapse
 

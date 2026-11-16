@@ -174,6 +174,30 @@ and schedule/cycle; they differ in the **Level** control and the **fault** senso
 | Cycle Start / Run / Off | `<dev>_cycle_start` / `_run` / `_off` | text | Cycle timing. |
 | Cycle Times | `<dev>_cycle_times` | number | Cycle repeat count. |
 
+## Adaptive climate (AI learning)
+
+Opt-in (Settings → *Adaptive climate (AI)*). Observe-only — it never actuates a device;
+it watches your sensors and the devices' on/off to learn how each one moves temperature,
+humidity and VPD. One sensor per panel that reports humidity (i.e. has an environment to
+learn). Powers the **AI Climate Stats** dashboard card.
+
+| Entity | Suffix | Domain | Description |
+|---|---|---|---|
+| AI Confidence | `ai_confidence` | sensor | Learning confidence 0–100 % (volume × fit quality). Diagnostic. The state is the overall %; the detail lives in attributes. |
+
+The `ai_confidence` sensor's attributes carry the full learned model (read by the card):
+
+| Attribute | Description |
+|---|---|
+| `models` | Per-metric response model (`temperature`, `humidity`, `vpd`): `drift` (idle rate/min), `gains` (per-device effect), `n`, `r2`, `confidence`, and a `forecast` self-test result. |
+| `day` / `night` | The same models fit separately for the light-on and light-off regimes, when grow lights are present. |
+| `steps` | Measured switch-on response per device per metric: change, time-to-start, 63 %-settling and the number of switch-ons observed. |
+| `device_meta` | Per-device display info (role, external/outlet, current mode). |
+| `samples`, `days` | Captured-sample count and span of history learned from. |
+
+Learning data is kept in a durable per-panel store independent of the HA recorder, so it
+survives recorder purges; the card can save and reload named learning profiles.
+
 ## SE-series standalone light (SE4500 etc.)
 
 A standalone SE light gets its own device. Entity suffixes are `se_*`; the visible

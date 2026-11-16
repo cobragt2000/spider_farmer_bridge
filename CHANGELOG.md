@@ -3,6 +3,52 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.20.43 — PPFD & Climate AI as tabs in the main card; AI Overview tile
+
+### Added
+- **PPFD and Climate AI tabs in the main card.** Two new toggles in the card's Settings —
+  **Show PPFD tab** and **Show Climate AI tab** — add the 3D PPFD visualizer and the
+  adaptive-climate learning view as tabs on the panel's own card, each auto-bound to that
+  panel (no separate card to configure). The standalone `custom:ppfd-3d-card` and
+  `custom:spider-ai-card` are unchanged for anyone who wants separate cards.
+- **Climate AI Overview tile.** A **Show Climate AI tile** toggle adds a learning-confidence
+  tile to the Overview. Tap it to expand a quick per-metric summary (temperature, humidity,
+  VPD — each with its confidence % and forecast-test result) inline, or open the full
+  Climate AI view.
+- **Calibrate the PPFD card from the panel's own PPFD sensor.** When the panel reports a
+  PPFD sensor, the PPFD calibration section shows a **Calibrate from panel sensor** button
+  (with the live reading) — one tap scales the visualizer to the real sensor at the current
+  height and brightness, no handheld meter needed. The 12 in / 24 in meter entry remains as
+  a fallback.
+
+## 3.20.42 — PPFD plant placement + meter calibration; photoperiod follows the light's mode
+
+### Added
+- **PPFD card — plant placement.** Choose how plants sit in the tent: **Row**, **Grid**
+  (rows × columns), **Perimeter**, or **Custom** (drag each plant on a top-down map). The
+  3D view and the canopy numbers follow the real positions.
+- **PPFD card — position-aware light.** The canopy PPFD is now estimated at each plant's
+  distance from the centre (bright in the middle, dimmer toward the edges) using the
+  fixture's published centre / average / edge values, so where you place plants changes the
+  reported average and range.
+- **PPFD card — meter calibration.** If you own a PPFD/quantum meter, take a reading at
+  **12 in** and/or **24 in** at full brightness and the card rescales to match your room
+  (keeping the fixture's falloff with height). One reading gives a single-point scale, two
+  give a least-squares fit. Shows the factor and the distance(s) it was set at.
+
+### Fixed
+- **PPFD card photoperiod now follows the light's active mode.** It reads the Time-Slot
+  schedule when the light is in Time Slot mode and the PPFD window when it's in PPFD mode
+  (previously it always used the PPFD window, so changing the Time-Slot schedule didn't move
+  the card).
+
+### Changed
+- Every PPFD card setting commits through the shared **Apply/Discard** bar; only the
+  **Calibrate**/**Reset** actions apply immediately.
+- Removed the redundant "refits continuously" subtitle under the AI card's "Updating live".
+- README badges: the integration-main, dashboard-card and hotspot add-on badges now show a
+  **v** prefix to match the release badge.
+
 ## 3.20.41 — Linked-device grouping removed; every device learned separately
 
 ### Changed

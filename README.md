@@ -7,9 +7,9 @@
 [![Integration usage](https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=integration%20usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.sf.total)](https://analytics.home-assistant.io/)
 
 [![Integration release](https://img.shields.io/github/v/release/cobragt2000/spider_farmer_bridge?color=2ea44f&label=integration%20release&display_name=tag)](https://github.com/cobragt2000/spider_farmer_bridge/releases/latest)
-[![Integration in development](https://img.shields.io/badge/dynamic/json?color=e3b341&label=integration%20main&query=%24.version&url=https%3A%2F%2Fraw.githubusercontent.com%2Fcobragt2000%2Fspider_farmer_bridge%2Fmain%2Fcustom_components%2Fsf%2Fmanifest.json)](https://github.com/cobragt2000/spider_farmer_bridge/releases)
-[![Dashboard card version](https://img.shields.io/badge/dynamic/json?color=1f6feb&label=dashboard%20card&query=%24.version&url=https%3A%2F%2Fraw.githubusercontent.com%2Fcobragt2000%2Fspider_farmer_bridge%2Fmain%2Fcustom_components%2Fsf%2Fcards%2Fcard-version.json)](https://github.com/cobragt2000/spider_farmer_bridge)
-[![Hotspot add-on version](https://img.shields.io/badge/dynamic/yaml?color=8250df&label=hotspot%20add--on&query=%24.version&url=https%3A%2F%2Fraw.githubusercontent.com%2Fcobragt2000%2Fspider_farmer_bridge%2Fmain%2Fspider_farmer_hotspot%2Fconfig.yaml)](https://github.com/cobragt2000/spider_farmer_bridge)
+[![Integration in development](https://img.shields.io/badge/dynamic/json?color=e3b341&label=integration%20main&prefix=v&query=%24.version&url=https%3A%2F%2Fraw.githubusercontent.com%2Fcobragt2000%2Fspider_farmer_bridge%2Fmain%2Fcustom_components%2Fsf%2Fmanifest.json)](https://github.com/cobragt2000/spider_farmer_bridge/releases)
+[![Dashboard card version](https://img.shields.io/badge/dynamic/json?color=1f6feb&label=dashboard%20card&prefix=v&query=%24.version&url=https%3A%2F%2Fraw.githubusercontent.com%2Fcobragt2000%2Fspider_farmer_bridge%2Fmain%2Fcustom_components%2Fsf%2Fcards%2Fcard-version.json)](https://github.com/cobragt2000/spider_farmer_bridge)
+[![Hotspot add-on version](https://img.shields.io/badge/dynamic/yaml?color=8250df&label=hotspot%20add--on&prefix=v&query=%24.version&url=https%3A%2F%2Fraw.githubusercontent.com%2Fcobragt2000%2Fspider_farmer_bridge%2Fmain%2Fspider_farmer_hotspot%2Fconfig.yaml)](https://github.com/cobragt2000/spider_farmer_bridge)
 [![Downloads](https://img.shields.io/github/downloads/cobragt2000/spider_farmer_bridge/total?color=orange&label=downloads)](https://github.com/cobragt2000/spider_farmer_bridge/releases)
 
 <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=cobragt2000&repository=spider_farmer_bridge&category=integration"><img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open this repository inside the Home Assistant Community Store." height="30"></a>
@@ -40,7 +40,7 @@ HA can inject commands back.
 The integration ships bundled Lovelace cards and installs them automatically —
 it serves and auto-registers them, so there's no Marketplace install and no manual
 Lovelace resource entry. The served URLs carry the integration version, so
-browsers refetch the cards on each release automatically. Four cards are
+browsers refetch the cards on each release automatically. Five cards are
 bundled:
 
 - **`custom:spider-farmer-card`** — the main tent card (below).
@@ -58,11 +58,17 @@ bundled:
   entirely from the UI — add the card and use its **visual editor** (no YAML): pick
   the light model, entities, unit system
   (`auto` follows your Home Assistant unit system, or force `metric` / `imperial`)
-  and the brightness source. Add as **many PPFD cards as you like** — each gets its
+  and the brightness source. Choose how plants sit in the tent — **Row, Grid
+  (rows × columns), Perimeter or Custom** (drag each plant on a top-down map) — and the
+  canopy PPFD is estimated at each plant's real position (centre-bright, dimmer at the
+  edges). If you own a PPFD/quantum meter, enter one centre reading to **calibrate** the
+  card to your room. Add as **many PPFD cards as you like** — each gets its
   own id, so multiple cards never conflict. The editor's brightness controls include
   an **Auto-read brightness** toggle and a **Light source** picker — point it at a
   Spider Farmer light (live) or a Schedule Brightness (target) and the card's
   brightness tracks it live.
+- **`custom:spider-ai-card`** — the **AI Climate Stats** card: the adaptive-climate
+  learning view (below). Opt-in; observe-only.
 
 The main card (`custom:spider-farmer-card`) is a single tabbed card:
 
@@ -197,6 +203,33 @@ decoded `periods` list as an attribute) and written back with the
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Light_Card_01.png" width="300" alt="Spider Light card — dial, mode, and schedule editor" />
 </p>
 
+### AI Climate Stats card
+
+`custom:spider-ai-card` is the dashboard view for the integration's **adaptive-climate
+learning**. Learning is opt-in (Settings → *Adaptive climate (AI)*) and **observe-only** —
+it never switches anything; it watches your sensors and each device's on/off to learn how
+the room responds. Add the card and pick the panel in its **visual editor** (no YAML).
+
+What it shows:
+
+- **Learning confidence** (0–100 %) — how much the model has to go on (data volume × fit
+  quality), with a live capture read-out and the span of history learned from.
+- **Per-metric response models** for temperature, humidity and VPD: the idle drift plus
+  each device's learned effect (gain), with day and night fit separately when grow lights
+  are present.
+- **Forecast self-test** — the model replays the most recent data 15 minutes ahead and
+  compares with assuming no change; each metric shows passed / failed / pending, and a
+  failing model's confidence is halved until it can predict.
+- **Switch-on response** per device — how far the reading moves after a device turns on,
+  how long before it starts, and when it reaches 63 % of the change.
+- **Cross-coupling grid** and an **intake-air vs. tent** comparison (the learned
+  ventilation term from the blower).
+- **Learning profiles** — save and reload named datasets, kept in a durable per-panel
+  store that survives recorder purges.
+
+It follows your Home Assistant language (German included). The learning model is
+documented per entity in [`docs/ENTITIES.md`](docs/ENTITIES.md#adaptive-climate-ai-learning).
+
 ## Time-lapse
 
 Turn any Home Assistant `camera.*` into a grow time-lapse. The integration captures a
@@ -323,6 +356,7 @@ accordingly.
 | Controls | **Reboot** button (Diagnostic) per controller; **Display Off** auto-screen-off timer (minutes, 0 = off) on devices with a screen |
 | Diagnostics | **Firmware Version** + **Hardware Version** per controller (including the AC5 / AC10 power strips); Uptime, Wi-Fi / Ethernet link on controllers that report it |
 | Soil probes | Temperature, Moisture, EC per probe (auto-discovered), plus per-device **Soil Avg** Temperature / Moisture / EC across a controller's probes |
+| AI learning | **AI Confidence** (0–100 %) per panel that reports humidity — opt-in, observe-only adaptive-climate learning that powers the AI Climate Stats card |
 
 📋 **Full entity reference:** every entity the integration creates — grouped by
 function with `entity_id` suffixes and descriptions — is documented in

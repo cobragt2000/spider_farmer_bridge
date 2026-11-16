@@ -418,7 +418,7 @@ export class SpiderFarmerCard extends LitElement {
   @property({ attribute: false }) hass?: Hass;
   @state() private config!: CardConfig;
   @state() private tab:
-    "overview" | "env" | "outlets" | "olog" | "dlog" | "tlapse" | "vpd" | "cali" | "alerts" | "log" | "settings" = "overview";
+    "overview" | "env" | "outlets" | "olog" | "dlog" | "tlapse" | "ppfd" | "ai" | "vpd" | "cali" | "alerts" | "log" | "settings" = "overview";
   // Environment tab sub-view: null = follow the default (Planting Plan when a
   // plan is active, else Environment); set when the user taps the toggle.
   @state() private envSubView: "env" | "plan" | null = null;
@@ -538,6 +538,15 @@ export class SpiderFarmerCard extends LitElement {
   @state() private hideTabs = false;
   // Built-in Time-lapse tab (settings toggle) + the panel-scoped camera it uses. (v0.21.117)
   @state() private showTimelapseTab = false;
+  // Built-in PPFD + AI Climate Stats tabs (settings toggles). Each embeds the standalone
+  // card, auto-bound to THIS card's panel. (v3.20.43)
+  @state() private showPpfdTab = false;
+  @state() private showAiTab = false;
+  @state() private showAiTile = false;
+  @state() private aiTileOpen = false;
+  private _ppfdEl?: any;
+  private _aiEl?: any;
+  private _embedPanel?: string;
   @state() private tlCam = "";
   // Snapshot interval (seconds) + daily-at time for the built-in Time-lapse tab,
   // so the capture cadence is changeable right there. (v0.21.123)
@@ -701,6 +710,7 @@ export class SpiderFarmerCard extends LitElement {
     hideTabs?: boolean;
     soilMode?: "avg" | "sensor" | "split"; soilKeep?: "replace" | "keep" | "stats";
     showTimelapseTab?: boolean; tlCam?: string; tlInterval?: number; tlDailyAt?: string;
+    showPpfdTab?: boolean; showAiTab?: boolean; showAiTile?: boolean;
     tileRadius?: number; tileBorderW?: number; tileBorderCol?: string; tileBg?: string;
     taTiles?: boolean; taDevices?: boolean; taOutlets?: boolean;
     cdShow?: boolean; cdDevice?: boolean; cdOutlet?: boolean; cdSecs?: number;
@@ -839,6 +849,9 @@ export class SpiderFarmerCard extends LitElement {
         if (typeof j.showLeafVpd === "boolean") this.showLeafVpd = j.showLeafVpd;
         if (typeof j.vpdLeaf === "boolean") this.vpdLeaf = j.vpdLeaf;
         if (typeof j.showDeviceLog === "boolean") this.showDeviceLog = j.showDeviceLog;
+        if (typeof j.showPpfdTab === "boolean") this.showPpfdTab = j.showPpfdTab;
+        if (typeof j.showAiTab === "boolean") this.showAiTab = j.showAiTab;
+        if (typeof j.showAiTile === "boolean") this.showAiTile = j.showAiTile;
         if (typeof j.hideTabs === "boolean") this.hideTabs = j.hideTabs;
         if (j.soilMode === "avg" || j.soilMode === "sensor" || j.soilMode === "split") this.soilMode = j.soilMode;
         if (j.soilKeep === "replace" || j.soilKeep === "keep" || j.soilKeep === "stats") this.soilKeep = j.soilKeep;
@@ -876,6 +889,7 @@ export class SpiderFarmerCard extends LitElement {
     hideTabs?: boolean;
     soilMode?: "avg" | "sensor" | "split"; soilKeep?: "replace" | "keep" | "stats";
     showTimelapseTab?: boolean; tlCam?: string; tlInterval?: number; tlDailyAt?: string;
+    showPpfdTab?: boolean; showAiTab?: boolean; showAiTile?: boolean;
     graphRange?: number;
     ologRange?: number;
     powerMetric?: string;
@@ -911,6 +925,9 @@ export class SpiderFarmerCard extends LitElement {
     if (co.soil_mode === "avg" || co.soil_mode === "sensor" || co.soil_mode === "split") out.soilMode = co.soil_mode;
     if (co.soil_keep === "replace" || co.soil_keep === "keep" || co.soil_keep === "stats") out.soilKeep = co.soil_keep;
     if (co.timelapse_tab === "1" || co.timelapse_tab === "0") out.showTimelapseTab = co.timelapse_tab === "1";
+    if (co.ppfd_tab === "1" || co.ppfd_tab === "0") out.showPpfdTab = co.ppfd_tab === "1";
+    if (co.ai_tab === "1" || co.ai_tab === "0") out.showAiTab = co.ai_tab === "1";
+    if (co.ai_tile === "1" || co.ai_tile === "0") out.showAiTile = co.ai_tile === "1";
     if (co.tl_cam !== undefined) out.tlCam = co.tl_cam;
     if (co.tl_interval !== undefined) out.tlInterval = Number(co.tl_interval) || 300;
     if (co.tl_daily_at !== undefined) out.tlDailyAt = String(co.tl_daily_at);
@@ -1125,6 +1142,7 @@ export class SpiderFarmerCard extends LitElement {
         outletQuickNames: this.outletQuickNames,
         showVpd: this.showVpd, vpdLeaf: this.vpdLeaf, showLeafVpd: this.showLeafVpd,
         showDeviceLog: this.showDeviceLog, showDeviceQuick: this.showDeviceQuick,
+        showPpfdTab: this.showPpfdTab, showAiTab: this.showAiTab, showAiTile: this.showAiTile,
         deviceQuickRemember: this.deviceQuickRemember, hideTabs: this.hideTabs,
         soilMode: this.soilMode, soilKeep: this.soilKeep,
         hi: this.colHi, lo: this.colLo, in: this.colIn, hide2: this.hideLight2,
@@ -2273,7 +2291,8 @@ export class SpiderFarmerCard extends LitElement {
     // A hass-only change that didn't touch any entity we render → skip. Other
     // state (tab, drafts, timers, reorder…) still renders via the allowlist below.
     if (changed.size === 1 && changed.has("hass")
-        && !this._hassTouchedUs(changed.get("hass") as Hass | undefined, this.hass))
+        && !this._hassTouchedUs(changed.get("hass") as Hass | undefined, this.hass)
+        && this.tab !== "ppfd" && this.tab !== "ai")
       return false;
     return changed.has("config") || changed.has("hass")
       || changed.has("tab") || changed.has("soilOpen") || changed.has("soilGraphOpen")
@@ -2307,6 +2326,7 @@ export class SpiderFarmerCard extends LitElement {
       || changed.has("showDeviceLog") || changed.has("showDeviceQuick")
       || changed.has("showTimelapseTab") || changed.has("tlCam")
       || changed.has("tlInterval") || changed.has("tlDailyAt")
+      || changed.has("showPpfdTab") || changed.has("showAiTab") || changed.has("showAiTile") || changed.has("aiTileOpen")
       || changed.has("deviceQuickRemember") || changed.has("dlogOpen")
       || changed.has("planDraft") || changed.has("planEditStage") || changed.has("planShowAll")
       || changed.has("planDelArm") || changed.has("envSubView") || changed.has("_planPending")
@@ -2393,6 +2413,9 @@ export class SpiderFarmerCard extends LitElement {
         if (s.soilMode !== undefined) this.soilMode = s.soilMode;
         if (s.soilKeep !== undefined) this.soilKeep = s.soilKeep;
         if (s.showTimelapseTab !== undefined) this.showTimelapseTab = s.showTimelapseTab;
+        if (s.showPpfdTab !== undefined) this.showPpfdTab = s.showPpfdTab;
+        if (s.showAiTab !== undefined) this.showAiTab = s.showAiTab;
+        if (s.showAiTile !== undefined) this.showAiTile = s.showAiTile;
         if (s.tlCam !== undefined) this.tlCam = s.tlCam;
         if (s.tlInterval !== undefined) this.tlInterval = s.tlInterval;
         if (s.tlDailyAt !== undefined) this.tlDailyAt = s.tlDailyAt;
@@ -4529,6 +4552,7 @@ export class SpiderFarmerCard extends LitElement {
       return html`
         ${ro ? this.renderReorderBar() : nothing}
         ${merged.length ? this.renderTileGrid("all", merged) : nothing}
+        ${this.showAiTile ? this._aiTile() : nothing}
         ${this.renderHiddenTray(nat)}`;
     }
 
@@ -4542,6 +4566,7 @@ export class SpiderFarmerCard extends LitElement {
         ? html`${this.renderParamsHead()}
             ${this.renderTileGrid("params", params)}`
         : nothing}
+      ${this.showAiTile ? this._aiTile() : nothing}
       ${this.hasEnergyTile() && !this.isHidden("energy")
         ? html`<div class="section-label">${loc("Energy Usage")}</div>
             <div class="grid">${ro
@@ -6485,6 +6510,87 @@ export class SpiderFarmerCard extends LitElement {
   // ── Device Log tab (on/off timeline per device, reuses the olog machinery) ──
   // Built-in Time-lapse tab: pick a camera for this panel, then embed the
   // standalone Spider Time-lapse card bound to a panel-scoped instance. (v0.21.117)
+  // Overview AI tile: learning confidence, taps through to the Climate AI view. (v3.20.43)
+  private _aiTile() {
+    const p = this.config.panel;
+    const st = p ? this.hass?.states[`sensor.sf_${p}_ai_confidence`] : undefined;
+    if (!st || st.state === "unknown" || st.state === "unavailable") return nothing;
+    const conf = Math.round(parseFloat(st.state) || 0);
+    const open = this.aiTileOpen;
+    return html`<div class="section-label">${loc("Climate AI")}</div>
+      <div class="grid">
+        <div class="tile clickable ${open ? "active" : ""}" role="button"
+          @click=${() => (this.aiTileOpen = !open)}>
+          <div class="tile-label"><span class="tl-name">${loc("Learning")}</span>
+            <span class="tl-right"><ha-icon class="tile-more" icon=${open ? "mdi:chevron-up" : "mdi:chevron-down"}></ha-icon></span>
+          </div>
+          <ha-icon icon="mdi:brain" style="color:${this.accent()}"></ha-icon>
+          <div class="tile-val">${conf}<span class="unit">%</span></div>
+          <div class="tile-target">${loc("confidence")}</div>
+        </div>
+      </div>
+      ${open ? this._aiTileExp(st) : nothing}`;
+  }
+  // Inline quick info under the AI tile: per-metric confidence + forecast-test status.
+  private _aiTileExp(st: any) {
+    const models = (st.attributes && st.attributes.models) || {};
+    const META: Record<string, [string, string]> = {
+      temperature: ["mdi:thermometer", "Temperature"],
+      humidity: ["mdi:water-percent", "Humidity"],
+      vpd: ["mdi:water-opacity", "VPD"],
+    };
+    const rows = Object.keys(META).filter((k) => models[k]).map((k) => {
+      const m = models[k];
+      const c = Math.round((m.confidence || 0) * 100);
+      const fc = m.forecast && m.forecast.status;
+      const fcCol = fc === "passed" ? "#4caf50" : fc === "failed" ? "#e57373" : "#9e9e9e";
+      const mark = fc === "passed" ? "✓" : fc === "failed" ? "✕" : "…";
+      return html`<div class="ai-row">
+        <ha-icon icon=${META[k][0]}></ha-icon>
+        <span class="ai-n">${loc(META[k][1])}</span>
+        <span class="ai-c">${c}% ${loc("conf")}</span>
+        ${fc ? html`<span class="ai-fc" style="color:${fcCol}">${mark} ${loc("forecast")}</span>` : nothing}
+      </div>`;
+    });
+    return html`<div class="tile-exp ai-exp">
+      ${rows.length ? rows : html`<div class="ai-row">${loc("Gathering data…")}</div>`}
+      <div class="ai-more" role="button" @click=${() => (this.tab = "ai")}>${loc("Open Climate AI →")}</div>
+    </div>`;
+  }
+  // Recreate the embedded cards if the bound panel changed.
+  private _ensureEmbedPanel(): void {
+    if (this._embedPanel !== this.config.panel) {
+      this._embedPanel = this.config.panel;
+      this._ppfdEl = undefined; this._aiEl = undefined;
+    }
+  }
+  // AI Climate Stats embedded, auto-bound to this card's panel. (v3.20.43)
+  private renderAiTab() {
+    this._ensureEmbedPanel();
+    if (!this._aiEl) {
+      this._aiEl = document.createElement("spider-ai-card");
+      this._aiEl.setConfig({ type: "custom:spider-ai-card", panel: this.config.panel });
+    }
+    this._aiEl.hass = this.hass;
+    return html`<div style="padding:2px">${this._aiEl}</div>`;
+  }
+  // PPFD 3D visualizer embedded, auto-bound to this card's panel (its light_1 as the
+  // live brightness source when present). (v3.20.43)
+  private renderPpfdTab() {
+    this._ensureEmbedPanel();
+    if (!this._ppfdEl) {
+      const panel = this.config.panel;
+      const lightEid = panel && this.hass?.states[`light.sf_${panel}_light_1`] ? `light.sf_${panel}_light_1` : "";
+      this._ppfdEl = document.createElement("ppfd-3d-card");
+      this._ppfdEl.setConfig({
+        type: "custom:ppfd-3d-card", panel, card_id: `ppfd_tab_${panel || "x"}`,
+        title: this.config.title || "PPFD",
+        defaults: lightEid ? { auto_brightness: true, brightness_source: lightEid } : {},
+      });
+    }
+    this._ppfdEl.hass = this.hass;
+    return html`<div style="padding:2px">${this._ppfdEl}</div>`;
+  }
   private renderTimelapseTab() {
     const cams = Object.keys(this.hass?.states || {})
       .filter((id) => id.startsWith("camera.")).sort();
@@ -7986,10 +8092,12 @@ export class SpiderFarmerCard extends LitElement {
     if (tab === "vpd" && !showVpdTab) tab = fallback;
     if (tab === "dlog" && !(this.showDeviceLog && this.overviewDevices().length > 0)) tab = fallback;
     if (tab === "tlapse" && !this.showTimelapseTab) tab = fallback;
+    if (tab === "ppfd" && !this.showPpfdTab) tab = fallback;
+    if (tab === "ai" && !this.showAiTab && !this.showAiTile) tab = fallback;
     const hasTabs = !this.hideTabs;
     const accent = this.accent();
     const tabBtn = (
-      id: "overview" | "env" | "outlets" | "olog" | "dlog" | "tlapse" | "vpd" | "cali" | "alerts" | "log" | "settings",
+      id: "overview" | "env" | "outlets" | "olog" | "dlog" | "tlapse" | "ppfd" | "ai" | "vpd" | "cali" | "alerts" | "log" | "settings",
       label: string
     ) => html`<button class="tab ${tab === id ? "active" : ""}"
         style=${tab === id ? `color:${accent};border-color:${accent}` : ""}
@@ -8017,6 +8125,8 @@ export class SpiderFarmerCard extends LitElement {
               ${showOutlets && this.showOutletsLog ? tabBtn("olog", "Outlets Log") : nothing}
               ${this.showDeviceLog && this.overviewDevices().length > 0 ? tabBtn("dlog", "Device Log") : nothing}
               ${this.showTimelapseTab ? tabBtn("tlapse", "Time-lapse") : nothing}
+              ${this.showPpfdTab ? tabBtn("ppfd", "PPFD") : nothing}
+              ${this.showAiTab ? tabBtn("ai", "Climate AI") : nothing}
               ${showVpdTab ? tabBtn("vpd", "VPD") : nothing}
               ${showCali ? tabBtn("cali", "Calibration") : nothing}
               ${showAlerts ? tabBtn("alerts", "Alerts") : nothing}
@@ -8034,6 +8144,10 @@ export class SpiderFarmerCard extends LitElement {
           ? this.renderDeviceLog()
           : tab === "tlapse"
           ? this.renderTimelapseTab()
+          : tab === "ppfd"
+          ? this.renderPpfdTab()
+          : tab === "ai"
+          ? this.renderAiTab()
           : tab === "vpd"
           ? this.renderVpdTab()
           : tab === "cali"
@@ -8367,6 +8481,9 @@ export class SpiderFarmerCard extends LitElement {
     const soilMode = d?.soilMode ?? this.soilMode;
     const soilKeep = d?.soilKeep ?? this.soilKeep;
     const showTimelapseTab = d?.showTimelapseTab ?? this.showTimelapseTab;
+    const showPpfdTab = d?.showPpfdTab ?? this.showPpfdTab;
+    const showAiTab = d?.showAiTab ?? this.showAiTab;
+    const showAiTile = d?.showAiTile ?? this.showAiTile;
     const showDeviceQuick = d?.showDeviceQuick ?? this.showDeviceQuick;
     const deviceQuickRemember = d?.deviceQuickRemember ?? this.deviceQuickRemember;
     const customNames = d?.customNames ?? this.customOutletNames;
@@ -8428,6 +8545,9 @@ export class SpiderFarmerCard extends LitElement {
       || (d.soilMode !== undefined && d.soilMode !== this.soilMode)
       || (d.soilKeep !== undefined && d.soilKeep !== this.soilKeep)
       || (d.showTimelapseTab !== undefined && d.showTimelapseTab !== this.showTimelapseTab)
+      || (d.showPpfdTab !== undefined && d.showPpfdTab !== this.showPpfdTab)
+      || (d.showAiTab !== undefined && d.showAiTab !== this.showAiTab)
+      || (d.showAiTile !== undefined && d.showAiTile !== this.showAiTile)
       || (d.showDeviceQuick !== undefined && d.showDeviceQuick !== this.showDeviceQuick)
       || (d.deviceQuickRemember !== undefined && d.deviceQuickRemember !== this.deviceQuickRemember)
       || (d.vpdLeaf !== undefined && d.vpdLeaf !== this.vpdLeaf)
@@ -8581,6 +8701,18 @@ export class SpiderFarmerCard extends LitElement {
         if (dr.showTimelapseTab !== undefined && dr.showTimelapseTab !== this.showTimelapseTab) {
           this.showTimelapseTab = dr.showTimelapseTab;
           this.persistColorOption("timelapse_tab", dr.showTimelapseTab ? "1" : "0");
+        }
+        if (dr.showPpfdTab !== undefined && dr.showPpfdTab !== this.showPpfdTab) {
+          this.showPpfdTab = dr.showPpfdTab;
+          this.persistColorOption("ppfd_tab", dr.showPpfdTab ? "1" : "0");
+        }
+        if (dr.showAiTab !== undefined && dr.showAiTab !== this.showAiTab) {
+          this.showAiTab = dr.showAiTab;
+          this.persistColorOption("ai_tab", dr.showAiTab ? "1" : "0");
+        }
+        if (dr.showAiTile !== undefined && dr.showAiTile !== this.showAiTile) {
+          this.showAiTile = dr.showAiTile;
+          this.persistColorOption("ai_tile", dr.showAiTile ? "1" : "0");
         }
         if (dr.showDeviceQuick !== undefined && dr.showDeviceQuick !== this.showDeviceQuick) {
           this.showDeviceQuick = dr.showDeviceQuick;
@@ -9071,6 +9203,33 @@ export class SpiderFarmerCard extends LitElement {
         ${loc("Adds a \"Time-lapse\" tab to this panel's card for a grow time-lapse. Pick its camera in the tab; it reuses the Spider Time-lapse card (frames, scrub/play, MP4 export, env overlay).")}
       </div>
       <div class="toggle-row" style="margin-top:8px">
+        <span>${loc("Show PPFD tab")}</span>
+        <button class="toggle ${showPpfdTab ? "on" : ""}"
+          style=${showPpfdTab ? `background:${accent}` : nothing}
+          @click=${() => stage({ showPpfdTab: !showPpfdTab })}></button>
+      </div>
+      <div class="set-note">
+        ${loc("Adds a \"PPFD\" tab with the 3D PPFD visualizer, bound to this panel. Pick the light model and options in the tab.")}
+      </div>
+      <div class="toggle-row" style="margin-top:8px">
+        <span>${loc("Show Climate AI tab")}</span>
+        <button class="toggle ${showAiTab ? "on" : ""}"
+          style=${showAiTab ? `background:${accent}` : nothing}
+          @click=${() => stage({ showAiTab: !showAiTab })}></button>
+      </div>
+      <div class="set-note">
+        ${loc("Adds a \"Climate AI\" tab with the adaptive-climate learning view for this panel (opt-in; observe-only).")}
+      </div>
+      <div class="toggle-row" style="margin-top:8px">
+        <span>${loc("Show Climate AI tile")}</span>
+        <button class="toggle ${showAiTile ? "on" : ""}"
+          style=${showAiTile ? `background:${accent}` : nothing}
+          @click=${() => stage({ showAiTile: !showAiTile })}></button>
+      </div>
+      <div class="set-note">
+        ${loc("Adds a learning-confidence tile to the Overview; tap it to open the Climate AI view.")}
+      </div>
+      <div class="toggle-row" style="margin-top:8px">
         <span>${loc("Quick-toggle devices row")}</span>
         <button class="toggle ${showDeviceQuick ? "on" : ""}"
           style=${showDeviceQuick ? `background:${accent}` : nothing}
@@ -9431,6 +9590,13 @@ export class SpiderFarmerCard extends LitElement {
        order in the list — dense would reflow tiles and make drag targeting wrong. */
     .grid.rgrid { grid-auto-flow: row; }
     .tile-exp { min-width: 0; }                    /* inline tile expansion (graph/detail) */
+    .ai-exp { padding: 8px 12px; background: var(--secondary-background-color, rgba(127,127,127,.06)); border-radius: 8px; margin-top: 6px; }
+    .ai-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; color: var(--primary-text-color); }
+    .ai-row ha-icon { --mdc-icon-size: 16px; color: var(--secondary-text-color); }
+    .ai-n { flex: 1 1 auto; }
+    .ai-c { color: var(--secondary-text-color); }
+    .ai-fc { font-weight: 600; margin-left: 8px; }
+    .ai-more { margin-top: 6px; font-size: 12px; color: var(--primary-color, #03a9f4); cursor: pointer; }
     /* Phase 2 — rearrange mode */
     .rspan { grid-column: 1 / -1; }               /* full-width item (quick rows) */
     /* quick rows carry their own bottom margin; inside the grid the gap already
@@ -11199,6 +11365,7 @@ function ppfdColor(v: number, mx: number): [number, number, number] {
   return [r, g, b];
 }
 
+const PLACE_LABEL: Record<string, string> = { row: "Row", grid: "Grid", perimeter: "Perimeter", custom: "Custom" };
 function ppfdZone(avg: number): { label: string; color: string } {
   if (avg < 200) return { label: "Too dim", color: "#4488dd" };
   if (avg < 400) return { label: "Seedling / early veg", color: "#22bbaa" };
@@ -11220,8 +11387,13 @@ export class SpiderPpfdCard extends LitElement {
   private s = {
     tW: 0.61, tL: 1.22, tH: 1.981, model: "SE4500",
     hin: 18, plantIn: 12, numPlants: 2, dim: 100, photo: 18, metric: false,
+    placement: "row" as "row" | "grid" | "perimeter" | "custom",
+    rows: 1, cols: 2, margin: 0.14, cal: 1, calRef: "",
+    custom: [] as [number, number][],
   };
   private manualDim = 100;
+  private _dragPlant = -1;
+  private _dragOff: [number, number] = [0, 0];
   private auto = false;
   private brightSrc = "";
   // Photoperiod now lives on the Settings tab (staged like Number of plants). It
@@ -11254,6 +11426,13 @@ export class SpiderPpfdCard extends LitElement {
     this.s.hin = d.height_inches ?? 18;
     this.s.plantIn = d.plant_height_inches ?? 12;
     this.s.numPlants = d.num_plants ?? 2;
+    this.s.placement = (d as any).plant_layout || "row";
+    this.s.rows = (d as any).plant_rows ?? 1;
+    this.s.cols = (d as any).plant_cols ?? 2;
+    this.s.margin = (d as any).plant_margin ?? 0.14;
+    this.s.cal = (d as any).ppfd_cal ?? 1;
+    this.s.calRef = (d as any).ppfd_cal_ref ?? "";
+    this.s.custom = Array.isArray((d as any).plant_positions) ? (d as any).plant_positions : [];
     this.s.dim = d.dimmer_percent ?? 100;
     this.manualDim = this.s.dim;
     this.s.photo = d.photoperiod_hours ?? 18;
@@ -11350,6 +11529,8 @@ export class SpiderPpfdCard extends LitElement {
     return {
       model: this.s.model, hin: this.s.hin, plantIn: this.s.plantIn,
       numPlants: this.s.numPlants, photo: this.s.photo, dim: this.manualDim,
+      placement: this.s.placement, rows: this.s.rows, cols: this.s.cols,
+      margin: this.s.margin, cal: this.s.cal, calRef: this.s.calRef, custom: this.s.custom,
       tW: this.s.tW, tL: this.s.tL, tH: this.s.tH,
       auto: !!this.auto, src: this.brightSrc || "",
     };
@@ -11360,6 +11541,13 @@ export class SpiderPpfdCard extends LitElement {
     if (b.hin != null) this.s.hin = b.hin;
     if (b.plantIn != null) this.s.plantIn = b.plantIn;
     if (b.numPlants != null) this.s.numPlants = b.numPlants;
+    if (b.placement) this.s.placement = b.placement;
+    if (b.rows != null) this.s.rows = b.rows;
+    if (b.cols != null) this.s.cols = b.cols;
+    if (b.margin != null) this.s.margin = b.margin;
+    if (b.cal != null) this.s.cal = b.cal;
+    if (b.calRef != null) this.s.calRef = b.calRef;
+    if (Array.isArray(b.custom)) this.s.custom = b.custom;
     if (b.photo != null) this.s.photo = b.photo;
     if (b.dim != null) { this.manualDim = b.dim; this.s.dim = b.dim; }
     if (b.tW != null) this.s.tW = b.tW;
@@ -11392,7 +11580,8 @@ export class SpiderPpfdCard extends LitElement {
   // View-tab fields (model + light/plant height, brightness, photoperiod) save
   // automatically as you drag. Settings-tab fields are staged and only persisted
   // when Apply is pressed — mirroring the Apply/Discard bar on the other cards.
-  private static readonly SET_FIELDS = ["auto", "src", "numPlants", "photo", "tW", "tL", "tH"];
+  private static readonly SET_FIELDS = ["auto", "src", "numPlants", "photo", "tW", "tL", "tH",
+    "placement", "rows", "cols", "margin", "custom"];
   private queueSaveView(): void {
     clearTimeout(this.saveT);
     this.saveT = setTimeout(() => this.saveView(), 700);
@@ -11416,6 +11605,10 @@ export class SpiderPpfdCard extends LitElement {
     this.auto = !!this.saved.auto;
     this.brightSrc = this.saved.src || "";
     this.s.numPlants = this.saved.numPlants;
+    this.s.placement = this.saved.placement ?? "row";
+    this.s.rows = this.saved.rows ?? 1; this.s.cols = this.saved.cols ?? 2;
+    this.s.margin = this.saved.margin ?? 0.14;
+    this.s.custom = Array.isArray(this.saved.custom) ? this.saved.custom : [];
     this.s.photo = this.saved.photo ?? this.s.photo;
     this.s.tW = this.saved.tW; this.s.tL = this.saved.tL; this.s.tH = this.saved.tH;
     if (this.auto) this.readLive(); else this.s.dim = this.manualDim;
@@ -11427,6 +11620,10 @@ export class SpiderPpfdCard extends LitElement {
     return (!!this.auto) !== (!!s.auto)
       || (this.brightSrc || "") !== (s.src || "")
       || this.s.numPlants !== s.numPlants
+      || this.s.placement !== (s.placement ?? "row")
+      || this.s.rows !== (s.rows ?? 1) || this.s.cols !== (s.cols ?? 2)
+      || (this.s.margin ?? 0.14) !== (s.margin ?? 0.14)
+      || JSON.stringify(this.s.custom || []) !== JSON.stringify(s.custom || [])
       || this.s.photo !== (s.photo ?? this.s.photo)
       || this.s.tW !== s.tW || this.s.tL !== s.tL || this.s.tH !== s.tH;
   }
@@ -11510,18 +11707,179 @@ export class SpiderPpfdCard extends LitElement {
     this.s.model = (e.target as HTMLSelectElement).value;
     this.dirty = true; this.repaint(); this.queueSaveView();
   }
-  private onSlider(field: "hin" | "plantIn" | "numPlants" | "dim" | "photo", e: Event): void {
+  private onSlider(field: "hin" | "plantIn" | "numPlants" | "dim" | "photo" | "rows" | "cols" | "margin", e: Event): void {
     const v = Number((e.target as HTMLInputElement).value);
     const ti = this.tentInches();
     if (field === "hin") this.s.hin = Math.min(v, ti);
     else if (field === "plantIn") this.s.plantIn = Math.min(v, ti);
     else if (field === "numPlants") this.s.numPlants = isNaN(v) ? 1 : Math.max(1, Math.min(12, Math.round(v)));
     else if (field === "photo") this.s.photo = isNaN(v) ? 18 : Math.max(1, Math.min(24, Math.round(v)));
+    else if (field === "rows") { this.s.rows = isNaN(v) ? 1 : Math.max(1, Math.min(12, Math.round(v))); this.s.numPlants = Math.max(1, this.s.rows * Math.max(1, this.s.cols)); }
+    else if (field === "cols") { this.s.cols = isNaN(v) ? 1 : Math.max(1, Math.min(12, Math.round(v))); this.s.numPlants = Math.max(1, Math.max(1, this.s.rows) * this.s.cols); }
+    else if (field === "margin") this.s.margin = isNaN(v) ? 0.14 : Math.max(0, Math.min(0.45, v / 100));
     else if (field === "dim") { if (!this.auto) { this.s.dim = v; this.manualDim = v; } }
     this.dirty = true; this.repaint();
-    // numPlants + photo live on the Settings tab now → stage them (Apply commits);
+    // numPlants/photo/placement fields live on the Settings tab → stage (Apply commits);
     // the rest are View-tab fields that save as you drag.
-    if (field !== "numPlants" && field !== "photo") this.queueSaveView();
+    if (!["numPlants", "photo", "rows", "cols", "margin"].includes(field)) this.queueSaveView();
+  }
+  // Placement mode: seed custom from the current layout so dragging starts where plants are.
+  private setPlace(m: "row" | "grid" | "perimeter" | "custom"): void {
+    if (m === "grid") this.s.numPlants = Math.max(1, this.s.rows) * Math.max(1, this.s.cols);
+    if (m === "custom") this.s.custom = this.plantPositions().map(([x, z]) => [x / this.s.tW, z / this.s.tL] as [number, number]);
+    this.s.placement = m; this.dirty = true; this.repaint();
+  }
+  // The panel's own PPFD sensor (sensor.sf_<panel>_ppfd), when present and reading.
+  private _panelPpfd(): { eid: string; val: number } | null {
+    const p = this.panelSlot(); if (!p || !this.hass) return null;
+    const eid = `sensor.sf_${p}_ppfd`; const st = this.hass.states[eid];
+    const v = st ? parseFloat(st.state) : NaN;
+    return Number.isFinite(v) && v > 0 ? { eid, val: v } : null;
+  }
+  // Calibrate from the panel's PPFD sensor at the current height + brightness. (v3.20.43)
+  private onCalibrateSensor(): void {
+    const ps = this._panelPpfd(); if (!ps) return;
+    const light = PPFD_LIGHTS[this.s.model] || PPFD_LIGHTS.SE4500;
+    const eff = Math.max(1, this.s.hin - this.s.plantIn);
+    const base = ppfdAt(light, eff, this.s.dim).center;
+    if (base <= 0) return;
+    this.s.cal = ps.val / base; this.s.calRef = loc("panel sensor");
+    this.dirty = true; this.repaint(); this.saveView();
+  }
+  private onCalibrate(): void {
+    const read = (id: string) => { const el = this.renderRoot?.querySelector(id) as HTMLInputElement | null; const v = el ? Number(el.value) : NaN; return v > 0 ? v : 0; };
+    const m12 = read("#cal12"), m24 = read("#cal24");
+    const light = PPFD_LIGHTS[this.s.model] || PPFD_LIGHTS.SE4500;
+    // Reference readings are taken at full brightness and the fixture's standard 12 in /
+    // 24 in heights. A least-squares single scale through the points rescales the whole
+    // published height curve (its falloff shape is kept). (v3.20.42)
+    const pts: [number, number][] = [];
+    if (m12) pts.push([m12, ppfdAt(light, 12, 100).center]);
+    if (m24) pts.push([m24, ppfdAt(light, 24, 100).center]);
+    const usable = pts.filter(([, b]) => b > 0);
+    if (!usable.length) return;
+    const num = usable.reduce((a, [m, b]) => a + m * b, 0);
+    const den = usable.reduce((a, [, b]) => a + b * b, 0);
+    if (den <= 0) return;
+    this.s.cal = num / den;
+    const parts: string[] = []; if (m12) parts.push(this.fmtSmall(12)); if (m24) parts.push(this.fmtSmall(24));
+    this.s.calRef = parts.join(" + ");
+    this.dirty = true; this.repaint();
+    this.saveView();   // calibration applies immediately (not gated by Apply/Discard)
+  }
+  private onCalReset(): void {
+    this.s.cal = 1; this.s.calRef = ""; this.dirty = true; this.repaint();
+    this.saveView();   // immediate, like Calibrate
+  }
+  // Plant (x,z) positions in metres, tent centred at origin, from the chosen layout.
+  private plantPositions(): [number, number][] {
+    const { tW, tL, numPlants } = this.s;
+    const marg = Math.min(0.45, Math.max(0, this.s.margin ?? 0.14));
+    const hw = (tW / 2) * (1 - 2 * marg), hl = (tL / 2) * (1 - 2 * marg);
+    const n = Math.max(1, numPlants);
+    const out: [number, number][] = [];
+    if (this.s.placement === "custom") {
+      const c = this.s.custom || [];
+      for (let i = 0; i < n; i++) { const q = c[i]; out.push(q ? [q[0] * tW, q[1] * tL] : [0, 0]); }
+      return out;
+    }
+    if (this.s.placement === "grid") {
+      const cols = Math.max(1, this.s.cols), rows = Math.max(1, this.s.rows);
+      for (let rr = 0; rr < rows; rr++) for (let cc = 0; cc < cols; cc++) {
+        const fx = cols === 1 ? 0 : (cc / (cols - 1) - 0.5) * 2;
+        const fz = rows === 1 ? 0 : (rr / (rows - 1) - 0.5) * 2;
+        out.push([fx * hw, fz * hl]);
+      }
+      return out;
+    }
+    if (this.s.placement === "perimeter") {
+      const w2 = hw * 2, l2 = hl * 2, peri = 2 * (w2 + l2);
+      for (let i = 0; i < n; i++) {
+        let d = (i / n) * peri; let x = -hw, z = -hl;
+        if (d < w2) { x = -hw + d; z = -hl; }
+        else if ((d -= w2) < l2) { x = hw; z = -hl + d; }
+        else if ((d -= l2) < w2) { x = hw - d; z = hl; }
+        else { d -= w2; x = -hw; z = hl - d; }
+        out.push([x, z]);
+      }
+      return out;
+    }
+    const rot = tW > tL, half = rot ? hw : hl;
+    for (let i = 0; i < n; i++) {
+      const off = n > 1 ? -half + (2 * half) * (i / (n - 1)) : 0;
+      out.push(rot ? [off, 0] : [0, off]);
+    }
+    return out;
+  }
+  // PPFD at normalised radius r (0 = tent centre, 1 = far corner), anchored on the
+  // fixture's published centre / footprint-average / edge values. Monotone, so moving a
+  // plant outward only ever lowers its light — a reliable spatial estimate.
+  private radialPpfd(center: number, avg: number, edge: number, r: number): number {
+    const rm = 0.577;   // area-mean radius of a uniform footprint
+    if (r <= rm) return center + (avg - center) * (r / rm);
+    return avg + (edge - avg) * Math.min(1, (r - rm) / (1 - rm));
+  }
+  private plantPpfds(center: number, avg: number, edge: number): number[] {
+    const maxR = Math.hypot(this.s.tW / 2, this.s.tL / 2) || 1;
+    const cal = this.s.cal || 1;
+    return this.plantPositions().map(([x, z]) =>
+      Math.round(this.radialPpfd(center, avg, edge, Math.hypot(x, z) / maxR) * cal));
+  }
+  // Top-down drag map for Custom placement.
+  private _plantMap() {
+    const { tW, tL } = this.s;
+    const land = tL >= tW;                          // longer tent side drawn horizontally
+    const longL = land ? tL : tW, shortL = land ? tW : tL;
+    const W = 100, H = Math.max(40, Math.round(100 * shortL / longL));
+    const pos = this.plantPositions();
+    return html`<div class="pmapwrap">
+      <div class="hint">${loc("Drag each plant to place it in the tent (shown from above).")}</div>
+      <svg class="pmap" viewBox="0 0 ${W} ${H}" style="aspect-ratio:${longL} / ${shortL}"
+        @pointermove=${this._mapMove} @pointerup=${this._mapUp} @pointerleave=${this._mapUp}>
+        <rect x="1" y="1" width=${W - 2} height=${H - 2} rx="3" class="pmaptent"></rect>
+        <line x1=${W / 2} y1="1" x2=${W / 2} y2=${H - 1} class="pmapmid"></line>
+        <line x1="1" y1=${H / 2} x2=${W - 1} y2=${H / 2} class="pmapmid"></line>
+        ${pos.map(([x, z], i) => {
+          const cfx = x / tW, cfz = z / tL;
+          const hF = land ? cfz : cfx, vF = land ? cfx : cfz;
+          const cx = (hF + 0.5) * W, cy = (vF + 0.5) * H;
+          return svg`<circle cx=${cx} cy=${cy} r="5" class="pmapdot" @pointerdown=${(e: PointerEvent) => this._mapDown(i, e)}></circle><text x=${cx} y=${cy + 2.3} class="pmaptxt">${i + 1}</text>`; })}
+      </svg>
+    </div>`;
+  }
+  // Pointer → [width-frac, length-frac], honouring landscape orientation + the grab offset.
+  private _mapFracs(e: PointerEvent, rc: DOMRect): [number, number] {
+    const land = this.s.tL >= this.s.tW;
+    let hF = (e.clientX - rc.left) / rc.width - 0.5 + this._dragOff[0];
+    let vF = (e.clientY - rc.top) / rc.height - 0.5 + this._dragOff[1];
+    hF = Math.max(-0.48, Math.min(0.48, hF)); vF = Math.max(-0.48, Math.min(0.48, vF));
+    return land ? [vF, hF] : [hF, vF];
+  }
+  private _mapDown(i: number, e: PointerEvent): void {
+    this._dragPlant = i;
+    const svgEl = (e.target as Element).closest("svg") as SVGSVGElement | null;
+    const land = this.s.tL >= this.s.tW;
+    if (svgEl) {
+      const rc = svgEl.getBoundingClientRect();
+      const pH = (e.clientX - rc.left) / rc.width - 0.5, pV = (e.clientY - rc.top) / rc.height - 0.5;
+      const cur = (this.s.custom && this.s.custom[i]) ? this.s.custom[i] : [0, 0];
+      const dotH = land ? cur[1] : cur[0], dotV = land ? cur[0] : cur[1];
+      this._dragOff = [dotH - pH, dotV - pV];       // keep the grabbed point under the pointer
+      try { (e.target as Element).setPointerCapture?.(e.pointerId); } catch { /* ok */ }
+    } else this._dragOff = [0, 0];
+    e.preventDefault();
+  }
+  private _mapMove(e: PointerEvent): void {
+    if (this._dragPlant < 0) return;
+    const rc = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
+    const [cfx, cfz] = this._mapFracs(e, rc);
+    if (!this.s.custom) this.s.custom = [];
+    this.s.custom[this._dragPlant] = [cfx, cfz];
+    this.dirty = true; this.repaint();
+  }
+  private _mapUp(): void {
+    if (this._dragPlant < 0) return;
+    this._dragPlant = -1; this._dragOff = [0, 0]; this.needRender = true; this.dirty = true; this.repaint();
   }
   // Photoperiod follows the auto-read light when that source is a Spider Farmer
   // light (a schedule-brightness number source has no schedule to read).
@@ -11536,8 +11894,17 @@ export class SpiderPpfdCard extends LitElement {
     if (!m) return null;
     const panel = m[1], slot = m[2];
     const g = (id: string) => { const s = this.hass!.states[id]; return s && s.state !== "unknown" && s.state !== "unavailable" ? s.state : ""; };
-    let a = g(`text.sf_${panel}_${slot}_ppfd_start`), b = g(`text.sf_${panel}_${slot}_ppfd_stop`);
-    if (!(a && b) || (a === "00:00" && b === "00:00")) { a = g(`text.sf_${panel}_${slot}_schedule_start`); b = g(`text.sf_${panel}_${slot}_schedule_stop`); }
+    // Follow the light's ACTIVE mode: Time Slot → its schedule window, PPFD(/Plan) → the PPFD
+    // window, Manual → no schedule (fall back to the manual photoperiod). (v3.20.42 — John:
+    // changed the Time-Slot schedule to 12h but the card showed the 18h PPFD window.)
+    const mode = g(`select.sf_${panel}_${slot}_mode`);
+    const ppfd = (): [string, string] => [g(`text.sf_${panel}_${slot}_ppfd_start`), g(`text.sf_${panel}_${slot}_ppfd_stop`)];
+    const slot_ = (): [string, string] => [g(`text.sf_${panel}_${slot}_schedule_start`), g(`text.sf_${panel}_${slot}_schedule_stop`)];
+    let a = "", b = "";
+    if (mode === "Time Slot") { [a, b] = slot_(); }
+    else if (mode === "PPFD" || mode === "PPFD - Plan") { [a, b] = ppfd(); }
+    else if (mode === "Manual") { return null; }        // no schedule to follow
+    else { [a, b] = ppfd(); if (!(a && b) || (a === "00:00" && b === "00:00")) [a, b] = slot_(); }
     const pa = /^(\d{1,2}):(\d{2})/.exec(a), pb = /^(\d{1,2}):(\d{2})/.exec(b);
     if (!pa || !pb) return null;
     const mins = ((+pb[1] * 60 + +pb[2]) - (+pa[1] * 60 + +pa[2]) + 1440) % 1440;
@@ -11684,7 +12051,7 @@ export class SpiderPpfdCard extends LitElement {
   private rebuild(): void {
     const T = this.T, scene = this.scene;
     if (!T || !scene) return;
-    const { tW, tL, tH, model, hin, plantIn, numPlants, dim } = this.s;
+    const { tW, tL, tH, model, hin, plantIn, dim } = this.s;
     const light = PPFD_LIGHTS[model] || PPFD_LIGHTS.SE4500;
     const effectiveH = Math.max(1, hin - plantIn);
     const ppfd = ppfdAt(light, effectiveH, dim);
@@ -11801,12 +12168,10 @@ export class SpiderPpfdCard extends LitElement {
     const potMat = new T.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 });
     const stemMat = new T.MeshStandardMaterial({ color: 0x3d6b28, roughness: 0.8 });
     const leafMat = new T.MeshStandardMaterial({ color: 0x2e7d1e, roughness: 0.85, side: T.DoubleSide });
-    // Row runs along the longer horizontal axis, matching the light orientation.
-    const axisLen = rot ? tW : tL;
-    const spacing = axisLen / (numPlants + 1);
-    for (let i = 0; i < numPlants; i++) {
-      const off = -axisLen / 2 + spacing * (i + 1);
-      const px = rot ? off : 0, pz = rot ? 0 : off;
+    // Positions from the chosen layout (row / grid / perimeter / custom).
+    const plantPos = this.plantPositions();
+    for (let i = 0; i < plantPos.length; i++) {
+      const px = plantPos[i][0], pz = plantPos[i][1];
       const pot = new T.Mesh(new T.CylinderGeometry(potR * 0.85, potR, potH, 12), potMat);
       pot.position.set(px, potH / 2, pz); pG.add(pot);
       const stemH = Math.max(0.01, pH - potH);
@@ -11898,6 +12263,21 @@ export class SpiderPpfdCard extends LitElement {
     .r4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
     .r3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
     .r2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .segrow { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+    .pbtn { flex: 0 0 auto; padding: 5px 11px; border-radius: 7px; border: 1px solid var(--divider-color, #444);
+      background: var(--secondary-background-color, #2a2a2a); color: var(--primary-text-color, #eee);
+      font-size: 12px; cursor: pointer; }
+    .pbtn.on { background: var(--primary-color, #03a9f4); border-color: var(--primary-color, #03a9f4); color: #fff; }
+    .pbtn.ghost { background: transparent; }
+    .prow { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+    .cnote { font-size: 12px; color: var(--secondary-text-color, #9aa); }
+    .pnote { padding: 2px 12px 6px; font-size: 11px; color: var(--secondary-text-color, #9aa); }
+    .pmapwrap { margin-top: 8px; }
+    .pmap { width: 100%; max-width: 320px; max-height: 300px; display: block; margin: 6px auto 0; touch-action: none; background: var(--secondary-background-color, #222); border-radius: 8px; }
+    .pmaptent { fill: none; stroke: var(--divider-color, #555); stroke-width: 1.2; }
+    .pmapmid { stroke: var(--divider-color, #555); stroke-width: 0.5; stroke-dasharray: 2 2; }
+    .pmapdot { fill: var(--primary-color, #03a9f4); stroke: #fff; stroke-width: 1; cursor: grab; }
+    .pmaptxt { fill: #fff; font-size: 5px; text-anchor: middle; pointer-events: none; font-weight: 700; }
     .cg { display: flex; flex-direction: column; gap: 3px; }
     .cl { font-size: 11px; color: var(--secondary-text-color); white-space: nowrap; }
     .cv { font-size: 12px; font-weight: 500; color: var(--primary-text-color); }
@@ -11922,10 +12302,18 @@ export class SpiderPpfdCard extends LitElement {
     const s = this.s;
     const light = PPFD_LIGHTS[s.model] || PPFD_LIGHTS.SE4500;
     const effectiveH = Math.max(1, s.hin - s.plantIn);
-    const ppfd = ppfdAt(light, effectiveH, s.dim);
+    const raw = ppfdAt(light, effectiveH, s.dim);
+    const ppfdSensor = this._panelPpfd();
+    const cal = s.cal || 1;
+    const perPlant = this.plantPpfds(raw.center, raw.avg, raw.edge);
+    const canopyAvg = perPlant.length
+      ? Math.round(perPlant.reduce((a, b) => a + b, 0) / perPlant.length) : Math.round(raw.avg * cal);
+    const canopyMin = perPlant.length ? Math.min(...perPlant) : canopyAvg;
+    const canopyMax = perPlant.length ? Math.max(...perPlant) : canopyAvg;
+    const ppfd = { center: Math.round(raw.center * cal), avg: canopyAvg, edge: Math.round(raw.edge * cal) };
     const photo = this.effectivePhoto();
-    const dli = ((ppfd.avg * photo * 3600) / 1e6).toFixed(1);
-    const zone = ppfdZone(ppfd.avg);
+    const dli = ((canopyAvg * photo * 3600) / 1e6).toFixed(1);
+    const zone = ppfdZone(canopyAvg);
     const ti = this.tentInches();
     const u = this.tentUnit();
     const title = this.config.title || "PPFD visualizer";
@@ -11953,6 +12341,11 @@ export class SpiderPpfdCard extends LitElement {
             <div class="stat"><div class="sl">${loc("Avg canopy")}</div><div class="sv">${ppfd.avg.toLocaleString()}<span class="su">μmol/m²/s</span></div></div>
             <div class="stat"><div class="sl">${loc("Edge PPFD")}</div><div class="sv">${ppfd.edge.toLocaleString()}<span class="su">μmol/m²/s</span></div></div>
             <div class="stat"><div class="sl">${loc("DLI @ {hours}h", { hours: photo })}</div><div class="sv">${dli}<span class="su">${loc("mol/m²/d")}</span></div></div>
+          </div>
+          <div class="pnote">
+            ${perPlant.length > 1
+              ? loc("{n} plants · {min}–{max} μmol/m²/s at canopy", { n: perPlant.length, min: canopyMin, max: canopyMax })
+              : loc("{n} plant at canopy", { n: perPlant.length })}${(Math.abs(cal - 1) > 0.001) ? " · " + loc("calibrated ×{f}", { f: cal.toFixed(2) }) + (s.calRef ? " @ " + s.calRef : "") : ""}
           </div>
           <div class="leg"><span>${loc("Low")}</span><div class="legbar"></div><span>${loc("High PPFD")}</span></div>
           <div class="zone">
@@ -11988,12 +12381,26 @@ export class SpiderPpfdCard extends LitElement {
           <div class="sec">${loc("Plants & photoperiod")}</div>
           <div class="ctrls">
             <div class="r3">
-              <div class="cg"><span class="cl">${loc("Number of plants")}</span><input type="number" min="1" max="12" step="1" .value=${String(s.numPlants)} @change=${(e: Event) => this.onSlider("numPlants", e)}></div>
+              <div class="cg"><span class="cl">${loc("Number of plants")}</span><input type="number" min="1" max="12" step="1" ?disabled=${s.placement === "grid"} .value=${String(s.numPlants)} @change=${(e: Event) => this.onSlider("numPlants", e)}></div>
               <div class="cg"><span class="cl">${loc("Photoperiod (h)")}</span><input type="number" min="1" max="24" step="1" .value=${String(this.effectivePhoto())} ?disabled=${this.photoFollowsLight()} @change=${(e: Event) => this.onSlider("photo", e)}></div>
             </div>
             ${this.photoFollowsLight()
               ? html`<div class="hint">${loc("Auto from the selected light's schedule — {hours}h. Uncheck “Auto-read brightness from a light” to set hours manually.", { hours: this.effectivePhoto() })}</div>`
               : nothing}
+            <div class="cg" style="margin-top:10px"><span class="cl">${loc("Plant placement")}</span>
+              <div class="segrow">
+                ${(["row", "grid", "perimeter", "custom"] as const).map((m) => html`
+                  <button class="pbtn ${s.placement === m ? "on" : ""}" @click=${() => this.setPlace(m)}>${loc(PLACE_LABEL[m])}</button>`)}
+              </div>
+            </div>
+            ${s.placement === "grid" ? html`
+              <div class="r2" style="margin-top:8px">
+                <div class="cg"><span class="cl">${loc("Rows")}</span><input type="number" min="1" max="12" step="1" .value=${String(s.rows)} @change=${(e: Event) => this.onSlider("rows", e)}></div>
+                <div class="cg"><span class="cl">${loc("Columns")}</span><input type="number" min="1" max="12" step="1" .value=${String(s.cols)} @change=${(e: Event) => this.onSlider("cols", e)}></div>
+              </div>` : nothing}
+            ${s.placement !== "custom" ? html`
+              <div class="cg" style="margin-top:8px"><span class="cl">${loc("Edge margin")} <span class="cv">${Math.round((s.margin ?? 0.14) * 100)}%</span></span><input type="range" min="0" max="40" step="1" .value=${String(Math.round((s.margin ?? 0.14) * 100))} @input=${(e: Event) => this.onSlider("margin", e)}></div>`
+              : this._plantMap()}
           </div>
           <div class="div"></div>
           <div class="sec">${loc("Tent dimensions")}</div>
@@ -12002,6 +12409,27 @@ export class SpiderPpfdCard extends LitElement {
               <div class="cg"><span class="cl">${loc("Width ({unit})", { unit: u })}</span><input type="number" min=${this.s.metric ? "0.3" : "1"} max=${this.s.metric ? "3.0" : "10"} step="0.1" .value=${this.fmtTentDim(s.tW / 0.3048)} @change=${(e: Event) => this.onTent("tW", e)}></div>
               <div class="cg"><span class="cl">${loc("Length ({unit})", { unit: u })}</span><input type="number" min=${this.s.metric ? "0.3" : "1"} max=${this.s.metric ? "3.6" : "12"} step="0.1" .value=${this.fmtTentDim(s.tL / 0.3048)} @change=${(e: Event) => this.onTent("tL", e)}></div>
               <div class="cg"><span class="cl">${loc("Height ({unit})", { unit: u })}</span><input type="number" min=${this.s.metric ? "0.9" : "3"} max=${this.s.metric ? "3.6" : "12"} step="0.1" .value=${this.fmtTentDim(s.tH / 0.3048)} @change=${(e: Event) => this.onTent("tH", e)}></div>
+            </div>
+          </div>
+          <div class="div"></div>
+          <div class="sec">${loc("PPFD calibration")}</div>
+          <div class="set">
+            ${ppfdSensor ? html`
+              <div class="prow" style="margin-bottom:8px">
+                <button class="pbtn" @click=${() => this.onCalibrateSensor()}>${loc("Calibrate from panel sensor")}</button>
+                <span class="cnote">${loc("reads {v} now", { v: Math.round(ppfdSensor.val) })}</span>
+              </div>
+              <div class="hint">${loc("Uses this panel's own PPFD sensor at the current height and brightness — no meter needed. Or enter a handheld reading below.")}</div>`
+              : html`<div class="hint">${loc("Have a PPFD/quantum meter? Turn the light to full brightness, hold the meter flat under the centre at {a} (and/or {b}), and enter the reading(s). The card scales to match your room and keeps the fixture's falloff with height.", { a: this.fmtSmall(12), b: this.fmtSmall(24) })}</div>`}
+            <div class="r2">
+              <div class="cg"><span class="cl">${loc("Reading at {d}", { d: this.fmtSmall(12) })}</span><input id="cal12" type="number" min="1" step="1" placeholder=${String(Math.round(ppfdAt(light, 12, 100).center))}></div>
+              <div class="cg"><span class="cl">${loc("Reading at {d}", { d: this.fmtSmall(24) })}</span><input id="cal24" type="number" min="1" step="1" placeholder=${String(Math.round(ppfdAt(light, 24, 100).center))}></div>
+            </div>
+            <div class="prow">
+              <button class="pbtn" @click=${() => this.onCalibrate()}>${loc("Calibrate")}</button>
+              ${(Math.abs((s.cal || 1) - 1) > 0.001)
+                ? html`<span class="cnote">${loc("×{f}, set at {r}", { f: (s.cal || 1).toFixed(2), r: s.calRef || loc("meter") })}</span><button class="pbtn ghost" @click=${() => this.onCalReset()}>${loc("Reset")}</button>`
+                : html`<span class="cnote">${loc("not calibrated")}</span>`}
             </div>
           </div>
           ${commitBar("var(--primary-color, #03a9f4)", this.settingsDirty(),
@@ -13299,7 +13727,6 @@ export class SpiderAiStatsCard extends LitElement {
         <ha-icon icon="mdi:pulse"></ha-icon>
         <span>${loc("Updating")} <b>${loc("live")}</b></span>
       </div>
-      <span class="cd-sub">${loc("refits continuously")}</span>
     </div>`;
   }
 

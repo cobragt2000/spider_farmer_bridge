@@ -26,6 +26,10 @@ live HA entity and (optionally) HA can send commands back.
   preservation across reinstall, and a diagnostic log with novel-field
   detection
 - **Read-only by default** — device control is opt-in
+- **Adaptive-climate learning** (opt-in, observe-only) — learns how your
+  heater / humidifier / dehumidifier and lights move temperature, humidity and
+  VPD, shown in the **AI Climate Stats** card; plus a **3D PPFD visualizer**
+  card with per-plant placement and meter calibration
 
 ## Setup
 

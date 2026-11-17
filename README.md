@@ -48,25 +48,8 @@ bundled:
   (below).
 - **`custom:spider-timelapse-card`** — turns any `camera.*` into a grow
   time-lapse with an optional live/burned env overlay and MP4 export (below).
-- **`custom:ppfd-3d-card`** — a 3D PPFD visualizer covering the **full current
-  Spider Farmer grow-light lineup** (22 fixtures), grouped by series in the picker:
-  **SF** (SF300, SF600, SF1000, SF1000D, SF2000, SF2000 Pro, SF4000, SF7000),
-  **G** (G1000W, G1200W, G1500, G3000, G4500, G5000, G7000, G8600) and
-  **SE** (SE1500, SE3000, SE4500, SE5000, SE7000, SE1000W). PPFD-by-height curves
-  are built from each light's published PPFD map (SF300/SF600 publish only a single
-  PAR-at-height value, so their average/edge spread is estimated). Set it up
-  entirely from the UI — add the card and use its **visual editor** (no YAML): pick
-  the light model, entities, unit system
-  (`auto` follows your Home Assistant unit system, or force `metric` / `imperial`)
-  and the brightness source. Choose how plants sit in the tent — **Row, Grid
-  (rows × columns), Perimeter or Custom** (drag each plant on a top-down map) — and the
-  canopy PPFD is estimated at each plant's real position (centre-bright, dimmer at the
-  edges). If you own a PPFD/quantum meter, enter one centre reading to **calibrate** the
-  card to your room. Add as **many PPFD cards as you like** — each gets its
-  own id, so multiple cards never conflict. The editor's brightness controls include
-  an **Auto-read brightness** toggle and a **Light source** picker — point it at a
-  Spider Farmer light (live) or a Schedule Brightness (target) and the card's
-  brightness tracks it live.
+- **`custom:ppfd-3d-card`** — a 3D PPFD visualizer for the full Spider Farmer
+  grow-light lineup, with plant placement and meter calibration (below).
 - **`custom:spider-ai-card`** — the **AI Climate Stats** card: the adaptive-climate
   learning view (below). Opt-in; observe-only.
 
@@ -173,7 +156,21 @@ The **Settings** tab groups every option into alphabetized, collapsible sections
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_Card_Settings_11.png" width="245" alt="Settings — VPD Graph (Leaf VPD tile, VPD graph, Leaf VPD overlay)" />
 </p>
 
-The `custom:ppfd-3d-card` 3D PPFD visualizer (full SF / G / SE lineup — 22 fixtures):
+### PPFD 3D visualizer card
+
+The `custom:ppfd-3d-card` covers the **full current Spider Farmer grow-light lineup**
+— 22 fixtures across the SF, G and SE series (see
+[**docs/supported_lights.md**](docs/supported_lights.md) for the full list). Set it up entirely from the
+UI — add the card and use its **visual editor** (no YAML): pick the light model, entities,
+unit system (`auto` follows your Home Assistant unit system, or force `metric` / `imperial`)
+and the brightness source. Choose how plants sit in the tent — **Row, Grid (rows × columns),
+Perimeter or Custom** (drag each plant on a top-down map) — and the canopy PPFD is estimated
+at each plant's real position (centre-bright, dimmer at the edges). If you own a PPFD/quantum
+meter, enter one centre reading to **calibrate** the card to your room. Add as **many PPFD
+cards as you like** — each gets its own id, so multiple cards never conflict. The editor's
+brightness controls include an **Auto-read brightness** toggle and a **Light source** picker
+— point it at a Spider Farmer light (live) or a Schedule Brightness (target) and the card's
+brightness tracks it live.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/PPFD_02.png" width="330" alt="PPFD 3D visualizer — SE4500" />

@@ -5,7 +5,6 @@ tile flips from the authoritative live `on` (not a config snapshot) in ~2s inste
 of waiting for the next ~10s self-report. Deduped so rapid writes coalesce."""
 
 import asyncio
-import pytest
 
 from custom_components.sf.proxy.mitm_proxy import ProxySession
 

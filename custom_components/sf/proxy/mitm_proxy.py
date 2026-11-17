@@ -36,7 +36,6 @@ from ..ha.discovery import (
     publish_soil_sensor_discovery,
     unpublish_outlet_discovery,
     cleanup_stale_discovery,
-    HA_STATUS_TOPIC,
     _mac, _capabilities,
 )
 
@@ -1921,7 +1920,6 @@ def _process_publish(
                     except Exception:
                         pass
                     return
-                from .mitm_proxy import MITMProxy  # avoid circular at module level
                 for keypath in (
                     ["device", "light"],  ["device", "light2"],
                     ["device", "fan"],    ["device", "blower"],

@@ -30,7 +30,6 @@ import logging
 import logging.handlers
 import os
 import queue
-import time
 from datetime import datetime
 from typing import Any, Optional
 

@@ -1,0 +1,29 @@
+# Ruff config for the "Home Assistant Python Scan" workflow (and local `ruff check`).
+#
+# Scope: real bugs (F, B) + security (S, flake8-bandit) + async pitfalls (ASYNC).
+# Cosmetic pycodestyle E/W style (line length, compound statements) is NOT enforced
+# here on purpose: this project uses wide decode/data tables and compact one-liners
+# by design. Adopting the full E,F,W,B,S,ASYNC set with formatting is a tracked
+# backlog item, not a gate.
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["F", "B", "S", "ASYNC"]
+ignore = [
+  "S110",  # try-except-pass: deliberate defensive guards (never block HA setup/teardown)
+  "S112",  # try-except-continue: same defensive pattern inside loops
+  "S104",  # bind 0.0.0.0: the MITM proxy must listen on all interfaces to see the controller
+]
+
+[lint.per-file-ignores]
+# Tests use asserts (that is pytest), fixed demo creds/hosts/temp paths, keep
+# unused locals as documentation, and open/stat files directly (they are not the
+# HA event loop, so the ASYNC blocking-I/O rules don't apply).
+"tests/**" = [
+  "S101", "S105", "S106", "S108", "S311", "B011",  # pytest asserts + test-only patterns
+  "F841", "B007",                                   # unused locals / loop vars kept for clarity
+  "ASYNC109", "ASYNC230", "ASYNC240",               # blocking I/O is fine off the HA loop
+]
+# The Wi-Fi/AP add-on shells out to system tools (ip, systemctl, …) by design.
+"spider_farmer_hotspot/**" = ["S603", "S607"]

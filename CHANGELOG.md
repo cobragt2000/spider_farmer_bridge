@@ -3,6 +3,39 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.20.48 — CI: green, focused security scan + small lint cleanups
+
+### Changed
+- **The Python scan workflow is now a focused, passing gate.** CodeQL is left to GitHub's
+  built-in default setup (a workflow-based CodeQL run can't upload alongside it), so the
+  workflow's own CodeQL job was removed. Ruff is scoped to real-bug and security rules
+  (`F`, `B`, `S`/Bandit, `ASYNC`) via a new `ruff.toml`; cosmetic line-length/style noise is
+  not enforced here. Intentional patterns are documented, not silenced blindly: the MITM
+  proxy binding `0.0.0.0` and the add-on's system `subprocess` calls are justified, and the
+  async blocking-I/O rules stay fully enforced on the integration (only `tests/` is exempt,
+  since tests don't run on the HA event loop).
+
+### Fixed
+- **Small lint cleanups surfaced by the scan.** Removed unused imports and dead locals;
+  de-duplicated a truthy-value set (`{1, True, …}` → `{1, …}`); made a `zip()` explicit with
+  `strict=False`; and moved a post-export file-exists check off the event loop into the
+  executor, matching the rest of the time-lapse module. No behaviour change.
+
+## 3.20.47 — Overview AI tile: Day/Night confidence + forecast at a glance
+
+### Changed
+- **The Overview "Learning" tile now shows the forecast test and the day/night split.** Expanding
+  the tile lays each metric (Temperature / Humidity / VPD) out in a grid with its **Overall**,
+  **Day** and **Night** confidence in centred columns, and a green **✓ forecast** / red
+  **✕ forecast** chip in front of the Overall value so you can see at a glance whether each
+  metric is beating "assume no change". A compact `forecast ✓✕✕` summary also appears on the
+  collapsed tile face. No change to the underlying learning or confidence maths.
+
+### Added
+- **CI: weekly security scan.** A GitHub Actions workflow (`code-scan.yml`) runs CodeQL
+  (`security-extended`) and Ruff with the Bandit (`S`) and async rule sets on pushes, PRs and a
+  weekly schedule.
+
 ## 3.20.46 — AI card: physically-impossible gains drawn neutral
 
 ### Fixed

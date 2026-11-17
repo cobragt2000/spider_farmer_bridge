@@ -1022,7 +1022,6 @@ async def test_timelapse_sensor_readded_after_remove(hass, tmp_path, enable_cust
     again must get a fresh status sensor. The sensor platform used to track created
     ids in a set it never pruned, so a re-added id was skipped forever and the
     card's 'Set up' did nothing."""
-    from homeassistant.helpers import entity_registry as er
 
     entry = MockConfigEntry(
         domain=DOMAIN, title="Spider Farmer Bridge", unique_id=DOMAIN,

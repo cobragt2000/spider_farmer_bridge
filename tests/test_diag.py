@@ -1,8 +1,6 @@
 """Tests for the dedicated diagnostic log."""
-import json
 import time
 
-import pytest
 
 from custom_components.sf.diag import SfDiag
 

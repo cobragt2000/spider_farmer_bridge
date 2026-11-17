@@ -15,7 +15,7 @@ from custom_components.sf.const import DOMAIN, DATA_BUS, DATA_PROXY
 from custom_components.sf.proxy.command_handler import translate_command
 from custom_components.sf.proxy.mitm_proxy import ProxySession, _process_publish
 from custom_components.sf.proxy.mqtt_parser import (
-    MQTTPacket, MQTT_PUBLISH, parse_packets,
+    MQTTPacket, MQTT_PUBLISH,
 )
 
 PS10_MAC = "0A1B2C3D4E05"

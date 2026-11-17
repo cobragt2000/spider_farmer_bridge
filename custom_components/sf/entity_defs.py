@@ -1189,8 +1189,7 @@ def build_env_entities(device_cfg, slot, include_co2=True):
     VPD probe), so they don't show phantom CO2 targets. (v3.19.257)"""
     mac_raw = device_cfg.get("mac", "")
     mac = _mac(mac_raw)
-    last4 = mac[-4:].upper()
-    # last4 before "Environment" so the flat device list sorts each env
+    # last4 (mac[-4:]) sorts before "Environment" so the flat device list sorts each env
     # right after its host device (…{last4} < …{last4} Environment < next).
     # Name it after the actual host (Display Panel / Power Strip AC5/AC10),
     # not a hardcoded panel label (3.19.91).

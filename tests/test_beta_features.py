@@ -186,7 +186,6 @@ async def test_new_install_uses_dp_ac_slots(hass: HomeAssistant):
     await hass.async_block_till_done()
 
     assert hass.states.get("sensor.sf_dp1_temperature") is not None
-    from homeassistant.helpers import device_registry as dr
     dev = device_by_ident(hass, f"ggs_{CB_MAC_LC}")
     assert dev.name == "SF Display Panel 4E01"
 

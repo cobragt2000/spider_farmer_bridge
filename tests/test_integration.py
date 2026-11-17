@@ -1,5 +1,4 @@
 """Behavioral tests for Spider Farmer Bridge v3 (native entities)."""
-import asyncio
 import json
 from unittest.mock import AsyncMock
 
@@ -12,9 +11,7 @@ from custom_components.sf.const import DOMAIN, DATA_BUS, DATA_PROXY
 from custom_components.sf.ha.discovery import (
     publish_discovery_for_device,
     publish_soil_sensor_discovery,
-    unpublish_outlet_discovery,
 )
-from custom_components.sf.proxy.normalizer import normalize_status
 from custom_components.sf.proxy.mitm_proxy import ProxySession, _process_publish
 from custom_components.sf.proxy.mqtt_parser import MQTTPacket, MQTT_PUBLISH
 from ha_compat import device_by_ident
@@ -153,7 +150,6 @@ async def test_setup_and_cb_entities(hass: HomeAssistant):
     assert hass.states.get("sensor.sf_dp1_soil1_ec").state == "1.2"
 
     # Device registry: single device, correct name
-    from homeassistant.helpers import device_registry as dr
     dev = device_by_ident(hass, f"ggs_{CB_MAC_LC}")
     assert dev is not None
     assert dev.name == "SF Display Panel 4E01"

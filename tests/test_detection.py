@@ -177,7 +177,6 @@ async def test_runtime_retype_lc_to_cb(hass: HomeAssistant):
     assert hass.states.get("fan.sf_dp1_blower") is not None
 
     # Device registry repaired
-    from homeassistant.helpers import device_registry as dr
     dev = device_by_ident(hass, f"ggs_{CB_MAC_LC}")
     assert dev.name == "SF Display Panel 4E01"
     assert dev.model == "Display Panel"
@@ -223,7 +222,7 @@ async def test_stale_registry_repair_on_restart(hass: HomeAssistant):
             device_id=device.id,
             config_entry=entry,
         )
-    assert ent_reg.async_get(f"light.sf_light_controller_4e01_light_1") is not None
+    assert ent_reg.async_get("light.sf_light_controller_4e01_light_1") is not None
 
     # Device connects; partial then full frame → conclusive CB, repair fires
     session = ProxySession(CB_MAC, bus)

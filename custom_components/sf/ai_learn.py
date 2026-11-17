@@ -593,7 +593,7 @@ async def async_capture_bus(hass, bus, store) -> None:
     now = dt_util.utcnow().timestamp()
     zones = getattr(bus, "_ai_zones", []) or []
     rows: list[tuple[str, dict]] = []
-    for mac, slot in dict(getattr(bus, "_slot_cache", {})).items():
+    for _mac, slot in dict(getattr(bus, "_slot_cache", {})).items():
         kind, z = resolve_panel(slot, zones)
         if kind == "absorbed":
             continue        # its devices are captured under the zone's sensor panel
@@ -673,10 +673,6 @@ async def async_backfill_panel(hass, bus, store, panel: str, days: float = BACKF
 
     cutoff = dt_util.utcnow().timestamp() - float(days) * 86400.0   # recent | older boundary
     states_raw = await async_fetch_history(hass, eids, days)                 # fine, recent
-    # Device-complete-only store keys (gear/enum/switch devices have no statistics, so a
-    # sample that carries one of these is NOT a blind stats row). Used to trim blind data.
-    device_keys = [name for name, spec in classified["devices"].items()
-                   if spec.get("effort") in ("gear", "enum", "switch")]
     stats_raw = (await async_fetch_statistics(hass, eids, STATS_BACKFILL_DAYS)
                  if include_stats else {})
 

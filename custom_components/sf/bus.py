@@ -158,7 +158,6 @@ from .entity_defs import (
     EVIDENCE_BLOCKS,
     TOGGLEABLE_BLOCKS,
     HA_STATUS_TOPIC,
-    OUTLET_MODE_NAMES,
     OUTLET_TYPE_TO_MODE,
     SfDef,
     build_device_entities,
@@ -170,7 +169,6 @@ from .entity_defs import (
     build_air_calibration_entities,
     build_alarms_entity,
     build_alarm_settings_entity,
-    build_oplog_entity,
     build_plan_entity,
     build_plan_switch_entity,
     build_soil_calibration_entities,
@@ -1047,8 +1045,6 @@ class SfBus:
         """(Re)configure smart control from the ``smart_control`` option =
         {mac_lc: {enabled, humidity, target, deadband, ...}}. Starts a periodic
         loop while any entry is enabled; stops it otherwise."""
-        from datetime import timedelta
-        from homeassistant.helpers.event import async_track_time_interval
         self._smart_cfg = {
             _mac(mac): cfg for mac, cfg in (smart or {}).items()
             if isinstance(cfg, dict) and cfg.get("enabled")
@@ -1132,7 +1128,7 @@ class SfBus:
     async def _smart_tick(self, _now=None) -> None:
         """One control pass over every enabled smart-control device."""
         import time as _time
-        from .smart_control import DehumConfig, DehumState, decide, OFF, LOW, HIGH
+        from .smart_control import DehumConfig, DehumState, decide, OFF
         allow = bool(getattr(self.proxy, "allow_control", False)) if self.proxy else False
         now = _time.monotonic()
         for mac, cfg in list(self._smart_cfg.items()):

@@ -6530,6 +6530,13 @@ export class SpiderFarmerCard extends LitElement {
     if (!st || st.state === "unknown" || st.state === "unavailable") return nothing;
     const conf = Math.round(parseFloat(st.state) || 0);
     const open = this.aiTileOpen;
+    // Forecast-test glance on the tile face: a ✓/✕/… per metric (temperature, humidity, VPD).
+    const fcm = st.attributes?.models || {};
+    const fcDots = ["temperature", "humidity", "vpd"].filter((k) => fcm[k]).map((k) => {
+      const fc = fcm[k].forecast && fcm[k].forecast.status;
+      const col = fc === "passed" ? "#4caf50" : fc === "failed" ? "#e57373" : "#9e9e9e";
+      return html`<span style="color:${col};font-weight:700">${fc === "passed" ? "✓" : fc === "failed" ? "✕" : "…"}</span>`;
+    });
     return html`<div class="section-label">${loc("Climate AI")}</div>
       <div class="grid">
         <div class="tile clickable ${open ? "active" : ""}" role="button"
@@ -6540,33 +6547,44 @@ export class SpiderFarmerCard extends LitElement {
           <ha-icon icon="mdi:brain" style="color:${this.accent()}"></ha-icon>
           <div class="tile-val">${conf}<span class="unit">%</span></div>
           <div class="tile-target">${loc("confidence")}</div>
+          ${fcDots.length ? html`<div class="tile-target ai-fc-glance" title=${loc("Forecast test per metric — temperature · humidity · VPD")}>${loc("forecast")} ${fcDots}</div>` : nothing}
         </div>
       </div>
       ${open ? this._aiTileExp(st) : nothing}`;
   }
   // Inline quick info under the AI tile: per-metric confidence + forecast-test status.
   private _aiTileExp(st: any) {
-    const models = (st.attributes && st.attributes.models) || {};
+    const A = st.attributes || {};
+    const models = A.models || {};
+    const dayM = (A.day && A.day.models) || {};
+    const nightM = (A.night && A.night.models) || {};
+    const hasDN = !!(A.day && A.night);
     const META: Record<string, [string, string]> = {
       temperature: ["mdi:thermometer", "Temperature"],
       humidity: ["mdi:water-percent", "Humidity"],
       vpd: ["mdi:water-opacity", "VPD"],
     };
-    const rows = Object.keys(META).filter((k) => models[k]).map((k) => {
-      const m = models[k];
-      const c = Math.round((m.confidence || 0) * 100);
-      const fc = m.forecast && m.forecast.status;
-      const fcCol = fc === "passed" ? "#4caf50" : fc === "failed" ? "#e57373" : "#9e9e9e";
-      const mark = fc === "passed" ? "✓" : fc === "failed" ? "✕" : "…";
-      return html`<div class="ai-row">
-        <ha-icon icon=${META[k][0]}></ha-icon>
-        <span class="ai-n">${loc(META[k][1])}</span>
-        <span class="ai-c">${c}% ${loc("conf")}</span>
-        ${fc ? html`<span class="ai-fc" style="color:${fcCol}">${mark} ${loc("forecast")}</span>` : nothing}
-      </div>`;
-    });
+    const keys = Object.keys(META).filter((k) => models[k]);
+    const cc = (m: any) => { const v = m ? (m.confidence || 0) * 100 : -1; return v < 0 ? "var(--secondary-text-color)" : v >= 66 ? "#4caf50" : v >= 33 ? "#e3b341" : "#e57373"; };
+    const pct = (m: any) => m ? `${Math.round((m.confidence || 0) * 100)}%` : "—";
+    const cols = hasDN ? "1fr auto 3.4em 3.4em 3.4em" : "1fr auto 3.4em";
     return html`<div class="tile-exp ai-exp">
-      ${rows.length ? rows : html`<div class="ai-row">${loc("Gathering data…")}</div>`}
+      ${keys.length ? html`<div class="ai-grid" style="grid-template-columns:${cols}">
+        <div class="ai-gh"></div><div class="ai-gh"></div><div class="ai-gh">${loc("Overall")}</div>
+        ${hasDN ? html`<div class="ai-gh">${loc("Day")}</div><div class="ai-gh">${loc("Night")}</div>` : nothing}
+        ${keys.map((k) => {
+          const fc = models[k] && models[k].forecast && models[k].forecast.status;
+          const fcCol = fc === "passed" ? "#4caf50" : fc === "failed" ? "#e57373" : "#9e9e9e";
+          const fcMark = fc === "passed" ? "✓" : fc === "failed" ? "✕" : "…";
+          const fcTitle = fc === "passed" ? loc("Forecast test passed") : fc === "failed" ? loc("Forecast test failed") : loc("Forecast test pending");
+          return html`
+          <div class="ai-gn"><ha-icon icon=${META[k][0]}></ha-icon>${loc(META[k][1])}</div>
+          <div class="ai-gf">${fc ? html`<span style="color:${fcCol}" title=${fcTitle}>${fcMark} ${loc("forecast")}</span>` : nothing}</div>
+          <div class="ai-gv" style="color:${cc(models[k])}">${pct(models[k])}</div>
+          ${hasDN ? html`<div class="ai-gv" style="color:${cc(dayM[k])}">${pct(dayM[k])}</div>
+            <div class="ai-gv" style="color:${cc(nightM[k])}">${pct(nightM[k])}</div>` : nothing}`;
+        })}
+      </div>` : html`<div class="ai-row">${loc("Gathering data…")}</div>`}
       <div class="ai-more" role="button" @click=${() => (this.tab = "ai")}>${loc("Open Climate AI →")}</div>
     </div>`;
   }
@@ -9605,6 +9623,14 @@ export class SpiderFarmerCard extends LitElement {
     .tile-exp { min-width: 0; }                    /* inline tile expansion (graph/detail) */
     .ai-exp { padding: 8px 12px; background: var(--secondary-background-color, rgba(127,127,127,.06)); border-radius: 8px; margin-top: 6px; }
     .ai-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; color: var(--primary-text-color); }
+    .ai-grid { display: grid; gap: 3px 6px; align-items: center; font-size: 12px; margin-bottom: 4px; }
+    .ai-fc-glance { display: flex; gap: 3px; align-items: center; justify-content: center; }
+    .ai-gh { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: var(--secondary-text-color); text-align: center; padding-bottom: 2px; }
+    .ai-gn { display: flex; align-items: center; gap: 6px; color: var(--primary-text-color); }
+    .ai-gn ha-icon { --mdc-icon-size: 16px; color: var(--secondary-text-color); }
+    .ai-fcm { font-size: 11px; font-weight: 700; margin-right: 4px; }
+    .ai-gf { text-align: right; font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .ai-gv { text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
     .ai-row ha-icon { --mdc-icon-size: 16px; color: var(--secondary-text-color); }
     .ai-n { flex: 1 1 auto; }
     .ai-c { color: var(--secondary-text-color); }

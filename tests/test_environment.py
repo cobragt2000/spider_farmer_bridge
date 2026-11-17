@@ -265,7 +265,6 @@ async def test_env_entities_always_created(hass: HomeAssistant):
     await hass.async_block_till_done()
 
     assert hass.states.get("number.sf_dp1_env_temp_day") is not None
-    from homeassistant.helpers import device_registry as dr
     assert device_by_ident(hass, f"ggs_{CB_MAC_LC}_env") is not None
 
     await hass.config_entries.async_unload(entry.entry_id)

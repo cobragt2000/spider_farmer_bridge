@@ -653,7 +653,6 @@ async def test_soil_probes_on_power_strip(hass: HomeAssistant):
 
     # Typed PS5, not CB
     assert s.device_type == "ps5"
-    from homeassistant.helpers import device_registry as dr
     dev = device_by_ident(hass, f"ggs_{PS}")
     assert dev.model == "Power Strip AC5"
 

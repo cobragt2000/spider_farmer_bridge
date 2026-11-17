@@ -23,7 +23,6 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    DOMAIN,
     CONF_TIMELAPSE_INSTANCES,
     DEFAULT_TIMELAPSE_DIR,
     DEFAULT_TIMELAPSE_INTERVAL,
@@ -49,7 +48,6 @@ from .const import (
     TL_ALIGN,
     TL_DAILY_AT,
     DEFAULT_TIMELAPSE_OVERLAY_COLOR,
-    slug_timelapse_id,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -573,7 +571,7 @@ class TimelapseController:
             if proc.returncode != 0:
                 tail = (stderr or b"").decode("utf-8", "replace")[-300:]
                 raise RuntimeError(f"ffmpeg exited {proc.returncode}: {tail}")
-            if not os.path.isfile(out_path):
+            if not await self.hass.async_add_executor_job(os.path.isfile, out_path):
                 raise RuntimeError("ffmpeg produced no output file")
             self._last_export = {"session": session, "name": out_name}
             self._last_export_error = None
@@ -857,7 +855,7 @@ def _burn_items(content: bytes, items: list, color: str = "#ffffff", font_px: fl
     if Pillow is unavailable or anything goes wrong."""
     try:
         from io import BytesIO
-        from PIL import Image, ImageDraw, ImageFont
+        from PIL import Image, ImageDraw
     except Exception:  # pragma: no cover - Pillow missing
         return content
     try:
@@ -938,7 +936,7 @@ def _burn_items(content: bytes, items: list, color: str = "#ffffff", font_px: fl
             x0, y0, box_w = bx["x0"], bx["y0"], bx["w"]
             draw.rectangle([x0, y0, x0 + box_w, y0 + bx["h"]], fill=(0, 0, 0, 140))
             y = y0 + pad
-            for ln, lw in zip(bx["lines"], bx["lws"]):
+            for ln, lw in zip(bx["lines"], bx["lws"], strict=False):
                 lx = (x0 + box_w - pad - lw) if bx["right"] else (x0 + pad)
                 draw.text((lx, y), ln, font=font, fill=(r, g, b, 255))
                 y += line_h
@@ -954,7 +952,7 @@ def _burn_overlay(content: bytes, lines: list) -> bytes:
     original bytes unchanged if Pillow is unavailable or anything goes wrong."""
     try:
         from io import BytesIO
-        from PIL import Image, ImageDraw, ImageFont
+        from PIL import Image, ImageDraw
     except Exception:  # pragma: no cover - Pillow missing
         return content
     try:

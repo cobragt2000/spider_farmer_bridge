@@ -465,7 +465,6 @@ async def test_light_commands_produce_device_payload(hass: HomeAssistant):
     """Regression: HA light commands must survive the light_1→light field
     mapping and reach the device as a real setConfigField inject."""
     import asyncio
-    from unittest.mock import MagicMock
     from custom_components.sf.const import DATA_PROXY
     from custom_components.sf.proxy.mqtt_parser import parse_packets
 

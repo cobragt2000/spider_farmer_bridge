@@ -22,7 +22,8 @@ from ..tempunits import (
 )
 
 # Truthy encodings the controllers use for on/off style fields.
-_TRUE = {1, True, "1", "true", "on"}
+# (1 covers True — they hash/compare equal in a set.)
+_TRUE = {1, "1", "true", "on"}
 
 
 def _on(val) -> bool:

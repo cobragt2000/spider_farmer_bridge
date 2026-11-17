@@ -92,7 +92,6 @@ async def test_se_light_detected_and_entities(hass: HomeAssistant):
     assert hass.states.get("sensor.sf_se1_mode").state == "Linked"
 
     # Device registered with the SE label
-    from homeassistant.helpers import device_registry as dr
     dev = device_by_ident(hass, f"ggs_{SE_MAC_LC}")
     assert dev is not None
     assert dev.name == "SF SE Light 4E06"

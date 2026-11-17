@@ -13674,6 +13674,25 @@ export class SpiderAiStatsCard extends LitElement {
   // outside air through the tent, so its effect scales with the intake-vs-tent gap; the
   // backend learns that as md.vent.blower. We show it at a reference point — full blower
   // with the intake 10° cooler / 10% drier — so the tiny coefficient reads as a real rate.
+  // Current intake − tent gap for a metric (the air the blower pulls in, vs the tent).
+  private _ventGap(mk: string): number | null {
+    const h = this.hass; if (!h) return null;
+    const ambEid = mk === "temperature" ? this._ambientTemp : mk === "humidity" ? this._ambientHumidity : "";
+    if (!ambEid) return null;
+    const a = parseFloat(h.states[ambEid]?.state);
+    const t = parseFloat(h.states[`sensor.sf_${this._activePanel()}_${mk}`]?.state);
+    return (Number.isFinite(a) && Number.isFinite(t)) ? a - t : null;
+  }
+  // The blower's real effect is ventilation (it pulls cooler/drier intake through the tent),
+  // which the fit puts in md.vent, not the per-device residual. Show its true effect on the
+  // row = residual + vent × the current intake/tent gap, so it isn't a misleading 0.000. (v3.20.45)
+  private _effGain(mk: string, md: any, dev: string, g: number): number {
+    if (dev === "blower" && typeof md?.vent?.blower === "number") {
+      const gap = this._ventGap(mk);
+      if (gap != null) return g + md.vent.blower * gap;
+    }
+    return g;
+  }
   private _ventRow(mk: string, md: any) {
     const vg = md?.vent?.blower;
     if (typeof vg !== "number" || vg === 0) return nothing;
@@ -13931,7 +13950,30 @@ export class SpiderAiStatsCard extends LitElement {
   }
 
   // A device gain as a centre-anchored diverging bar (− left / + right).
-  private _gainBar(g: number, max: number) {
+  // What a device physically is, for sign priors (built-in key or assigned outlet role).
+  private _devKind(dev: string): string {
+    if (/^light_\d+$/.test(dev) || dev === "se_light") return "light";
+    if (["heater", "humidifier", "dehumidifier", "blower", "fan", "cooler"].includes(dev)) return dev;
+    const meta = this._entity()?.attributes?.device_meta?.[dev];
+    return (meta?.role as string) || this._effRoles()[dev] || "";
+  }
+  // Allowed direction of a device's effect on a metric: +1 can only raise, -1 can only lower,
+  // 0 unconstrained. A gain against this is physically impossible → draw it neutral. (v3.20.46)
+  private _allowedSign(kind: string, mk: string): number {
+    if (mk === "temperature") {
+      if (kind === "light" || kind === "heater") return 1;   // can only warm
+      if (kind === "cooler") return -1;                      // can only cool
+    } else if (mk === "humidity") {
+      if (kind === "humidifier") return 1;                   // can only add moisture
+      if (kind === "dehumidifier" || kind === "heater") return -1;   // can only dry (heater warms air → RH down)
+    }
+    return 0;   // blower/fan, VPD, unknowns: direction depends on conditions
+  }
+  private _gainBar(g: number, max: number, neutral = false) {
+    if (neutral || Math.abs(g) < 5e-4) return html`<span class="gb"><span class="gb-mid"></span></span>`;
+    // A gain that rounds to 0.000 is noise — show just the centre line, no warm/cool fill,
+    // so a negligible effect can't read as a direction. (v3.20.45)
+    if (Math.abs(g) < 5e-4) return html`<span class="gb"><span class="gb-mid"></span></span>`;
     const frac = max > 0 ? Math.max(-1, Math.min(1, g / max)) : 0;
     const pct = Math.abs(frac) * 50;
     const pos = g >= 0;
@@ -14072,12 +14114,18 @@ export class SpiderAiStatsCard extends LitElement {
                 <span class="model-meta">n=${md.n} · R²=${(md.r2 ?? 0).toFixed(2)} · ${loc("drift")} ${md.drift >= 0 ? "+" : ""}${md.drift.toFixed(3)} ${meta.unit}</span>
                 <ha-icon class="m-chev" icon=${closed ? "mdi:chevron-down" : "mdi:chevron-up"}></ha-icon>
               </div>
-              ${closed || Object.keys(md.gains || {}).length === 0 ? nothing : Object.entries(md.gains).map(([dev, g]) => html`
-                <div class="gain-row">
+              ${closed || Object.keys(md.gains || {}).length === 0 ? nothing : Object.entries(md.gains).map(([dev, g]) => {
+                const eg = this._effGain(mk, md, dev, g as number);
+                const vented = dev === "blower" && eg !== (g as number);
+                const asign = this._allowedSign(this._devKind(dev), mk);
+                const wrong = asign !== 0 && Math.abs(eg) >= 5e-4 && Math.sign(eg) !== asign;
+                return html`
+                <div class="gain-row" title=${wrong ? loc("Physically this device can't move {metric} in this direction — shown neutral as noise (the value is still printed). It should settle as confidence rises.", { metric: loc(AI_METRIC_META[mk]?.label || mk) }) : vented ? loc("Blower effect is intake-air exchange — shown at the current intake/tent gap; the Intake · blower row below has the detail.") : nothing}>
                   <span class="gain-dev">${this._devLabel(dev)}</span>
-                  ${this._gainBar(g as number, gmax)}
-                  <span class="gain-val">${(g as number) >= 0 ? "+" : ""}${(g as number).toFixed(3)}</span>
-                </div>`)}
+                  ${this._gainBar(eg, gmax, wrong)}
+                  <span class="gain-val">${eg >= 0 ? "+" : ""}${eg.toFixed(3)}</span>
+                </div>`;
+              })}
               ${closed ? nothing : this._ventRow(mk, md)}
               ${closed ? nothing : this._forecastRow(md.forecast)}
               ${closed ? nothing : this._stepRows(mk)}
@@ -14094,7 +14142,9 @@ export class SpiderAiStatsCard extends LitElement {
               ${metrics.map((mk) => {
                 const g = models[mk].gains?.[dev] ?? 0;
                 const gmax = Math.max(1e-6, ...metrics.flatMap((k) => Object.values(models[k].gains || {}).map((x) => Math.abs(x))));
-                const a = Math.min(1, Math.abs(g) / gmax);
+                const gasign = this._allowedSign(this._devKind(dev), mk);
+                const gwrong = gasign !== 0 && Math.sign(g) !== gasign && g !== 0;
+                const a = (Math.abs(g) < 5e-3 || gwrong) ? 0 : Math.min(1, Math.abs(g) / gmax);   // 0.00 or impossible direction → no tint
                 const col = g >= 0 ? "209,73,91" : "58,134,255";
                 return html`<div class="gc gc-cell" style="background:rgba(${col},${(a * 0.8).toFixed(2)})"
                   title="${this._devLabel(dev)} → ${loc(AI_METRIC_META[mk]?.label || mk)}: ${g.toFixed(3)}">${g ? g.toFixed(2) : "·"}</div>`;
@@ -14428,12 +14478,12 @@ export class SpiderAiStatsCard extends LitElement {
     .lg { margin-left: 8px; white-space: nowrap; } .lg .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 3px; vertical-align: -1px; }
     .sw.cool { background: #3a86ff; } .sw.warm { background: #d1495b; }
     .model { background: var(--secondary-background-color); border-radius: 10px; padding: 9px 11px; margin-bottom: 8px; }
-    .model-h { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .model-h { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
     .model-h ha-icon { --mdc-icon-size: 18px; color: var(--sf-ai-accent); }
-    .model-name { font-weight: 600; }
-    .chip { font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 9px; }
-    .model-meta { font-size: 11px; color: var(--secondary-text-color); margin-left: auto; font-variant-numeric: tabular-nums; }
-    .m-chev { --mdc-icon-size: 18px; color: var(--secondary-text-color); margin-left: 4px; }
+    .model-name { font-weight: 600; font-size: 13px; white-space: nowrap; flex: 0 0 auto; }
+    .chip { font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 9px; white-space: nowrap; flex: 0 0 auto; }
+    .model-meta { font-size: 11px; color: var(--secondary-text-color); margin-left: auto; font-variant-numeric: tabular-nums; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .m-chev { --mdc-icon-size: 18px; color: var(--secondary-text-color); margin-left: 4px; flex: 0 0 auto; }
     .model.closed { padding-bottom: 6px; }
     .gain-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
     .fc-note { font-size: 11px; margin-top: 8px; padding: 5px 8px; border-radius: 6px;

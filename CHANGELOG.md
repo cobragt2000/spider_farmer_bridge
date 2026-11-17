@@ -3,6 +3,34 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.20.46 — AI card: physically-impossible gains drawn neutral
+
+### Fixed
+- **A device never shows an impossible effect as a direction.** When a device's learned gain
+  points a way it physically can't (a light or heater "cooling", a dehumidifier "adding"
+  moisture, a humidifier or heater "raising" humidity), the bar is now drawn neutral — the
+  number is still printed, so nothing is hidden, but noise at low confidence can't look like a
+  real effect. Devices whose direction genuinely depends on conditions (blower, fan) and VPD
+  are left unconstrained. The underlying fit is unchanged.
+
+## 3.20.45 — AI card: readable response-model rows; blower shows its real effect
+
+### Fixed
+- **Response-model rows line up.** The per-metric rows (Temperature / Humidity / VPD) now sit
+  on one line with the expand chevron on the right, like each other — the longest name no
+  longer wraps the chevron to its own line.
+- **Negligible gains read as neutral.** A device whose learned effect rounds to 0.000 (and a
+  cross-coupling cell that rounds to 0.00) now shows a plain centre line / no tint instead of
+  a faint warm/cool bar, so noise-level values can't look like a real direction.
+- **Blower shows its real effect.** The blower cools by pulling cooler/drier intake air, which
+  the model stores as the ventilation term — so its per-device gain was ~0.000. The Blower row
+  now shows its true effect (residual + ventilation at the current intake/tent gap, e.g. a
+  cooling value), and the separate **Intake · blower** detail row stays.
+
+### Changed
+- README: AI Climate Stats section gains a 3-wide screenshot gallery and a note explaining the
+  63 % settling point.
+
 ## 3.20.44 — VPD settings persist; AI "days" stat matches Settings
 
 ### Fixed

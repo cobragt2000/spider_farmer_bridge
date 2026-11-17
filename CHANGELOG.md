@@ -3,6 +3,16 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.20.44 — VPD settings persist; AI "days" stat matches Settings
+
+### Fixed
+- **VPD-tab settings are now remembered.** The growth-stage pick (Propagation / Vegetative /
+  Flowering / Custom), the Grid/Trend view, the Highlight toggle, the custom VPD range, and
+  the target-source choice now persist server-side and come back after a reload (previously
+  they reset to the defaults every time).
+- **AI card "days" stat matches the Settings tab.** The Overview now shows the real captured
+  span (e.g. 3.5 days) instead of a rounded whole number, and the label reads "days".
+
 ## 3.20.43 — PPFD & Climate AI as tabs in the main card; AI Overview tile
 
 ### Added

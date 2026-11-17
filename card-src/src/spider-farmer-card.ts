@@ -890,6 +890,8 @@ export class SpiderFarmerCard extends LitElement {
     soilMode?: "avg" | "sensor" | "split"; soilKeep?: "replace" | "keep" | "stats";
     showTimelapseTab?: boolean; tlCam?: string; tlInterval?: number; tlDailyAt?: string;
     showPpfdTab?: boolean; showAiTab?: boolean; showAiTile?: boolean;
+    vpdStage?: "prop" | "veg" | "flower" | "custom"; vpdView?: "grid" | "trend";
+    vpdHighlight?: boolean; vpdPlanSource?: boolean; vpdCustom?: [number, number];
     graphRange?: number;
     ologRange?: number;
     powerMetric?: string;
@@ -920,6 +922,11 @@ export class SpiderFarmerCard extends LitElement {
     if (co.vpd_graph === "1" || co.vpd_graph === "0") out.showVpd = co.vpd_graph === "1";
     if (co.vpd_leaf === "1" || co.vpd_leaf === "0") out.vpdLeaf = co.vpd_leaf === "1";
     if (co.leaf_vpd_tile === "1" || co.leaf_vpd_tile === "0") out.showLeafVpd = co.leaf_vpd_tile === "1";
+    if (co.vpd_stage === "prop" || co.vpd_stage === "veg" || co.vpd_stage === "flower" || co.vpd_stage === "custom") out.vpdStage = co.vpd_stage;
+    if (co.vpd_view === "grid" || co.vpd_view === "trend") out.vpdView = co.vpd_view;
+    if (co.vpd_highlight === "1" || co.vpd_highlight === "0") out.vpdHighlight = co.vpd_highlight === "1";
+    if (co.vpd_plan_src === "1" || co.vpd_plan_src === "0") out.vpdPlanSource = co.vpd_plan_src === "1";
+    if (co.vpd_custom) { try { const vc = JSON.parse(co.vpd_custom); if (Array.isArray(vc) && vc.length === 2) out.vpdCustom = [Number(vc[0]), Number(vc[1])]; } catch { /* ignore */ } }
     if (co.device_log === "1" || co.device_log === "0") out.showDeviceLog = co.device_log === "1";
     if (co.hide_tabs === "1" || co.hide_tabs === "0") out.hideTabs = co.hide_tabs === "1";
     if (co.soil_mode === "avg" || co.soil_mode === "sensor" || co.soil_mode === "split") out.soilMode = co.soil_mode;
@@ -2408,6 +2415,11 @@ export class SpiderFarmerCard extends LitElement {
         if (s.showVpd !== undefined) this.showVpd = s.showVpd;
         if (s.showLeafVpd !== undefined) this.showLeafVpd = s.showLeafVpd;
         if (s.vpdLeaf !== undefined) this.vpdLeaf = s.vpdLeaf;
+        if (s.vpdStage) this.vpdStage = s.vpdStage;
+        if (s.vpdView) this.vpdView = s.vpdView;
+        if (s.vpdHighlight !== undefined) this.vpdHighlight = s.vpdHighlight;
+        if (s.vpdPlanSource !== undefined) this.vpdPlanSource = s.vpdPlanSource;
+        if (s.vpdCustom) this.vpdCustom = s.vpdCustom;
         if (s.showDeviceLog !== undefined) this.showDeviceLog = s.showDeviceLog;
         if (s.hideTabs !== undefined) this.hideTabs = s.hideTabs;
         if (s.soilMode !== undefined) this.soilMode = s.soilMode;
@@ -6297,19 +6309,20 @@ export class SpiderFarmerCard extends LitElement {
     const planLocked = this.vpdPlanSource && !!this.vpdPlanBand();
     const seg = (v: "grid" | "trend", label: string) => html`
       <button style="padding:4px 12px;font-size:12px;border:none;cursor:pointer;background:${this.vpdView === v ? accent : "#1a1e20"};color:${this.vpdView === v ? "#151515" : "#aeb4b9"}"
-        @click=${() => (this.vpdView = v)}>${loc(label)}</button>`;
+        @click=${() => { this.vpdView = v; this.persistColorOption("vpd_view", v); }}>${loc(label)}</button>`;
     const pill = (k: "prop" | "veg" | "flower" | "custom", label: string) => html`
       <button style="padding:5px 9px;border-radius:8px;font-size:12px;white-space:nowrap;cursor:${planLocked ? "default" : "pointer"};
         opacity:${planLocked ? ".45" : "1"};
         background:${this.vpdStage === k && !planLocked ? "rgba(239,139,43,.16)" : "#1e2224"};
         border:1px solid ${this.vpdStage === k && !planLocked ? accent : "#2f3538"};
         color:${this.vpdStage === k && !planLocked ? "#fff" : "#c7cccf"}"
-        @click=${() => { if (!planLocked) this.vpdStage = k; }}>${loc(label)}</button>`;
+        @click=${() => { if (!planLocked) { this.vpdStage = k; this.persistColorOption("vpd_stage", k); } }}>${loc(label)}</button>`;
     const step = (dir: -1 | 1, idx: 0 | 1) => () => {
       const c: [number, number] = [this.vpdCustom[0], this.vpdCustom[1]];
       if (idx === 0) c[0] = Math.min(c[1] - 0.1, Math.max(0.2, c[0] + dir * 0.05));
       else c[1] = Math.max(c[0] + 0.1, Math.min(2.0, c[1] + dir * 0.05));
       this.vpdCustom = [Math.round(c[0] * 100) / 100, Math.round(c[1] * 100) / 100];
+      this.persistColorOption("vpd_custom", JSON.stringify(this.vpdCustom));
       this.requestUpdate();
     };
     return html`
@@ -6320,7 +6333,7 @@ export class SpiderFarmerCard extends LitElement {
             <div style="display:flex;border:1px solid #2f3538;border-radius:8px;overflow:hidden">${seg("grid", "Grid")}${seg("trend", "Trend")}</div>
             <span style="font-size:12px;color:#aeb4b9">${loc("Highlight")}</span>
             <button class="toggle ${this.vpdHighlight ? "on" : ""}" style=${this.vpdHighlight ? `background:${accent}` : nothing}
-              @click=${() => (this.vpdHighlight = !this.vpdHighlight)}></button>
+              @click=${() => { this.vpdHighlight = !this.vpdHighlight; this.persistColorOption("vpd_highlight", this.vpdHighlight ? "1" : "0"); }}></button>
           </div>
         </div>
         <div style="display:flex;justify-content:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">
@@ -6331,10 +6344,10 @@ export class SpiderFarmerCard extends LitElement {
           <span style="color:#c7cccf">${planLocked ? loc("Planting plan · {name}", { name: this.vpdPlanName() }) : loc("Growth-stage buttons")}</span>
           ${this.vpdPlanSource
             ? html`<span style="color:#52b6d6;cursor:pointer;text-decoration:underline dotted"
-                @click=${() => (this.vpdPlanSource = false)}>${loc("use stage buttons instead →")}</span>`
+                @click=${() => { this.vpdPlanSource = false; this.persistColorOption("vpd_plan_src", "0"); }}>${loc("use stage buttons instead →")}</span>`
             : planActive
               ? html`<span style="color:#52b6d6;cursor:pointer;text-decoration:underline dotted"
-                  @click=${() => (this.vpdPlanSource = true)}>${loc("use planting plan instead →")}</span>`
+                  @click=${() => { this.vpdPlanSource = true; this.persistColorOption("vpd_plan_src", "1"); }}>${loc("use planting plan instead →")}</span>`
               : html`<span style="color:#5a6166;cursor:default" title=${loc("No active planting plan for this device")}>${loc("use planting plan instead →")}</span>`}
         </div>
         ${this.vpdStage === "custom" && !planLocked ? html`
@@ -14015,7 +14028,7 @@ export class SpiderAiStatsCard extends LitElement {
     const rd = this._regimeData();
     const conf = rd.confidence;
     const samples = rd.samples;
-    const days = e.attributes?.history_days;
+    const days = e.attributes?.store_days ?? e.attributes?.history_days;
     const models = rd.models;
     const metrics = Object.keys(models);
     const devices = Array.from(new Set(metrics.flatMap((k) => Object.keys(models[k].gains || {}))));
@@ -14032,7 +14045,7 @@ export class SpiderAiStatsCard extends LitElement {
           <div class="meter-stats">
             <div class="ms"><span class="ms-v">${samples.toLocaleString()}</span><span class="ms-k">${loc("samples")}</span></div>
             <div class="ms"><span class="ms-v">${metrics.length}</span><span class="ms-k">${loc("models")}</span></div>
-            <div class="ms"><span class="ms-v">${days ?? "—"}</span><span class="ms-k">${loc("days history")}</span></div>
+            <div class="ms"><span class="ms-v">${days ?? "—"}</span><span class="ms-k">${loc("days")}</span></div>
           </div>
         </div>
 

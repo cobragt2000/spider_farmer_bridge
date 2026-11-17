@@ -210,6 +210,19 @@ learning**. Learning is opt-in (Settings → *Adaptive climate (AI)*) and **obse
 it never switches anything; it watches your sensors and each device's on/off to learn how
 the room responds. Add the card and pick the panel in its **visual editor** (no YAML).
 
+<table align="center">
+  <tr>
+    <td align="center" width="33%"><img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_AI_01.png" width="250" alt="AI Climate Stats — learning confidence, stats & intake-vs-tent" /></td>
+    <td align="center" width="33%"><img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_AI_02.png" width="250" alt="AI Climate Stats — per-metric response models & switch-on response" /></td>
+    <td align="center" width="33%"><img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_AI_03.png" width="250" alt="AI Climate Stats — cross-coupling grid" /></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%"><img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_AI_04.png" width="250" alt="AI Climate Stats — Day regime (lights-on learning)" /></td>
+    <td align="center" width="33%"><img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_AI_05.png" width="250" alt="AI Climate Stats — Night regime (lights-off learning)" /></td>
+    <td align="center" width="33%"><img src="https://raw.githubusercontent.com/cobragt2000/spider_farmer_bridge/main/docs/images/Spider_AI_06.png" width="250" alt="AI Climate Stats — Settings: durable store, capture rate, learning speed" /></td>
+  </tr>
+</table>
+
 What it shows:
 
 - **Learning confidence** (0–100 %) — how much the model has to go on (data volume × fit
@@ -222,6 +235,17 @@ What it shows:
   failing model's confidence is halved until it can predict.
 - **Switch-on response** per device — how far the reading moves after a device turns on,
   how long before it starts, and when it reaches 63 % of the change.
+
+  > **Why 63%?** It’s the standard engineering marker for response speed. Systems like this
+  > approach their final value on an exponential curve, and the 63% point (technically
+  > 1 − 1/e ≈ 63.2%) is the one clean, repeatable spot to measure “how quick” — reach it fast
+  > and the device is snappy, reach it slowly and it’s sluggish. Together these three numbers
+  > (strength, delay, speed) are a standard way to describe any piece of climate gear, and
+  > they’re the groundwork for the future control layer knowing how hard and how early to
+  > nudge each device.
+  >
+  > So in plain terms: *“when this device turns on, it moves the reading by X, it takes Y
+  > minutes to start, and it’s most of the way there by Z minutes.”*
 - **Cross-coupling grid** and an **intake-air vs. tent** comparison (the learned
   ventilation term from the blower).
 - **Learning profiles** — save and reload named datasets, kept in a durable per-panel

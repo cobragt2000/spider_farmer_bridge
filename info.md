@@ -37,6 +37,7 @@ live HA entity and (optionally) HA can send commands back.
 2. Add the **Spider Farmer Bridge** integration
 3. Redirect the GGS devices' `TCP 8883` traffic to your HA host at your
    router/firewall (e.g. a pfSense port-forward)
+4. Power cycle SF devices  
 
 See the full README for architecture, network setup, and the entity-ID
 scheme.

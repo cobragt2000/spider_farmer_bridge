@@ -66,7 +66,7 @@ that design is the key to using it safely.
   device protocol, not a hardened public service.
 - Nothing new is sent off your network by the integration. The devices themselves
   still reach the Spider Farmer cloud through the bridge unless you separately
-  firewall them; the bridge does not add or remove that.
+  firewall them or block (block cloud) via integration settings; the bridge does not add or remove that.
 
 ### Device control
 

@@ -3,6 +3,19 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.20.50 — "Grow Alerts" blueprint now auto-installs
+
+### Changed
+- **The Grow Alerts blueprint installs itself.** Home Assistant doesn't read blueprints
+  bundled inside a custom integration, so on startup the integration now copies the blueprint
+  into `config/blueprints/automation/spider_farmer/grow_alerts.yaml` — after installing or
+  updating the integration and restarting, it's already there under Settings → Automations →
+  Blueprints, with no manual import. The copy is best-effort and runs in an executor (never
+  blocks setup); it writes only when the file is missing or when its own managed copy changed,
+  so your automations and any edits are never overwritten. The blueprint now ships inside the
+  integration at `custom_components/sf/blueprints/grow_alerts.yaml` (manual-import URL updated
+  in the README).
+
 ## 3.20.49 — "Grow Alerts" automation blueprint
 
 ### Added

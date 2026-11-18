@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import ssl
 
 import voluptuous as vol
@@ -165,6 +166,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
 
     server_cert, server_key, ca_cert = cert_paths(cert_dir)
+
+    # ── Bundled automation blueprint ──────────────────────────────────────
+    # HA doesn't read blueprints shipped inside a custom integration, so copy
+    # our "Grow Alerts" blueprint into config/blueprints on setup (executor —
+    # file I/O). Best-effort: never block setup if it can't be written. (v3.20.50)
+    try:
+        from .blueprints_install import install_bundled_blueprints
+        notes = await hass.async_add_executor_job(
+            install_bundled_blueprints, os.path.dirname(__file__), hass.config.config_dir
+        )
+        for note in notes:
+            _LOGGER.info("Spider Farmer Bridge: blueprint %s", note)
+    except Exception:  # noqa: BLE001 — never block setup on blueprint install
+        _LOGGER.debug("blueprint install skipped", exc_info=True)
 
     # ── Diagnostic log (optional, options-toggled) ────────────────────────
     await hass.async_add_executor_job(_apply_diag_options, hass, cfg)

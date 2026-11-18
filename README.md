@@ -338,17 +338,21 @@ range, and sends by any mix of a **persistent notification**, your **phone** (mo
 notify service), a **spoken TTS announcement** on a media player, plus an **Extra actions**
 slot for anything else (a second phone, a siren, a webhook).
 
-**Install it:** Home Assistant → **Settings → Automations & scenes → Blueprints →
-Import blueprint**, and paste:
+**It installs itself.** The integration copies the blueprint into
+`config/blueprints/automation/spider_farmer/` on startup, so after installing (or updating)
+the integration and restarting Home Assistant it's already there under **Settings →
+Automations & scenes → Blueprints** — no import step. (It only writes the file if missing or
+if its own managed copy changed, so your automations and any edits are never clobbered.)
+
+If you'd rather import it by hand, use **Blueprints → Import blueprint** and paste:
 
 ```
-https://github.com/cobragt2000/spider_farmer_bridge/blob/main/blueprints/automation/spider_farmer/grow_alerts.yaml
+https://github.com/cobragt2000/spider_farmer_bridge/blob/main/custom_components/sf/blueprints/grow_alerts.yaml
 ```
 
 Then **Create automation → Use blueprint → Spider Farmer - Grow Alerts**, pick your air
 sensors, set the thresholds you want, and choose how to be notified. Create one automation
-per tent if you run several. (The blueprint file also ships inside the integration at
-`blueprints/automation/spider_farmer/grow_alerts.yaml`.)
+per tent if you run several.
 
 ## Screenshots
 

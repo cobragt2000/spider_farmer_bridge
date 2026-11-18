@@ -319,7 +319,9 @@ sensors into grow-room alerts without writing any YAML. One blueprint covers eve
 alert — enable a check simply by giving it a threshold; anything left at its default stays
 off:
 
-- **Air** — temperature, humidity and VPD, each with a high *and* low threshold.
+- **Air** — temperature, humidity and VPD, each with a high *and* low threshold, and
+  **optional separate day / night limits** that switch on a lights-on sensor (with a settle
+  window after the lights flip so a still-cooling tent doesn't false-alert).
 - **Soil** — moisture, temperature and EC (high & low) across **any number of probes** at
   once; the alert names whichever probe crossed.
 - **Device can't keep up** — the humidifier / dehumidifier / heater has run for X minutes
@@ -329,14 +331,14 @@ off:
 - **Controller & device alarms** — relays the controller's own alarm log
   (`sensor.sf_<panel>_alarms`): dehumidifier tank full, humidifier tank empty, a device
   going offline, "light temperature too high", heater faults, and so on — naming the device
-  and the condition. Skips plain above/below-threshold events by default (your own
-  thresholds already cover those).
+  and the condition. **Tick the exact alarm types** to relay (tank/water, offline,
+  light-temp, above/below threshold, other faults); defaults to the hardware faults.
 
 Every alert waits a sustained time before firing (minutes **and** seconds, so a door
 opening or a mister pulse doesn't trip it), can re-notify on an interval while still out of
-range, and sends by any mix of a **persistent notification**, your **phone** (mobile-app
-notify service), a **spoken TTS announcement** on a media player, plus an **Extra actions**
-slot for anything else (a second phone, a siren, a webhook).
+range, and sends by any mix of a **persistent notification**, your **phone** (picked from a
+dropdown of your Companion-app devices), a **spoken TTS announcement** on a media player,
+plus an **Extra actions** slot for anything else (a second phone, a siren, a webhook).
 
 **It installs itself.** The integration copies the blueprint into
 `config/blueprints/automation/spider_farmer/` on startup, so after installing (or updating)

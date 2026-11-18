@@ -3,6 +3,25 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.20.51 — Grow Alerts blueprint: day/night air limits, phone picker, per-type alarms
+
+### Added
+- **Separate day & night limits for air (temp / humidity / VPD).** Each now has Day high/low
+  and optional Night high/low, with a "day / lights-on sensor" input (e.g.
+  `binary_sensor.sf_<panel>_daytime_schedule`) that switches which applies. Leave the day
+  sensor empty and the day limits apply around the clock (unchanged behaviour). A
+  "settle time after day↔night change" input pauses air alerts briefly after the lights flip,
+  so a still-cooling tent doesn't throw a false "too hot at night" — and because alerts fire
+  on threshold *crossings*, a reading that's merely still-high at lights-off won't re-alert.
+
+### Changed
+- **Phone is now a dropdown.** The mobile notify input is a device picker (your Companion-app
+  phones/tablets) instead of a typed service name; the blueprint derives the notify service
+  from the picked device. The rich high-priority payload is unchanged.
+- **Controller alarms are now a per-type pick-list.** Instead of "Faults only / All", tick the
+  exact alarm types to relay — Tank/water, Device offline, Light-temperature, Above/below
+  threshold, Other faults — defaulting to the hardware faults.
+
 ## 3.20.50 — "Grow Alerts" blueprint now auto-installs
 
 ### Changed

@@ -3,7 +3,8 @@ blueprint:
   description: >
     One blueprint for every common grow alert. Turn on only the checks you
     want by setting a threshold — anything left at its default is OFF and never
-    fires. Covers air Temperature, Humidity and VPD (high & low), Soil moisture,
+    fires. Covers air Temperature, Humidity and VPD (high & low, with optional
+    separate day / night limits that switch on a lights-on sensor), Soil moisture,
     temperature and EC (high & low) across any number of probes, "device can't
     keep up" for the humidifier / dehumidifier / heater, third-party water-leak
     sensors (any brand), and a relay of the controller's own alarms (tank full,
@@ -50,6 +51,31 @@ blueprint:
             seconds: 0
           selector:
             duration: {}
+        day_sensor:
+          name: Day / lights-on sensor (optional)
+          description: >
+            A sensor that is ON during the day / lights-on (e.g.
+            binary_sensor.sf_<panel>_daytime_schedule, or a grow-light switch).
+            When set, the air metrics below use their DAY thresholds while it's on
+            and their NIGHT thresholds while it's off. Leave empty to use the day
+            thresholds around the clock.
+          default: ""
+          selector:
+            entity: {}
+        settle_after_flip:
+          name: Settle time after day↔night change
+          description: >
+            After the day/lights-on sensor flips, pause the air (temp/RH/VPD)
+            alerts for this long so the tent can stabilize — prevents a false
+            "too hot at night" the moment the lights go off while the temperature
+            is still coming down. Alerts fire on CROSSINGS, so this is usually a
+            light safety margin. Ignored when no day sensor is set.
+          default:
+            hours: 0
+            minutes: 15
+            seconds: 0
+          selector:
+            duration: {}
 
     air_temperature:
       name: Air temperature
@@ -65,14 +91,30 @@ blueprint:
                 domain: sensor
                 device_class: temperature
         temp_high:
-          name: Alert when temperature rises ABOVE
-          description: Leave at 999 to disable. Example for flower, lights-on 83.
+          name: Day — alert when temp rises ABOVE
+          description: >
+            Daytime / lights-on high (also used around the clock when no day
+            sensor is set). Leave at 999 to disable. Example lights-on 83.
           default: 999
           selector:
             number: { min: -50, max: 999, step: 0.5, mode: box, unit_of_measurement: "°" }
         temp_low:
-          name: Alert when temperature drops BELOW
-          description: Leave at -999 to disable. Example 60.
+          name: Day — alert when temp drops BELOW
+          description: Daytime low. Leave at -999 to disable. Example 60.
+          default: -999
+          selector:
+            number: { min: -999, max: 150, step: 0.5, mode: box, unit_of_measurement: "°" }
+        temp_night_high:
+          name: Night — alert when temp rises ABOVE
+          description: >
+            Used while the day sensor is OFF. Leave at 999 to skip the night high
+            alert. Example lights-off 78.
+          default: 999
+          selector:
+            number: { min: -50, max: 999, step: 0.5, mode: box, unit_of_measurement: "°" }
+        temp_night_low:
+          name: Night — alert when temp drops BELOW
+          description: Used while the day sensor is OFF. Leave at -999 to skip. Example 62.
           default: -999
           selector:
             number: { min: -999, max: 150, step: 0.5, mode: box, unit_of_measurement: "°" }
@@ -91,14 +133,28 @@ blueprint:
                 domain: sensor
                 device_class: humidity
         hum_high:
-          name: Alert when RH rises ABOVE (%)
-          description: Leave at 999 to disable. Example 65.
+          name: Day — alert when RH rises ABOVE (%)
+          description: >
+            Daytime / lights-on high (also used around the clock when no day
+            sensor is set). Leave at 999 to disable. Example 65.
           default: 999
           selector:
             number: { min: 0, max: 999, step: 1, mode: box, unit_of_measurement: "%" }
         hum_low:
-          name: Alert when RH drops BELOW (%)
-          description: Leave at -999 to disable. Example 40.
+          name: Day — alert when RH drops BELOW (%)
+          description: Daytime low. Leave at -999 to disable. Example 40.
+          default: -999
+          selector:
+            number: { min: -999, max: 100, step: 1, mode: box, unit_of_measurement: "%" }
+        hum_night_high:
+          name: Night — alert when RH rises ABOVE (%)
+          description: Used while the day sensor is OFF. Leave at 999 to skip. Example 70.
+          default: 999
+          selector:
+            number: { min: 0, max: 999, step: 1, mode: box, unit_of_measurement: "%" }
+        hum_night_low:
+          name: Night — alert when RH drops BELOW (%)
+          description: Used while the day sensor is OFF. Leave at -999 to skip. Example 45.
           default: -999
           selector:
             number: { min: -999, max: 100, step: 1, mode: box, unit_of_measurement: "%" }
@@ -116,14 +172,28 @@ blueprint:
               filter:
                 domain: sensor
         vpd_high:
-          name: Alert when VPD rises ABOVE (kPa)
-          description: Leave at 999 to disable. Example 1.6.
+          name: Day — alert when VPD rises ABOVE (kPa)
+          description: >
+            Daytime / lights-on high (also used around the clock when no day
+            sensor is set). Leave at 999 to disable. Example 1.6.
           default: 999
           selector:
             number: { min: 0, max: 999, step: 0.05, mode: box, unit_of_measurement: kPa }
         vpd_low:
-          name: Alert when VPD drops BELOW (kPa)
-          description: Leave at -999 to disable. Example 1.1.
+          name: Day — alert when VPD drops BELOW (kPa)
+          description: Daytime low. Leave at -999 to disable. Example 1.1.
+          default: -999
+          selector:
+            number: { min: -999, max: 10, step: 0.05, mode: box, unit_of_measurement: kPa }
+        vpd_night_high:
+          name: Night — alert when VPD rises ABOVE (kPa)
+          description: Used while the day sensor is OFF. Leave at 999 to skip. Example 1.4.
+          default: 999
+          selector:
+            number: { min: 0, max: 999, step: 0.05, mode: box, unit_of_measurement: kPa }
+        vpd_night_low:
+          name: Night — alert when VPD drops BELOW (kPa)
+          description: Used while the day sensor is OFF. Leave at -999 to skip. Example 0.9.
           default: -999
           selector:
             number: { min: -999, max: 10, step: 0.05, mode: box, unit_of_measurement: kPa }
@@ -283,18 +353,26 @@ blueprint:
               filter:
                 domain: sensor
         alarm_scope:
-          name: Which controller alarms
+          name: Which controller alarms to relay
           description: >
-            "Faults only" skips plain Above/Below threshold events (your own
-            Temperature / Humidity / VPD / Soil thresholds above already cover
-            those). Pick "All" to relay those too.
-          default: Faults only (tank, offline, light-temp, etc.)
+            Tick what to forward. Use a preset — "Faults only" (everything except
+            plain above/below threshold) or "All" — and/or tick individual types.
+            Default is Faults only; add "Above / below threshold" (or All) to also
+            relay the controller's own threshold alarms (your sensor thresholds
+            above may already cover those).
+          default:
+            - Faults only (tank, offline, light-temp, etc.)
           selector:
             select:
-              mode: dropdown
+              multiple: true
               options:
+                - All (every alarm type)
                 - Faults only (tank, offline, light-temp, etc.)
-                - All (including above/below threshold)
+                - Tank / water (full or empty)
+                - Device offline
+                - Light temperature too high
+                - Above / below threshold
+                - Other faults
         alarm_include_clears:
           name: Also notify when an alarm clears (returns to normal)
           default: false
@@ -310,15 +388,15 @@ blueprint:
           default: true
           selector:
             boolean: {}
-        mobile_notify_service:
-          name: Mobile app notify service
+        mobile_notify_device:
+          name: Phone to notify
           description: >
-            The notify service for your phone, e.g. notify.mobile_app_<your_phone>
-            (see Developer Tools → Actions → notify.* for the exact name). Leave
-            blank to skip phone alerts.
+            Pick the phone / tablet running the Home Assistant Companion app.
+            Leave empty to skip phone alerts. (Add more phones in Extra actions.)
           default: ""
           selector:
-            text: {}
+            device:
+              integration: mobile_app
         voice_enable:
           name: Speak the alert (TTS)
           default: false
@@ -374,24 +452,53 @@ variables:
     {{ (renotify_after.days | int(0)) * 86400 + (renotify_after.hours | int(0)) * 3600
        + (renotify_after.minutes | int(0)) * 60 + (renotify_after.seconds | int(0)) }}
   enable_persistent: !input enable_persistent
-  mobile_notify_service: !input mobile_notify_service
+  mobile_notify_device: !input mobile_notify_device
+  # Build the phone's notify service from the picked device:
+  # notify.mobile_app_<slugified device name> (verified to match the services HA
+  # creates for each Companion-app device). Empty when no phone is picked.
+  mobile_service: >-
+    {% if (mobile_notify_device | default('')) %}notify.mobile_app_{{ device_attr(mobile_notify_device, 'name') | slugify }}{% endif %}
   voice_enable: !input voice_enable
   voice_tts_entity: !input voice_tts_entity
   voice_media_player: !input voice_media_player
   alarm_scope: !input alarm_scope
   alarm_include_clears: !input alarm_include_clears
+  day_sensor: !input day_sensor
+  settle_after_flip: !input settle_after_flip
+  temp_night_high: !input temp_night_high
+  temp_night_low: !input temp_night_low
+  hum_night_high: !input hum_night_high
+  hum_night_low: !input hum_night_low
+  vpd_night_high: !input vpd_night_high
+  vpd_night_low: !input vpd_night_low
+  # Day/night regime (air metrics). No day sensor => always "day" (day thresholds
+  # apply around the clock; night entries never fire). `settled` suppresses air
+  # alerts for a bit after the lights flip so the tent can stabilize.
+  has_day_sensor: "{{ (day_sensor | default('') | trim) | length > 0 }}"
+  is_day: "{{ (not (has_day_sensor | bool)) or is_state(day_sensor, 'on') }}"
+  settle_secs: >-
+    {{ (settle_after_flip.hours | int(0)) * 3600 + (settle_after_flip.minutes | int(0)) * 60
+       + (settle_after_flip.seconds | int(0)) }}
+  settled: >-
+    {% if not (has_day_sensor | bool) %}true{% else %}{% set lc = states[day_sensor].last_changed if states[day_sensor] is not none else none %}{{ (lc is none) or ((as_timestamp(now()) - as_timestamp(lc)) >= (settle_secs | int(0))) }}{% endif %}
   # Per-trigger metadata. `kind` picks how the alert is evaluated/worded:
   #   numeric = compare the crossing entity to a threshold (reads trigger.entity_id,
   #             so one soil/leak entry covers every picked sensor)
   #   state   = alert while a binary/enum entity sits on a "bad" value (leak = on)
   #   alarm   = relay the controller's own alarm log (device + condition text)
   meta:
-    temp_high:   { label: "Temperature high",            dir: above, thr: "{{ temp_high }}" }
-    temp_low:    { label: "Temperature low",             dir: below, thr: "{{ temp_low }}" }
-    hum_high:    { label: "Humidity high",               dir: above, thr: "{{ hum_high }}" }
-    hum_low:     { label: "Humidity low",                dir: below, thr: "{{ hum_low }}" }
-    vpd_high:    { label: "VPD high",                    dir: above, thr: "{{ vpd_high }}" }
-    vpd_low:     { label: "VPD low",                     dir: below, thr: "{{ vpd_low }}" }
+    temp_high:        { label: "Temperature high (day)",   dir: above, thr: "{{ temp_high }}",       regime: day }
+    temp_low:         { label: "Temperature low (day)",    dir: below, thr: "{{ temp_low }}",        regime: day }
+    temp_high_night:  { label: "Temperature high (night)", dir: above, thr: "{{ temp_night_high }}", regime: night }
+    temp_low_night:   { label: "Temperature low (night)",  dir: below, thr: "{{ temp_night_low }}",  regime: night }
+    hum_high:         { label: "Humidity high (day)",      dir: above, thr: "{{ hum_high }}",        regime: day }
+    hum_low:          { label: "Humidity low (day)",       dir: below, thr: "{{ hum_low }}",         regime: day }
+    hum_high_night:   { label: "Humidity high (night)",    dir: above, thr: "{{ hum_night_high }}",  regime: night }
+    hum_low_night:    { label: "Humidity low (night)",     dir: below, thr: "{{ hum_night_low }}",   regime: night }
+    vpd_high:         { label: "VPD high (day)",           dir: above, thr: "{{ vpd_high }}",        regime: day }
+    vpd_low:          { label: "VPD low (day)",            dir: below, thr: "{{ vpd_low }}",         regime: day }
+    vpd_high_night:   { label: "VPD high (night)",         dir: above, thr: "{{ vpd_night_high }}",  regime: night }
+    vpd_low_night:    { label: "VPD low (night)",          dir: below, thr: "{{ vpd_night_low }}",   regime: night }
     soilm_low:   { label: "Soil moisture low (dry)",     dir: below, thr: "{{ soil_moisture_low }}" }
     soilm_high:  { label: "Soil moisture high (wet)",    dir: above, thr: "{{ soil_moisture_high }}" }
     soilt_high:  { label: "Soil temperature high",       dir: above, thr: "{{ soil_temp_high }}" }
@@ -405,6 +512,7 @@ variables:
     controller_alarm:   { kind: alarm, label: "Controller alarm" }
   info: "{{ meta[trigger.id] }}"
   a_kind: "{{ info.kind | default('numeric') }}"
+  a_regime: "{{ info.regime | default('any') }}"
   a_label: "{{ info.label }}"
   a_entity: "{{ info.entity | default(trigger.entity_id, true) }}"
   a_dir: "{{ info.dir | default('') }}"
@@ -413,13 +521,34 @@ variables:
   a_name: "{{ state_attr(a_entity, 'friendly_name') or a_entity }}"
   cur: "{{ states(a_entity) }}"
   cur_unit: "{{ state_attr(a_entity, 'unit_of_measurement') or '' }}"
+  # Is this metric's regime active right now? Air metrics are day/night; everything
+  # else is 'any' (always active). During the post-flip settle window, air is paused.
+  regime_ok: >-
+    {% if a_regime == 'day' %}{{ (is_day | bool) and (settled | bool) }}{% elif a_regime == 'night' %}{{ (has_day_sensor | bool) and (not (is_day | bool)) and (settled | bool) }}{% else %}true{% endif %}
   # Controller-alarm fields (only meaningful when a_kind == 'alarm').
   alarm_ev: "{{ (state_attr(a_entity, 'events') or [{}])[0] if a_kind == 'alarm' else {} }}"
   alarm_device: "{{ alarm_ev.device | default('Device') }}"
   alarm_text: "{{ alarm_ev.alarm | default('alarm') }}"
   alarm_cleared: "{{ (alarm_ev.alarmType is none) or ('restoring' in (alarm_text | lower)) }}"
-  alarm_is_threshold: "{{ 'threshold' in (alarm_text | lower) }}"
-  alarm_scope_all: "{{ 'All' in (alarm_scope | default('')) }}"
+  # Does the selected set of alarm types include this event? Matches the
+  # controller's own wording against the categories the user ticked.
+  alarm_allowed: >-
+    {% set txt = alarm_text | lower %}
+    {% set sel = alarm_scope if (alarm_scope is sequence and alarm_scope is not string) else [alarm_scope] %}
+    {% set is_tank = ('tank' in txt or 'water' in txt) %}
+    {% set is_offline = ('offline' in txt) %}
+    {% set is_lt = ('light temp' in txt) %}
+    {% set is_thresh = ('threshold' in txt) %}
+    {% set is_other = not (is_tank or is_offline or is_lt or is_thresh) %}
+    {% set ns = namespace(ok=false) %}
+    {% if 'All (every alarm type)' in sel %}{% set ns.ok = true %}{% endif %}
+    {% if ('Faults only (tank, offline, light-temp, etc.)' in sel) and (not is_thresh) %}{% set ns.ok = true %}{% endif %}
+    {% if is_tank and ('Tank / water (full or empty)' in sel) %}{% set ns.ok = true %}{% endif %}
+    {% if is_offline and ('Device offline' in sel) %}{% set ns.ok = true %}{% endif %}
+    {% if is_lt and ('Light temperature too high' in sel) %}{% set ns.ok = true %}{% endif %}
+    {% if is_thresh and ('Above / below threshold' in sel) %}{% set ns.ok = true %}{% endif %}
+    {% if is_other and ('Other faults' in sel) %}{% set ns.ok = true %}{% endif %}
+    {{ ns.ok }}
   alert_title: >-
     {% if a_kind == 'alarm' %}{{ tent_name }} alarm — {{ alarm_device }}{% else %}{{ tent_name }} alert — {{ a_label }}{% endif %}
   alert_message: >-
@@ -434,6 +563,12 @@ triggers:
   - { trigger: numeric_state, id: hum_low,     entity_id: !input humidity_sensor,        below: !input hum_low,            for: !input sustain_for }
   - { trigger: numeric_state, id: vpd_high,    entity_id: !input vpd_sensor,             above: !input vpd_high,           for: !input sustain_for }
   - { trigger: numeric_state, id: vpd_low,     entity_id: !input vpd_sensor,             below: !input vpd_low,            for: !input sustain_for }
+  - { trigger: numeric_state, id: temp_high_night, entity_id: !input temp_sensor,        above: !input temp_night_high,    for: !input sustain_for }
+  - { trigger: numeric_state, id: temp_low_night,  entity_id: !input temp_sensor,        below: !input temp_night_low,     for: !input sustain_for }
+  - { trigger: numeric_state, id: hum_high_night,  entity_id: !input humidity_sensor,    above: !input hum_night_high,     for: !input sustain_for }
+  - { trigger: numeric_state, id: hum_low_night,   entity_id: !input humidity_sensor,    below: !input hum_night_low,      for: !input sustain_for }
+  - { trigger: numeric_state, id: vpd_high_night,  entity_id: !input vpd_sensor,         above: !input vpd_night_high,     for: !input sustain_for }
+  - { trigger: numeric_state, id: vpd_low_night,   entity_id: !input vpd_sensor,         below: !input vpd_night_low,      for: !input sustain_for }
   - { trigger: numeric_state, id: soilm_low,   entity_id: !input soil_moisture_sensors,  below: !input soil_moisture_low,  for: !input sustain_for }
   - { trigger: numeric_state, id: soilm_high,  entity_id: !input soil_moisture_sensors,  above: !input soil_moisture_high, for: !input sustain_for }
   - { trigger: numeric_state, id: soilt_high,  entity_id: !input soil_temp_sensors,      above: !input soil_temp_high,     for: !input sustain_for }
@@ -454,7 +589,7 @@ actions:
       while:
         - condition: template
           value_template: >-
-            {% if a_kind == 'alarm' %}{{ (alarm_include_clears or not alarm_cleared) and (alarm_scope_all or not alarm_is_threshold) }}{% elif a_kind == 'state' %}{{ states(a_entity) == a_bad }}{% else %}{% set v = states(a_entity) | float(none) %}{{ v is not none and ((a_dir == 'above' and v > (a_thr | float(999999))) or (a_dir == 'below' and v < (a_thr | float(-999999)))) }}{% endif %}
+            {% if a_kind == 'alarm' %}{{ (alarm_include_clears or not alarm_cleared) and (alarm_allowed | bool) }}{% elif a_kind == 'state' %}{{ states(a_entity) == a_bad }}{% else %}{% set v = states(a_entity) | float(none) %}{{ v is not none and (regime_ok | bool) and ((a_dir == 'above' and v > (a_thr | float(999999))) or (a_dir == 'below' and v < (a_thr | float(-999999)))) }}{% endif %}
       sequence:
         - alias: Persistent notification
           if: "{{ enable_persistent }}"
@@ -465,9 +600,9 @@ actions:
                 title: "{{ alert_title }}"
                 message: "{{ alert_message }}"
         - alias: Mobile app notification
-          if: "{{ (mobile_notify_service | default('') | trim) | length > 0 }}"
+          if: "{{ (mobile_service | default('') | trim) | length > 0 }}"
           then:
-            - action: "{{ mobile_notify_service }}"
+            - action: "{{ mobile_service }}"
               data:
                 title: "{{ alert_title }}"
                 message: "{{ alert_message }}"

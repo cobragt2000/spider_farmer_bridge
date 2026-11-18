@@ -51,8 +51,9 @@ Run the test suite from the repository root:
 pytest tests/ -q
 ```
 
-Every push and pull request also runs the **Validate** workflow
-(`.github/workflows/validate.yml`): the pytest suite, HACS validation, and
+Every push and pull request also runs the **Validate ** workflow
+(`.github/workflows/validate.yml`) and **Home Assistant Python Scan ** workflow
+(`.github/workflows/code-scan.yml`): the pytest suite, HACS validation, and
 hassfest. A PR needs these green before it can be merged.
 
 ### Building the card

@@ -312,6 +312,44 @@ image:
 See [docs/ENTITIES.md](docs/ENTITIES.md#time-lapse) for the per-instance
 `sensor.sf_timelapse_<name>` attributes and the `sf.timelapse_*` services.
 
+## Alerts blueprint
+
+A ready-made automation blueprint, **Spider Farmer - Grow Alerts**, turns the bridge's
+sensors into grow-room alerts without writing any YAML. One blueprint covers every common
+alert — enable a check simply by giving it a threshold; anything left at its default stays
+off:
+
+- **Air** — temperature, humidity and VPD, each with a high *and* low threshold.
+- **Soil** — moisture, temperature and EC (high & low) across **any number of probes** at
+  once; the alert names whichever probe crossed.
+- **Device can't keep up** — the humidifier / dehumidifier / heater has run for X minutes
+  and its metric is *still* out of range (undersized, blocked, or an empty tank).
+- **Water leak** — any wet/leak `binary_sensor`, **any brand** (not just Spider Farmer);
+  alerts the moment one reads wet.
+- **Controller & device alarms** — relays the controller's own alarm log
+  (`sensor.sf_<panel>_alarms`): dehumidifier tank full, humidifier tank empty, a device
+  going offline, "light temperature too high", heater faults, and so on — naming the device
+  and the condition. Skips plain above/below-threshold events by default (your own
+  thresholds already cover those).
+
+Every alert waits a sustained time before firing (minutes **and** seconds, so a door
+opening or a mister pulse doesn't trip it), can re-notify on an interval while still out of
+range, and sends by any mix of a **persistent notification**, your **phone** (mobile-app
+notify service), a **spoken TTS announcement** on a media player, plus an **Extra actions**
+slot for anything else (a second phone, a siren, a webhook).
+
+**Install it:** Home Assistant → **Settings → Automations & scenes → Blueprints →
+Import blueprint**, and paste:
+
+```
+https://github.com/cobragt2000/spider_farmer_bridge/blob/main/blueprints/automation/spider_farmer/grow_alerts.yaml
+```
+
+Then **Create automation → Use blueprint → Spider Farmer - Grow Alerts**, pick your air
+sensors, set the thresholds you want, and choose how to be notified. Create one automation
+per tent if you run several. (The blueprint file also ships inside the integration at
+`blueprints/automation/spider_farmer/grow_alerts.yaml`.)
+
 ## Screenshots
 
 **Devices & entities** — everything modeled from live device evidence:

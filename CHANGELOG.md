@@ -3,6 +3,19 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.20.49 — "Grow Alerts" automation blueprint
+
+### Added
+- **A ready-made alerts blueprint — "Spider Farmer - Grow Alerts".** One blueprint turns the
+  bridge's sensors into grow-room alerts with no YAML: air temperature / humidity / VPD
+  (high & low), soil moisture / temperature / EC (high & low) across any number of probes,
+  "device can't keep up" for the humidifier / dehumidifier / heater, third-party water-leak
+  sensors (any brand), and a relay of the controller's own alarm log (tank full, tank empty,
+  device offline, light-temp, heater faults). Each alert has a sustained-for delay (minutes
+  and seconds), optional re-notify interval, and notifies by any mix of persistent
+  notification, mobile-app service, spoken TTS, and an extra-actions slot. Ships at
+  `blueprints/automation/spider_farmer/grow_alerts.yaml`; see the README for the import URL.
+
 ## 3.20.48 — CI: green, focused security scan + small lint cleanups
 
 ### Changed

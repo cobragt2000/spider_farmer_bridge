@@ -7,9 +7,9 @@ the latest release before reporting an issue.
 
 | Version | Supported |
 | ------- | --------- |
-| 3.19.x (latest) | :white_check_mark: |
-| 3.19.0 – 3.19.(latest-1) | :warning: update first |
-| 3.18.9 or earlier | :x: |
+| 3.20.x (latest) | :white_check_mark: |
+| 3.20.0 – 3.20.(latest-1) | :warning: update first |
+| 3.19.425 or earlier | :x: |
 
 ## Reporting a Vulnerability
 

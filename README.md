@@ -1,5 +1,6 @@
 # Spider Farmer Bridge for Home Assistant
 
+[![Wiki](https://img.shields.io/badge/Wiki-*Building*-blue.svg)](https://github.com/cobragt2000/spider_farmer_bridge/wiki)
 [![Validate](https://github.com/cobragt2000/spider_farmer_bridge/actions/workflows/validate.yml/badge.svg)](https://github.com/cobragt2000/spider_farmer_bridge/actions/workflows/validate.yml)
 [![Marketplace](https://img.shields.io/badge/Marketplace-Default-41BDF5.svg)](https://github.com/hacs/default)
 [![Discord](https://img.shields.io/badge/Discord-Join%20our%20chat-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/YZCcdwXTCp)

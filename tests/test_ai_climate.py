@@ -327,6 +327,62 @@ def test_fit_stats_of_parts_add_up_to_the_fit_of_the_whole():
     assert abs(ref.gains["blower"] - m.gains["blower"]) < 1e-9
 
 
+def _store_stream(seed=3, n=3000):
+    """An event-driven-like stream (6 s … 300 s gaps, a few multi-hour outages), with grow
+    light day/night, intake readings that come and go, appended in time order."""
+    import random
+    from custom_components.sf.ai_store import AiStore
+    rnd = random.Random(seed)
+    st = AiStore(":memory:")
+    t, temp, hum = 1.7e9, 24.0, 60.0
+    for step in range(n):
+        t += rnd.choice([6, 6, 6, 12, 60, 300, 300, 5000]) if step % 97 else 20000
+        vals = {"temperature": round(temp, 2), "humidity": round(hum, 1),
+                "blower": rnd.choice([20.0, 50.0, 80.0]), "heater": rnd.choice([0.0, 100.0]),
+                "light_1": 100.0 if (t / 3600) % 24 < 16 else 0.0}
+        if rnd.random() < 0.7:
+            vals["ambient_temperature"] = 10 + rnd.random()
+        if rnd.random() < 0.6:
+            vals["ambient_humidity"] = 40 + rnd.random()
+        temp += rnd.gauss(0, 0.1)
+        hum += rnd.gauss(0, 0.5)
+        yield st, t, vals
+
+
+def test_incremental_fit_equals_a_full_refit_and_reads_only_the_tail():
+    # Audit 3.20.51 (store on, Slow = all data): every 15-s pass loaded the whole store and
+    # refitted it (a year of 60-s capture: 4 s and ~600 MB per pass). IncrementalFit folds
+    # settled rows once; the models must equal a full refit over every sample.
+    from custom_components.sf.ai_climate import (
+        FULL_SPAN_S, IncrementalFit, regime_samples)
+    metrics, devices = ["temperature", "humidity"], ["blower", "heater", "light_1"]
+    inc = IncrementalFit(metrics, devices, ["light_1"], 12.0)
+    store = None
+    for i, (store, t, vals) in enumerate(_store_stream()):
+        store.append("dp1", t, vals)
+        if i % 50 == 49:
+            cov = store.stats("dp1")
+            totals = inc.update(lambda a, b, st=store: st.samples("dp1", metrics, a, b),
+                                cov["first"], cov["last"])
+    everything = store.samples("dp1", metrics)
+    assert len(everything) == 3000
+    assert inc.loaded < 300                       # last update read about the last hour only
+    for reg, rs in regime_samples(everything, ["light_1"]).items():
+        span = FULL_SPAN_S if reg == "all" else FULL_SPAN_S / 2
+        ref = fit_models(rs, metrics, devices, FULL_SAMPLES, 12.0, span)
+        for m in metrics:
+            got = inc.model(totals[(reg, m)], m, span)
+            assert got.n == ref[m].n and got.r2 == ref[m].r2, (reg, m)
+            assert got.confidence == ref[m].confidence
+            assert abs(got.drift - ref[m].drift) < 1e-12
+            for d in devices:
+                assert abs(got.gains[d] - ref[m].gains[d]) < 1e-12, (reg, m, d)
+            assert got.vent.keys() == ref[m].vent.keys()
+            for d in got.vent:
+                assert abs(got.vent[d] - ref[m].vent[d]) < 1e-12
+    store.close()
+
+
 def test_confidence_volume_counts_covered_time_not_rows():
     # The 'enough data' bar (7200 rows) assumed 2-min capture. Event-driven capture stores up
     # to a row per 6 s, so one busy day already counted as "full" — 10 days in the docs.

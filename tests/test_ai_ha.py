@@ -346,3 +346,50 @@ async def test_store_confidence_is_scored_by_covered_time(hass: HomeAssistant):
     assert md["confidence"] <= 0.1 + 1e-9
     store.close()
 
+
+
+async def test_store_path_slow_level_reads_only_new_rows(hass: HomeAssistant):
+    # Store on, learning speed Slow (all data, the default): each 15-s pass loaded the whole
+    # store. After the first pass only about the last hour is read.
+    from custom_components.sf.ai_store import AiStore
+    hass.states.async_set("sensor.sf_dp1_temperature", "24.0")
+    hass.states.async_set("sensor.sf_dp1_humidity", "60")
+    hass.states.async_set("sensor.sf_dp1_blower_speed", "40")
+    store = AiStore(":memory:")
+    now = time.time()
+    for i in range(3 * 24 * 60):                           # 3 days, a row per minute
+        store.append("dp1", now - 3 * 86400 + i * 60, {
+            "temperature": 24 + (i % 11) * 0.05, "humidity": 60.0 + (i % 7), "blower": 40.0 + (i % 3) * 20})
+    calls = []
+    orig = store.samples
+
+    def spy(panel, metrics, since_ts=0.0, until_ts=None):
+        calls.append(since_ts)
+        return orig(panel, metrics, since_ts, until_ts)
+
+    store.samples = spy
+    bus = SimpleNamespace(publish=lambda *a, **k: None)
+    first = await ai_learn.async_learn_panel(hass, bus, "dp1", "aa", store=store)
+    calls.clear()
+    store.append("dp1", now, {"temperature": 24.5, "humidity": 61.0, "blower": 60.0})
+    second = await ai_learn.async_learn_panel(hass, bus, "dp1", "aa", store=store)
+    assert calls and min(calls) > now - 2 * 3600, [now - c for c in calls]
+    assert second["samples"] == first["samples"] + 1
+    # …and the result is the full fit: a fresh bus (no cached fold) gives the same numbers.
+    # (The forecast test — and the learning % it can halve — is recomputed only every 10
+    # minutes by design, so compare the fitted numbers.)
+    def fitted(res):
+        return {m: {k: v for k, v in md.items() if k not in ("forecast", "confidence")}
+                for m, md in res["models"].items()}
+
+    third = await ai_learn.async_learn_panel(
+        hass, SimpleNamespace(publish=lambda *a, **k: None), "dp1", "aa", store=store)
+    assert fitted(third) == fitted(second)
+    # Rows changed other than by appending (purge) → the fold is rebuilt, still exact.
+    store.purge(now - 86400)
+    fourth = await ai_learn.async_learn_panel(hass, bus, "dp1", "aa", store=store)
+    fresh = await ai_learn.async_learn_panel(
+        hass, SimpleNamespace(publish=lambda *a, **k: None), "dp1", "aa", store=store)
+    assert fourth["samples"] == fresh["samples"] < second["samples"]
+    assert fitted(fourth) == fitted(fresh)
+    store.close()

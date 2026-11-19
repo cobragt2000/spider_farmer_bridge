@@ -413,3 +413,41 @@ def test_rows_without_a_value_are_skipped():
     got = s.samples("dp1", ["temperature"])
     assert got[0].outputs == {"blower": 50.0}
     s.close()
+
+
+def test_cached_coverage_and_profile_list_stay_exact():
+    # stats() and list_profiles() ran a COUNT(DISTINCT) over the whole store on every 15-s
+    # pass; they are now counted once and kept current. They must always equal a recount.
+    s = _store()
+
+    def recount(panel):
+        s._stats_cache.clear()
+        return s.stats(panel)
+
+    def check():
+        for p in ("dp1", "dp2", None):
+            cached = s.stats(p)
+            assert cached == recount(p), p
+
+    gen = s.generation
+    for t in (10.0, 20.0, 30.0):
+        s.append("dp1", t, {"temperature": 20.0, "blower": 1.0})
+        s.append("dp2", t, {"temperature": 21.0})
+        check()
+    assert s.generation == gen                       # appends don't invalidate a fold
+    s.append("dp1", 15.0, {"temperature": 20.5})     # out of order
+    check()
+    s.append("dp1", 30.0, {"temperature": 20.0})     # duplicate → ignored
+    check()
+    pid = s.save_profile("p", "dp1", {})
+    assert [p["name"] for p in s.list_profiles()] == ["p"]
+    s.purge(16.0)
+    check()
+    assert s.generation > gen
+    s.load_profile(pid, "dp2")
+    check()
+    s.reset("dp1")
+    check()
+    s.delete_profile(pid)
+    assert s.list_profiles() == []
+    s.close()

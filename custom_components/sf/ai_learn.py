@@ -25,8 +25,8 @@ from typing import Mapping, Optional, Sequence
 import re
 
 from .ai_climate import (
-    DENOISE_FRAMES, DENOISE_HALF_SEC, FULL_SAMPLES, FULL_SPAN_S,
-    fit_models, overall_confidence, split_day_night,
+    DENOISE_FRAMES, DENOISE_HALF_SEC, FULL_SAMPLES, FULL_SPAN_S, IncrementalFit,
+    fit_models, overall_confidence, regime_samples, split_day_night,
 )
 from .ai_history import _Cursor, build_samples, gear_effort, speed_effort
 from .ai_readiness import (
@@ -410,6 +410,44 @@ def _assemble(fitted: Mapping[str, tuple], slow: dict, fresh: bool) -> dict:
     if fresh:
         out["_slow"] = slow
     return out
+
+
+# The switch-on response and the forecast self-test (recomputed every SLOW_ANALYSIS_EVERY_S)
+# look at the most recent stretch of the store on the 'all data' level. Over a whole year
+# they read every sample each time; this keeps them to the newest 10 days — the same span the
+# confidence bar counts as 'enough' (stores up to 10 days are analysed in full, as before).
+READINESS_SPAN_S = 10 * 86400.0
+
+
+def learn_incremental(inc: IncrementalFit, totals: Mapping, readiness: Sequence,
+                      slow=None, full_span_s: float = FULL_SPAN_S) -> dict:
+    """Store path on the Slow ('all data') level: the models come from the IncrementalFit
+    totals (exactly the fit over every stored sample, without re-reading them). The slow
+    analyses use `readiness` — the newest READINESS_SPAN_S of samples; the self-test still
+    trains on EVERYTHING before its held-back stretch (the totals minus that stretch's rows)
+    and replays the stretch. Same result shape as `learn_samples`."""
+    metrics, devices = inc.metrics, inc.devices
+    fresh = slow is None
+    if fresh:
+        slow = {"steps": step_responses(readiness, metrics, devices), "selftest": {}}
+        rsets = regime_samples(readiness, inc.lights)
+        for reg in inc.regimes:
+            rs = rsets.get(reg, [])
+            span = full_span_s if reg == "all" else full_span_s / 2.0
+
+            def _train_models(train, _m, _d, reg=reg, rs=rs, span=span):
+                t_split = rs[len(train)].t if len(train) < len(rs) else float("inf")
+                hold = inc.scan(readiness, t_split, float("inf"), None, float("-inf"), reg)
+                return {m: inc.model(totals[(reg, m)] - hold[(reg, m)], m, span)
+                        for m in metrics}
+
+            slow["selftest"][reg] = forecast_selftest(rs, metrics, devices, _train_models)
+    fitted = {}
+    for reg in inc.regimes:
+        span = full_span_s if reg == "all" else full_span_s / 2.0
+        fitted[reg] = ({m: inc.model(totals[(reg, m)], m, span) for m in metrics},
+                       totals[(reg, metrics[0])].ns if metrics else 0)
+    return _assemble(fitted, slow, fresh)
 
 
 def learn(metric_series, output_series, *, step_s: float = 120.0, slow=None,
@@ -1046,11 +1084,33 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
         recent_win = 300.0                             # 5-min rolling window → live rows/hr
         recent_since = _t.time() - recent_win
         slow = _slow_cached(bus, panel)
+        fits = getattr(bus, "_ai_fit", None)
+        if fits is None:
+            fits = bus._ai_fit = {}
 
         def _fit():
-            samples = store.samples(panel, metrics, since)
-            res = learn_samples(samples, metrics, devices, FULL_SAMPLES, denoise, slow=slow,
-                                light_keys=lights, full_span_s=span)
+            if _win > 0:
+                # Windowed levels (≤ 7 days) refit their window each pass.
+                samples = store.samples(panel, metrics, since)
+                res = learn_samples(samples, metrics, devices, FULL_SAMPLES, denoise,
+                                    slow=slow, light_keys=lights, full_span_s=span)
+            else:
+                # Slow = all data, kept exact by folding settled rows once (IncrementalFit):
+                # each pass reads about the last hour instead of the whole store.
+                key = (id(store), store.generation, tuple(metrics), tuple(devices),
+                       tuple(lights), denoise)
+                ent = fits.get(panel)
+                if ent is None or ent[0] != key:
+                    ent = fits[panel] = (key, IncrementalFit(metrics, devices, lights, denoise))
+                inc = ent[1]
+                cov = store.stats(panel)
+                totals = inc.update(lambda a, b: store.samples(panel, metrics, a, b),
+                                    cov["first"], cov["last"])
+                readiness = []
+                if slow is None and cov["last"] is not None:
+                    readiness = store.samples(
+                        panel, metrics, max(float(cov["first"]), cov["last"] - READINESS_SPAN_S))
+                res = learn_incremental(inc, totals, readiness, slow=slow, full_span_s=span)
             res["_store_stats"] = store.stats(panel)   # rows + distinct-ts samples + range
             res["_store_bytes"] = store.size_bytes()   # whole-DB file size
             res["_store_recent"] = store.recent_samples(panel, recent_since)  # count in window

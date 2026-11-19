@@ -433,3 +433,104 @@ def overall_confidence(models: Mapping[str, MetricModel]) -> float:
     mean = sum(vals) / len(vals)
     return round(100.0 * (0.5 * worst + 0.5 * mean), 1)
 
+
+def regime_samples(samples: Sequence[Sample], light_keys: Sequence[str]) -> dict:
+    """{"all": samples} plus "day"/"night" subsets when there are grow lights."""
+    if not light_keys:
+        return {"all": list(samples)}
+    day, night = split_day_night(samples, light_keys)
+    return {"all": list(samples), "day": day, "night": night}
+
+
+class IncrementalFit:
+    """Exact running fit over an append-only, time-ordered sample stream — the durable store
+    on the 'all data' (Slow) learning level, where refitting everything every 15 s grew
+    without bound (a year of 60-s capture: 4 s and ~600 MB per pass).
+
+    A row (one interval) can no longer change once the samples after it — its end point and
+    the smoothing window around both ends — are stored. Such rows are folded into FitStats
+    per (regime, metric) exactly once; each update reads only the recent tail of the stream
+    (about an hour) and adds the tail's rows on top. The models solved from the sum are the
+    models a full refit over all data gives. A first update (or one after a long gap) folds
+    the history in day-sized pieces, so memory stays bounded too.
+
+    `load(since, until)` returns the stream's samples with since <= t < until (until None =
+    open end), time-ordered. Anything that changes stored rows other than appending newer
+    ones (purge, clean, profile load) needs a fresh IncrementalFit."""
+
+    CHUNK_S = 86400.0
+
+    def __init__(self, metrics: Sequence[str], devices: Sequence[str],
+                 light_keys: Sequence[str] = (), denoise_sec: float = DENOISE_HALF_SEC):
+        self.metrics = list(metrics)
+        self.devices = list(devices)
+        self.lights = [d for d in light_keys if d in self.devices]
+        self.denoise = float(denoise_sec)
+        self.vcols = [d for d in VENT_DEVICES if d in self.devices]
+        self.regimes = ["all"] + (["day", "night"] if self.lights else [])
+        k = len(self.devices) + len(self.vcols) + 1
+        self.folded = {(r, m): FitStats.empty(k) for r in self.regimes for m in self.metrics}
+        self.seed = {(r, m): float("nan") for r in self.regimes for m in self.metrics}
+        self.h = max([self._smooth(m) for m in self.metrics] or [0.0])
+        self.t_cut: float | None = None          # rows starting before this are folded
+        self.loaded = 0                          # samples read by the last update (for tests)
+
+    def _smooth(self, metric: str) -> float:
+        return self.denoise if metric in DENOISE_METRICS else 0.0
+
+    def scan(self, samples: Sequence[Sample], row_from: float, row_to: float,
+             seeds: Mapping | None = None, seed_from: float | None = None,
+             only_regime: str | None = None) -> dict:
+        """FitStats per (regime, metric) of the rows starting in [row_from, row_to), with
+        the new intake seeds under key "_seed"."""
+        out: dict = {"_seed": {}}
+        k = len(self.devices) + len(self.vcols) + 1
+        for reg, rs in regime_samples(samples, self.lights).items():
+            if only_regime is not None and reg != only_regime:
+                continue
+            for m in self.metrics:
+                seed = (seeds or {}).get((reg, m), float("nan"))
+                X, y, dt, ns, na, seed2 = _rows_core(
+                    rs, m, self.devices, self._smooth(m), self.vcols, row_from, row_to, seed,
+                    row_from if seed_from is None else seed_from)
+                out[(reg, m)] = (FitStats.from_rows(X, y, dt, ns, na) if len(y)
+                                 else FitStats(np.zeros((k, k)), np.zeros(k), ns=ns, na=na))
+                out["_seed"][(reg, m)] = seed2
+        return out
+
+    def _fold(self, samples: Sequence[Sample], end: float) -> None:
+        st = self.scan(samples, self.t_cut, end, self.seed)
+        for key in self.folded:
+            self.folded[key] = self.folded[key] + st[key]
+        self.seed = st["_seed"]
+        self.t_cut = end
+
+    def update(self, load, first_ts: float | None, newest_ts: float | None) -> dict:
+        """Bring the fold up to date and return the totals: {(regime, metric): FitStats}."""
+        self.loaded = 0
+        if first_ts is None or newest_ts is None:
+            return dict(self.folded)
+        ctx = self.h + 1.0                              # smoothing context before a slice
+        lag = MAX_DT_S + 2.0 * self.h + 60.0            # rows older than this are final
+        if self.t_cut is None:
+            self.t_cut = float(first_ts)
+        target = float(newest_ts) - lag
+        while target - self.t_cut > self.CHUNK_S:       # catch up in bounded pieces
+            end = self.t_cut + self.CHUNK_S
+            ss = load(self.t_cut - ctx, end + MAX_DT_S + self.h + 1.0)
+            self.loaded += len(ss)
+            self._fold(ss, end)
+        tail = load(self.t_cut - ctx, None)
+        self.loaded += len(tail)
+        if target > self.t_cut:
+            self._fold(tail, target)
+        st = self.scan(tail, self.t_cut, float("inf"), self.seed)
+        return {key: self.folded[key] + st[key] for key in self.folded}
+
+    def model(self, st: FitStats, metric: str, full_span_s: float | None = FULL_SPAN_S,
+              full_samples: float = FULL_SAMPLES) -> MetricModel:
+        """Solve one metric's model from (summed) stats of this fit's column layout; the
+        ventilation term is used when at least half the samples carry an intake reading."""
+        use_vent = bool(st.ns) and st.na / st.ns >= 0.5
+        return model_from_stats(st, metric, self.devices, self.vcols, use_vent,
+                                full_samples, full_span_s)

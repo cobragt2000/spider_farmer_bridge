@@ -52,6 +52,12 @@ class AiStore:
         # multi-statement change opens its own (see `_tx`).
         self._db: sqlite3.Connection | None = sqlite3.connect(
             path, check_same_thread=False, isolation_level=None)
+        # Bumped whenever rows change other than by appending newer captures (purge, clean,
+        # profile load, …), so readers that keep derived results (the incremental fit, the
+        # cached coverage numbers) know to rebuild them.
+        self.generation = 0
+        self._stats_cache: dict = {}
+        self._profiles_cache: list | None = None
         with self._tx() as db:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS samples (panel TEXT, ts REAL, k TEXT, v REAL, "
@@ -119,6 +125,11 @@ class AiStore:
         with self._lock:
             return self._conn().execute(sql, args).fetchone()
 
+    def _changed(self) -> None:
+        """Rows changed in a way an appending capture doesn't: drop derived caches."""
+        self.generation += 1
+        self._stats_cache.clear()
+
     @property
     def closed(self) -> bool:
         return self._db is None
@@ -139,8 +150,26 @@ class AiStore:
         if not rows:
             return
         with self._tx() as db:
-            db.executemany(
-                "INSERT OR IGNORE INTO samples (panel, ts, k, v) VALUES (?,?,?,?)", rows)
+            added = db.executemany(
+                "INSERT OR IGNORE INTO samples (panel, ts, k, v) VALUES (?,?,?,?)", rows).rowcount
+            self._note_append(panel, float(ts), added)
+
+    def _note_append(self, panel: str, ts: float, added: int) -> None:
+        """Keep the cached coverage numbers in step with an append (lock held)."""
+        if added <= 0:
+            return
+        for key in (panel, None):
+            c = self._stats_cache.get(key)
+            if c is None:
+                continue
+            if c["last"] is not None and ts <= c["last"]:
+                self._stats_cache.pop(key, None)     # out of order: recount next time
+                continue
+            c["rows"] += added
+            c["samples"] += 1
+            c["last"] = ts
+            if c["first"] is None:
+                c["first"] = ts
 
     def samples(self, panel: str, metric_names: Sequence[str],
                 since_ts: float = 0.0, until_ts: float | None = None) -> list[Sample]:
@@ -182,6 +211,7 @@ class AiStore:
             else:
                 n = db.execute("DELETE FROM samples WHERE panel=?", (panel,)).rowcount
                 db.execute("DELETE FROM meta WHERE panel=?", (panel,))
+            self._changed()
         return n
 
     def delete_since(self, panel: str, since_ts: float) -> int:
@@ -191,6 +221,7 @@ class AiStore:
         with self._tx() as db:
             n = db.execute(
                 "DELETE FROM samples WHERE panel=? AND ts >= ?", (panel, float(since_ts))).rowcount
+            self._changed()
         return n
 
     def purge(self, before_ts: float) -> int:
@@ -201,6 +232,8 @@ class AiStore:
         with self._tx() as db:
             n = db.execute("DELETE FROM samples WHERE ts < ? AND loaded = 0",
                            (float(before_ts),)).rowcount
+            if n:
+                self._changed()
         return n
 
     def trim_sparse(self, panel: str, dense_max_s: float) -> int:
@@ -227,20 +260,29 @@ class AiStore:
                 return 0                                     # all dense (or all sparse) → leave it
             n = db.execute(
                 "DELETE FROM samples WHERE panel=? AND ts < ?", (panel, float(boundary))).rowcount
+            self._changed()
         return n
 
     def stats(self, panel: str | None = None) -> dict:
         """Coverage for one panel (or all): raw key-row count, distinct-timestamp
         SAMPLE count (what the learner actually trains on — each timestamp carries
-        several metric/device key-rows), and first/last timestamp."""
-        if panel is None:
-            row = self._one(
-                "SELECT COUNT(*), COUNT(DISTINCT ts), MIN(ts), MAX(ts) FROM samples")
-        else:
-            row = self._one(
-                "SELECT COUNT(*), COUNT(DISTINCT ts), MIN(ts), MAX(ts) "
-                "FROM samples WHERE panel=?", (panel,))
-        return {"rows": row[0] or 0, "samples": row[1] or 0, "first": row[2], "last": row[3]}
+        several metric/device key-rows), and first/last timestamp. Counted once and then
+        kept up to date by `append` (the live pass asks every 15 s; a COUNT(DISTINCT)
+        over a year of rows took ~0.15 s each time)."""
+        with self._lock:
+            c = self._stats_cache.get(panel)
+            if c is None:
+                if panel is None:
+                    row = self._one(
+                        "SELECT COUNT(*), COUNT(DISTINCT ts), MIN(ts), MAX(ts) FROM samples")
+                else:
+                    row = self._one(
+                        "SELECT COUNT(*), COUNT(DISTINCT ts), MIN(ts), MAX(ts) "
+                        "FROM samples WHERE panel=?", (panel,))
+                c = {"rows": row[0] or 0, "samples": row[1] or 0,
+                     "first": row[2], "last": row[3]}
+                self._stats_cache[panel] = c
+            return dict(c)
 
     def recent_samples(self, panel: str, since_ts: float) -> int:
         """Distinct-timestamp SAMPLE count for `panel` at/after `since_ts`. Used for the
@@ -281,24 +323,29 @@ class AiStore:
             db.execute(
                 "INSERT INTO profile_samples (profile_id, ts, k, v) "
                 "SELECT ?, ts, k, v FROM samples WHERE panel=?", (pid, panel))
+            self._profiles_cache = None
         return int(pid)
 
     def list_profiles(self) -> list[dict]:
         """All saved profiles, newest first: id, name, panel, created, meta(dict),
-        and the distinct-timestamp sample count the profile holds."""
-        rows = self._all(
-            "SELECT p.id, p.name, p.panel, p.created, p.meta, "
-            "       (SELECT COUNT(DISTINCT ts) FROM profile_samples s WHERE s.profile_id=p.id) "
-            "FROM profiles p ORDER BY p.created DESC")
-        out = []
-        for pid, name, panel, created, meta, nsamp in rows:
-            try:
-                m = json.loads(meta) if meta else {}
-            except (ValueError, TypeError):
-                m = {}
-            out.append({"id": int(pid), "name": name, "panel": panel,
-                        "created": created, "meta": m, "samples": int(nsamp or 0)})
-        return out
+        and the distinct-timestamp sample count the profile holds. Cached until a profile
+        is saved or deleted (it was re-counted on every 15-s pass)."""
+        with self._lock:
+            if self._profiles_cache is None:
+                rows = self._all(
+                    "SELECT p.id, p.name, p.panel, p.created, p.meta, "
+                    "       (SELECT COUNT(DISTINCT ts) FROM profile_samples s WHERE s.profile_id=p.id) "
+                    "FROM profiles p ORDER BY p.created DESC")
+                out = []
+                for pid, name, panel, created, meta, nsamp in rows:
+                    try:
+                        m = json.loads(meta) if meta else {}
+                    except (ValueError, TypeError):
+                        m = {}
+                    out.append({"id": int(pid), "name": name, "panel": panel,
+                                "created": created, "meta": m, "samples": int(nsamp or 0)})
+                self._profiles_cache = out
+            return json.loads(json.dumps(self._profiles_cache))   # callers get their own copy
 
     def load_profile(self, profile_id: int, panel: str, replace: bool = False) -> int:
         """Copy a profile's samples into `panel`'s live store. `replace` clears the panel
@@ -324,6 +371,7 @@ class AiStore:
                 "           AND (SELECT MAX(ts) FROM profile_samples WHERE profile_id=?) "
                 "AND EXISTS (SELECT 1 FROM profile_samples p WHERE p.profile_id=? "
                 "            AND p.ts=samples.ts AND p.k=samples.k)", (panel, pid, pid, pid))
+            self._changed()
         return added
 
     def _delete_profile(self, db, profile_id: int) -> int:
@@ -334,12 +382,14 @@ class AiStore:
         """Delete a profile and its samples. Returns 1 if a profile was removed."""
         with self._tx() as db:
             n = self._delete_profile(db, profile_id)
+            self._profiles_cache = None
         return n
 
     def delete_profile_by_name(self, name: str) -> int:
         with self._tx() as db:
             row = db.execute("SELECT id FROM profiles WHERE name=?", (str(name),)).fetchone()
             n = self._delete_profile(db, row[0]) if row else 0
+            self._profiles_cache = None
         return n
 
     def close(self) -> None:

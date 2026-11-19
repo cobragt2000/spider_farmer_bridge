@@ -425,3 +425,35 @@ def test_merge_history_equals_a_full_read():
         cached = merge_history(cached, new, end - days_s)
         assert cached == _recorder_read(rows, end - days_s, end), end
         prev_end = end
+
+
+async def test_forced_pass_waits_and_never_overlaps(monkeypatch):
+    # Audit 3.20.51: force=True bypassed the running-pass guard and the first pass to
+    # finish cleared it, so a forced pass (profile save/load, clean) ran alongside a
+    # scheduled one and the next tick started a third.
+    import asyncio
+    import types
+    import custom_components.sf.ai_learn as al
+
+    running = peak = 0
+    order: list = []
+
+    async def fake_panel(hass, bus, slot, mac, days, store=None, zone=None):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        order.append(bus._ai_slow == {} and "forced-data" or "tick")
+        await asyncio.sleep(0.05)
+        running -= 1
+
+    monkeypatch.setattr(al, "async_learn_panel", fake_panel)
+    bus = types.SimpleNamespace(_slot_cache={"aa": "dp1"}, _ai_zones=[], _ai_slow={"x": 1})
+    a = asyncio.create_task(al.async_learn_bus(None, bus))               # scheduled tick
+    await asyncio.sleep(0.01)
+    b = asyncio.create_task(al.async_learn_bus(None, bus, force=True))   # user action
+    await asyncio.sleep(0.06)                                            # a done, b running
+    c = asyncio.create_task(al.async_learn_bus(None, bus))               # next tick
+    await asyncio.gather(a, b, c)
+    assert peak == 1
+    assert order == ["tick", "forced-data"]       # the forced pass ran, after the tick
+    assert bus._ai_learning is False

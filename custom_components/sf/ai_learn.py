@@ -1132,28 +1132,36 @@ async def async_learn_bus(hass, bus, days: float = BACKFILL_DAYS, store=None,
     Re-entrancy guarded: if a pass is already running (e.g. a scheduled tick fires
     while a manual sf.ai_learn is still going), skip rather than pile up overlapping
     recorder reads — keeps the integration from hogging the executor / lagging HA.
-    `force=True` bypasses that skip and also resets the cadence stamp, so a user action
-    (clean, load/save/delete a profile) refreshes the card NOW rather than waiting for
-    the next throttled tick."""
+    `force=True` (a user action: clean, load/save/delete a profile) does not skip: it WAITS
+    for a running pass to finish and then runs, so the card refreshes right after the
+    action without two passes ever running at once. It also resets the cadence stamp.
+    The guard is one asyncio.Lock per bus, held by whichever pass is running — a pass can
+    only release its own hold (the old boolean flag was cleared by whichever pass finished
+    first, letting a third pass start alongside a forced one)."""
+    import asyncio
     import logging
     log = logging.getLogger(__name__)
-    if getattr(bus, "_ai_learning", False) and not force:
+    lock = getattr(bus, "_ai_learn_lock", None)
+    if lock is None:
+        lock = bus._ai_learn_lock = asyncio.Lock()
+    if lock.locked() and not force:
         log.debug("sf ai_learn: a pass is already running — skipping this trigger")
         return
-    bus._ai_learning = True
-    if force:
-        bus._ai_last_fit = 0.0          # let the next heartbeat fire promptly too
-        bus._ai_slow = {}               # data changed — recompute step responses + self-test
-    zones = getattr(bus, "_ai_zones", []) or []
-    try:
-        for mac, slot in dict(getattr(bus, "_slot_cache", {})).items():
-            kind, z = resolve_panel(slot, zones)
-            if kind == "absorbed":
-                continue        # learned as part of its zone's sensor panel
-            try:
-                await async_learn_panel(hass, bus, slot, mac, days, store=store,
-                                        zone=z if kind == "zone" else None)
-            except Exception:  # noqa: BLE001 — one panel's failure is isolated
-                log.exception("sf ai_learn: pass failed for panel %s (%s)", slot, mac)
-    finally:
-        bus._ai_learning = False
+    async with lock:
+        bus._ai_learning = True         # informational; set/cleared only by the lock holder
+        if force:
+            bus._ai_last_fit = 0.0      # let the next heartbeat fire promptly too
+            bus._ai_slow = {}           # data changed — recompute step responses + self-test
+        zones = getattr(bus, "_ai_zones", []) or []
+        try:
+            for mac, slot in dict(getattr(bus, "_slot_cache", {})).items():
+                kind, z = resolve_panel(slot, zones)
+                if kind == "absorbed":
+                    continue        # learned as part of its zone's sensor panel
+                try:
+                    await async_learn_panel(hass, bus, slot, mac, days, store=store,
+                                            zone=z if kind == "zone" else None)
+                except Exception:  # noqa: BLE001 — one panel's failure is isolated
+                    log.exception("sf ai_learn: pass failed for panel %s (%s)", slot, mac)
+        finally:
+            bus._ai_learning = False

@@ -11881,33 +11881,58 @@ export class SpiderPpfdCard extends LitElement {
     return this.plantPositions().map(([x, z]) =>
       Math.round(this.radialPpfd(center, avg, edge, Math.hypot(x, z) / maxR) * cal));
   }
-  // Top-down drag map for Custom placement.
-  private _plantMap() {
+  // Plant-map geometry in SVG units: the tent outline keeps the true proportions
+  // (Ht tall, from y0) inside a viewBox at least 40 tall, so the dots stay usable on
+  // a very slim tent. Drawing and pointer maths both use it.
+  private _mapGeom(): { land: boolean; W: number; H: number; y0: number; Ht: number } {
     const { tW, tL } = this.s;
     const land = tL >= tW;                          // longer tent side drawn horizontally
     const longL = land ? tL : tW, shortL = land ? tW : tL;
-    const W = 100, H = Math.max(40, Math.round(100 * shortL / longL));
+    const W = 100, Ht = 100 * shortL / longL, H = Math.max(40, Ht);
+    return { land, W, H, y0: (H - Ht) / 2, Ht };
+  }
+  // Top-down drag map for Custom placement.
+  private _plantMap() {
+    const { tW, tL } = this.s;
+    const { land, W, H, y0, Ht } = this._mapGeom();
     const pos = this.plantPositions();
     return html`<div class="pmapwrap">
       <div class="hint">${loc("Drag each plant to place it in the tent (shown from above).")}</div>
-      <svg class="pmap" viewBox="0 0 ${W} ${H}" style="aspect-ratio:${longL} / ${shortL}"
+      <svg class="pmap" viewBox="0 0 ${W} ${H}" style="aspect-ratio:${W} / ${H}"
         @pointermove=${this._mapMove} @pointerup=${this._mapUp} @pointerleave=${this._mapUp}>
-        <rect x="1" y="1" width=${W - 2} height=${H - 2} rx="3" class="pmaptent"></rect>
-        <line x1=${W / 2} y1="1" x2=${W / 2} y2=${H - 1} class="pmapmid"></line>
-        <line x1="1" y1=${H / 2} x2=${W - 1} y2=${H / 2} class="pmapmid"></line>
+        <rect x="1" y=${y0 + 1} width=${W - 2} height=${Ht - 2} rx="3" class="pmaptent"></rect>
+        <line x1=${W / 2} y1=${y0 + 1} x2=${W / 2} y2=${y0 + Ht - 1} class="pmapmid"></line>
+        <line x1="1" y1=${y0 + Ht / 2} x2=${W - 1} y2=${y0 + Ht / 2} class="pmapmid"></line>
         ${pos.map(([x, z], i) => {
           const cfx = x / tW, cfz = z / tL;
           const hF = land ? cfz : cfx, vF = land ? cfx : cfz;
-          const cx = (hF + 0.5) * W, cy = (vF + 0.5) * H;
+          const cx = (hF + 0.5) * W, cy = y0 + (vF + 0.5) * Ht;
           return svg`<circle cx=${cx} cy=${cy} r="5" class="pmapdot" @pointerdown=${(e: PointerEvent) => this._mapDown(i, e)}></circle><text x=${cx} y=${cy + 2.3} class="pmaptxt">${i + 1}</text>`; })}
       </svg>
     </div>`;
   }
+  // Pointer → [horizontal, vertical] tent fraction (-0.5..0.5) on the plant map. Goes
+  // through the SVG's screen matrix, so it stays exact where the drawing doesn't fill
+  // the element box (letterboxing); the bounding box is only a fallback.
+  private _mapPt(svgEl: SVGSVGElement, e: PointerEvent): [number, number] {
+    const { W, H, y0, Ht } = this._mapGeom();
+    const m = svgEl.getScreenCTM?.();
+    let x: number, y: number;
+    if (m) {
+      const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
+      x = p.x; y = p.y;
+    } else {
+      const rc = svgEl.getBoundingClientRect();
+      x = (e.clientX - rc.left) / rc.width * W; y = (e.clientY - rc.top) / rc.height * H;
+    }
+    return [x / W - 0.5, (y - y0) / Ht - 0.5];
+  }
   // Pointer → [width-frac, length-frac], honouring landscape orientation + the grab offset.
-  private _mapFracs(e: PointerEvent, rc: DOMRect): [number, number] {
+  private _mapFracs(e: PointerEvent, svgEl: SVGSVGElement): [number, number] {
     const land = this.s.tL >= this.s.tW;
-    let hF = (e.clientX - rc.left) / rc.width - 0.5 + this._dragOff[0];
-    let vF = (e.clientY - rc.top) / rc.height - 0.5 + this._dragOff[1];
+    const [pH, pV] = this._mapPt(svgEl, e);
+    let hF = pH + this._dragOff[0];
+    let vF = pV + this._dragOff[1];
     hF = Math.max(-0.48, Math.min(0.48, hF)); vF = Math.max(-0.48, Math.min(0.48, vF));
     return land ? [vF, hF] : [hF, vF];
   }
@@ -11916,8 +11941,7 @@ export class SpiderPpfdCard extends LitElement {
     const svgEl = (e.target as Element).closest("svg") as SVGSVGElement | null;
     const land = this.s.tL >= this.s.tW;
     if (svgEl) {
-      const rc = svgEl.getBoundingClientRect();
-      const pH = (e.clientX - rc.left) / rc.width - 0.5, pV = (e.clientY - rc.top) / rc.height - 0.5;
+      const [pH, pV] = this._mapPt(svgEl, e);
       const cur = (this.s.custom && this.s.custom[i]) ? this.s.custom[i] : [0, 0];
       const dotH = land ? cur[1] : cur[0], dotV = land ? cur[0] : cur[1];
       this._dragOff = [dotH - pH, dotV - pV];       // keep the grabbed point under the pointer
@@ -11927,8 +11951,7 @@ export class SpiderPpfdCard extends LitElement {
   }
   private _mapMove(e: PointerEvent): void {
     if (this._dragPlant < 0) return;
-    const rc = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
-    const [cfx, cfz] = this._mapFracs(e, rc);
+    const [cfx, cfz] = this._mapFracs(e, e.currentTarget as SVGSVGElement);
     if (!this.s.custom) this.s.custom = [];
     this.s.custom[this._dragPlant] = [cfx, cfz];
     this.dirty = true; this.repaint();

@@ -2283,10 +2283,12 @@ export class SpiderFarmerCard extends LitElement {
     if (id) this._used.add(id);
     return this.hass?.states[id];
   }
-  // True if any entity we read last render changed state between two hass objects.
+  // True if any entity we read last render changed state between two hass objects
+  // (or the user's language changed — the texts follow it).
   private _hassTouchedUs(oldH?: Hass, newH?: Hass): boolean {
     if (!oldH || !newH) return true;
     if (this._used.size === 0) return true;      // haven't rendered yet — don't skip
+    if ((oldH as any).locale !== (newH as any).locale || (oldH as any).language !== (newH as any).language) return true;
     for (const id of this._used) if (oldH.states[id] !== newH.states[id]) return true;
     return false;
   }
@@ -2297,10 +2299,14 @@ export class SpiderFarmerCard extends LitElement {
   protected shouldUpdate(changed: PropertyValues): boolean {
     // A hass-only change that didn't touch any entity we render → skip. Other
     // state (tab, drafts, timers, reorder…) still renders via the allowlist below.
+    // The embedded PPFD / Climate AI card gets the new hass handed over directly and
+    // filters for itself, so its tab no longer re-renders this whole card on every
+    // HA state change.
     if (changed.size === 1 && changed.has("hass")
-        && !this._hassTouchedUs(changed.get("hass") as Hass | undefined, this.hass)
-        && this.tab !== "ppfd" && this.tab !== "ai")
+        && !this._hassTouchedUs(changed.get("hass") as Hass | undefined, this.hass)) {
+      for (const el of [this._ppfdEl, this._aiEl]) if (el && el.isConnected) el.hass = this.hass;
       return false;
+    }
     return changed.has("config") || changed.has("hass")
       || changed.has("tab") || changed.has("soilOpen") || changed.has("soilGraphOpen")
       || changed.has("soilAllOpen") || changed.has("soilMode") || changed.has("soilKeep")
@@ -6526,7 +6532,7 @@ export class SpiderFarmerCard extends LitElement {
   // Overview AI tile: learning confidence, taps through to the Climate AI view. (v3.20.43)
   private _aiTile() {
     const p = this.config.panel;
-    const st = p ? this.hass?.states[`sensor.sf_${p}_ai_confidence`] : undefined;
+    const st = p ? this.get(`sensor.sf_${p}_ai_confidence`) : undefined;
     if (!st || st.state === "unknown" || st.state === "unavailable") return nothing;
     const conf = Math.round(parseFloat(st.state) || 0);
     const open = this.aiTileOpen;
@@ -13765,7 +13771,7 @@ export class SpiderAiStatsCard extends LitElement {
     const h = this.hass; if (!h) return nothing;
     const p = this._activePanel();
     const num = (eid?: string) => {
-      const s = eid ? h.states[eid] : undefined;
+      const s = eid ? this._st(eid) : undefined;
       const v = s ? parseFloat(s.state) : NaN;
       return { ok: Number.isFinite(v), v, unit: s?.attributes?.unit_of_measurement || "" };
     };
@@ -13798,8 +13804,8 @@ export class SpiderAiStatsCard extends LitElement {
     const h = this.hass; if (!h) return null;
     const ambEid = mk === "temperature" ? this._ambientTemp : mk === "humidity" ? this._ambientHumidity : "";
     if (!ambEid) return null;
-    const a = parseFloat(h.states[ambEid]?.state);
-    const t = parseFloat(h.states[`sensor.sf_${this._activePanel()}_${mk}`]?.state);
+    const a = parseFloat(this._st(ambEid)?.state);
+    const t = parseFloat(this._st(`sensor.sf_${this._activePanel()}_${mk}`)?.state);
     return (Number.isFinite(a) && Number.isFinite(t)) ? a - t : null;
   }
   // The blower's real effect is ventilation (it pulls cooler/drier intake through the tent),
@@ -14004,15 +14010,20 @@ export class SpiderAiStatsCard extends LitElement {
   getCardSize() { return 8; }
   static getStubConfig() { return { type: "custom:spider-ai-card" }; }
 
-  // All AI-confidence sensors present, as {panel, eid}.
+  // All AI-confidence sensors present, as {panel, eid}. Scans every entity id, so the
+  // result is kept per hass.states object (a render asks for it many times).
+  private _sensCache: { states: any; list: { panel: string; eid: string }[] } | null = null;
   private _sensors(): { panel: string; eid: string }[] {
     const h = this.hass; if (!h) return [];
+    if (this._sensCache && this._sensCache.states === h.states) return this._sensCache.list;
     const out: { panel: string; eid: string }[] = [];
     for (const eid of Object.keys(h.states)) {
       const m = eid.match(/^sensor\.sf_(.+)_ai_confidence$/);
       if (m) out.push({ panel: m[1], eid });
     }
-    return out.sort((a, b) => a.panel.localeCompare(b.panel));
+    out.sort((a, b) => a.panel.localeCompare(b.panel));
+    this._sensCache = { states: h.states, list: out };
+    return out;
   }
   // The configured panel, even when it has no learning sensor (then the card says so
   // rather than showing — and writing — another panel's data); unset = first found.
@@ -14028,7 +14039,27 @@ export class SpiderAiStatsCard extends LitElement {
   }
   private _entity() {
     const p = this._activePanel();
-    return p ? this.hass?.states[`sensor.sf_${p}_ai_confidence`] : undefined;
+    return p ? this._st(`sensor.sf_${p}_ai_confidence`) : undefined;
+  }
+  // Entities read during the last render: a hass change that touched none of them
+  // (and added/removed no learning sensor, kept the language) skips the render — HA
+  // hands every card a new hass on each state change anywhere. Same scheme as the
+  // Spider card's _used. The Settings tab always renders (its entity pickers want
+  // the live hass).
+  private _used = new Set<string>();
+  private _usedPanels = "";
+  private _st(id: string): any {
+    if (id) this._used.add(id);
+    return this.hass?.states[id];
+  }
+  protected shouldUpdate(changed: PropertyValues): boolean {
+    if (changed.size !== 1 || !changed.has("hass") || this._tab !== "overview") return true;
+    const oldH = changed.get("hass") as any, h = this.hass;
+    if (!oldH || !h || !this._used.size) return true;
+    if (oldH.locale !== h.locale || oldH.language !== h.language) return true;
+    if (this._sensors().map((x) => x.panel).join() !== this._usedPanels) return true;
+    for (const id of this._used) if (oldH.states[id] !== h.states[id]) return true;
+    return false;
   }
   private accent() { return "var(--sf-ai-accent, #7c5cff)"; }
 
@@ -14048,8 +14079,8 @@ export class SpiderAiStatsCard extends LitElement {
     const out: { key: string; panel: string; n: number; mode: string; env: boolean }[] = [];
     for (const panel of this._zonePanels()) {
       for (let n = 1; n <= MAX_OUTLETS; n++) {
-        if (!h.states[`switch.sf_${panel}_outlet_${n}`]) continue;
-        const mode = String(h.states[`select.sf_${panel}_outlet_${n}_mode`]?.state || "").trim();
+        if (!this._st(`switch.sf_${panel}_outlet_${n}`)) continue;
+        const mode = String(this._st(`select.sf_${panel}_outlet_${n}_mode`)?.state || "").trim();
         out.push({ key: `${panel}:outlet_${n}`, panel, n, mode, env: ENV.has(mode) });
       }
     }
@@ -14153,7 +14184,7 @@ export class SpiderAiStatsCard extends LitElement {
     if (meta.external || /^ext_\d+$/.test(dev)) {
       const role = meta.role && meta.role !== "other"
         ? loc(meta.role.charAt(0).toUpperCase() + meta.role.slice(1)) : loc("External");
-      const fn = meta.entity_id ? this.hass?.states?.[meta.entity_id]?.attributes?.friendly_name : "";
+      const fn = meta.entity_id ? this._st(meta.entity_id)?.attributes?.friendly_name : "";
       return fn ? `${fn} · ${role}` : loc("{role} (external)", { role });
     }
     const pm = dev.match(/^([a-z0-9]+):(.+)$/i);
@@ -14526,6 +14557,8 @@ export class SpiderAiStatsCard extends LitElement {
   render() {
     setLanguage(this.hass);
     if (!this.hass) return nothing;
+    this._used = new Set();
+    this._usedPanels = this._sensors().map((x) => x.panel).join();
     const title = this._config.title || loc("AI Climate Stats");
     const hasTabs = this._tabsShown();
     return html`<ha-card>

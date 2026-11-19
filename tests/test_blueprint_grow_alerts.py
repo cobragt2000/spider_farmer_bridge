@@ -210,6 +210,105 @@ async def test_lights_off_while_still_warm(hass, freezer):
 
 
 # ---------------------------------------------------------------------------
+# 3 / 4 — controller alarms come from sf_alarm, classified by alarm type
+# ---------------------------------------------------------------------------
+
+
+def _alarm(i, devtype, alarm_type, text, device):
+    return {"id": i, "epoch": 1000 + i, "time": f"2026-11-01T10:{i:02d}:00+00:00", "devType": devtype,
+            "device": device, "alarmType": alarm_type, "alarm": text}
+
+
+TANK = _alarm(5, 26, 5, "Dehumidifier water tank is full", "Dehumidification")
+TANK_CLEAR = _alarm(8, 26, None, "Restoring normal", "Dehumidification")
+THRESH = _alarm(6, 1, 1, "Above threshold", "Air Temp")
+THRESH_CLEAR = _alarm(7, 1, None, "Restoring normal", "Air Temp")
+OFF_4IN1 = _alarm(9, 17, 3, "Current device is offline", "4-in-1 Sensor")
+OFF_SOIL = _alarm(10, 19, 3, "Current device is offline", "Soil Sensor")
+
+
+def _alarm_state(hass, events):
+    hass.states.async_set(ALARMS, events[0]["time"] if events else "none",
+                          {"sf_device": CTRL, "count": len(events), "events": events, "friendly_name": "Alarms"})
+
+
+async def _fire_alarm(hass, entry, log, mac=CTRL):
+    """What the integration does for a new log entry: publish the merged log on
+    the sensor, then fire sf_alarm for the new entry."""
+    _alarm_state(hass, log)
+    hass.bus.async_fire("sf_alarm", {"mac": mac, **entry})
+    await _spin(hass)
+
+
+async def test_alarm_relay_ignores_sensor_churn_and_relays_each_new_alarm(hass):
+    alerts = await _setup(hass, {"alarms_sensors": [ALARMS]}, {ALARMS: ("none", {"sf_device": CTRL, "events": []})})
+    # Sensor goes unavailable (attributes dropped) and comes back with the same log,
+    # restores as "none" after a reload, and an older entry is backfilled: no alerts.
+    await _set(hass, ALARMS, "unavailable", {"friendly_name": "Alarms"})
+    _alarm_state(hass, [TANK])
+    await _spin(hass)
+    _alarm_state(hass, [TANK, _alarm(1, 2, 2, "Below threshold", "Humidity")])
+    await _spin(hass)
+    assert alerts == []
+    # Two new offline alarms in the same frame: both relayed.
+    log = [OFF_SOIL, OFF_4IN1, TANK]
+    _alarm_state(hass, log)
+    hass.bus.async_fire("sf_alarm", {"mac": CTRL, **OFF_4IN1})
+    hass.bus.async_fire("sf_alarm", {"mac": CTRL, **OFF_SOIL})
+    await _spin(hass)
+    assert sorted(a[2] for a in alerts) == ["4-in-1 Sensor: Current device is offline",
+                                            "Soil Sensor: Current device is offline"]
+    # Another controller's alarm (its sensor isn't picked): not relayed.
+    await _fire_alarm(hass, TANK_CLEAR, log, mac="001122334455")
+    assert len(alerts) == 2
+
+
+async def test_alarm_matched_by_device_when_sensor_has_no_attributes(hass):
+    """The picked sensor is matched to the controller through its device too
+    (e.g. while it is unavailable and carries no sf_device attribute)."""
+    entry = MockConfigEntry(domain="sf")
+    entry.add_to_hass(hass)
+    dev = dr.async_get(hass).async_get_or_create(config_entry_id=entry.entry_id,
+                                                 identifiers={("sf", f"ggs_{CTRL}")}, name="Panel")
+    from homeassistant.helpers import entity_registry as er
+    er.async_get(hass).async_get_or_create("sensor", "sf", "alarms_x", suggested_object_id="sf_dp1_alarms",
+                                           config_entry=entry, device_id=dev.id)
+    alerts = await _setup(hass, {"alarms_sensors": [ALARMS]}, {ALARMS: "unavailable"})
+    hass.bus.async_fire("sf_alarm", {"mac": CTRL, **TANK})
+    await _spin(hass)
+    assert [a[2] for a in alerts] == ["Dehumidification: Dehumidifier water tank is full"]
+
+
+@pytest.mark.parametrize(
+    ("scope", "expected"),
+    [
+        # "Faults only": the threshold alarm is filtered, so is its clear.
+        (["Faults only (tank, offline, light-temp, etc.)"],
+         ["Dehumidification: Dehumidifier water tank is full", "Dehumidification: Restoring normal"]),
+        # "Tank / water": the tank alarm AND its clear.
+        (["Tank / water (full or empty)"],
+         ["Dehumidification: Dehumidifier water tank is full", "Dehumidification: Restoring normal"]),
+        # "Above / below threshold": only the threshold pair.
+        (["Above / below threshold"], ["Air Temp: Above threshold", "Air Temp: Restoring normal"]),
+        # "Other faults": a clear is not an "other" fault.
+        (["Other faults"], []),
+        # The option wording of 3.20.49/50 ("All (including above/below threshold)").
+        ("All (including above/below threshold)",
+         ["Air Temp: Above threshold", "Dehumidification: Dehumidifier water tank is full",
+          "Air Temp: Restoring normal", "Dehumidification: Restoring normal"]),
+    ],
+)
+async def test_alarm_clear_takes_the_type_of_the_alarm_it_clears(hass, scope, expected):
+    alerts = await _setup(hass, {"alarms_sensors": [ALARMS], "alarm_scope": scope, "alarm_include_clears": True},
+                          {ALARMS: ("none", {"sf_device": CTRL, "events": []})})
+    await _fire_alarm(hass, THRESH, [THRESH])
+    await _fire_alarm(hass, TANK, [TANK, THRESH])
+    await _fire_alarm(hass, THRESH_CLEAR, [THRESH_CLEAR, TANK, THRESH])
+    await _fire_alarm(hass, TANK_CLEAR, [TANK_CLEAR, THRESH_CLEAR, TANK, THRESH])
+    assert [a[2] for a in alerts] == expected
+
+
+# ---------------------------------------------------------------------------
 # 5 — repeats re-read the value and stop when the alert no longer applies
 # ---------------------------------------------------------------------------
 

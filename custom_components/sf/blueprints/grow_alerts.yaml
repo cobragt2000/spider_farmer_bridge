@@ -369,10 +369,10 @@ blueprint:
           name: Controller alarm log sensor(s)
           description: >
             Your panel's sf_<panel>_alarms sensor (add one per tent/panel). Relays
-            any alarm the Spider Farmer controller raises — dehumidifier tank full,
-            humidifier tank empty, a device going offline, light temperature too
-            high, heater faults, and so on — naming the device and the condition.
-            Leave empty to turn the relay off.
+            each new alarm the Spider Farmer controller logs — dehumidifier tank
+            full, humidifier tank empty, a device going offline, light temperature
+            too high, heater faults, and so on — naming the device and the
+            condition. Leave empty to turn the relay off.
           default: []
           selector:
             entity:
@@ -402,6 +402,9 @@ blueprint:
                 - Other faults
         alarm_include_clears:
           name: Also notify when an alarm clears (returns to normal)
+          description: >
+            A clear counts as the type of the alarm it clears, so it is relayed
+            only for the alarm types ticked above.
           default: false
           selector:
             boolean: {}
@@ -464,7 +467,8 @@ max: 100
 #     that applies RIGHT NOW (day or night), so a day/night change that moves the
 #     limit past the reading counts like a crossing.
 #   * Soil / leak / "can't keep up" use numeric_state / state triggers as before.
-#   * Controller alarms are relayed from the alarm-log sensor.
+#   * Controller alarms come from the integration's `sf_alarm` event, which fires
+#     once per genuinely new alarm-log entry.
 #   * "catchup" (Home Assistant start, or this automation being (re)loaded) asks
 #     for a re-check of everything already out of range: it fires one
 #     `sf_grow_alerts_recheck` event per affected sensor, and each re-check runs
@@ -622,31 +626,58 @@ variables:
     {{- not (v is not none and lim is not none and (a_switch == '' or is_state(a_switch, 'on'))
         and ((a_dir == 'above' and v > lim) or (a_dir == 'below' and v < lim))) -}}
     {%- else -%}True{%- endif -%}
-  # Controller-alarm fields (only meaningful when a_kind == 'alarm').
-  alarm_entity: "{{ a_entity if a_kind == 'alarm' else '' }}"
-  alarm_ev: "{{ (state_attr(a_entity, 'events') or [{}])[0] if a_kind == 'alarm' else {} }}"
-  alarm_device: "{{ alarm_ev.device | default('Device') }}"
-  alarm_text: "{{ alarm_ev.alarm | default('alarm') }}"
-  alarm_cleared: "{{ (alarm_ev.alarmType is none) or ('restoring' in (alarm_text | lower)) }}"
-  # Does the selected set of alarm types include this event? Matches the
-  # controller's own wording against the categories the user ticked.
+  # Controller alarm: the new alarm-log entry carried by the integration's sf_alarm
+  # event, and the picked alarm sensor of the controller it came from (matched by
+  # the controller id the sensor carries as `sf_device`, or its device).
+  alarm: "{{ dict(trigger.event.data) if trigger.id == 'controller_alarm' else {} }}"
+  alarm_entity: >-
+    {%- set ns = namespace(hit='') -%}
+    {%- set mac = alarm.mac | default('') | string | lower -%}
+    {%- if mac -%}
+    {%- set sensors = alarms_sensors if (alarms_sensors is not string) else ([alarms_sensors] if alarms_sensors else []) -%}
+    {%- for s in sensors -%}
+    {%- set own = (state_attr(s, 'sf_device') or '') | string | lower -%}
+    {%- set dev = device_id(s) -%}
+    {%- set ids = (device_attr(dev, 'identifiers') or []) if dev else [] -%}
+    {%- if ns.hit == '' and (own == mac or ('sf', 'ggs_' ~ mac) in ids) -%}{%- set ns.hit = s -%}{%- endif -%}
+    {%- endfor -%}
+    {%- endif -%}{{ ns.hit }}
+  alarm_device: "{{ alarm.device | default('Device', true) }}"
+  alarm_text: "{{ alarm.alarm | default('alarm', true) }}"
+  alarm_cleared: "{{ (alarm.alarmType is defined and alarm.alarmType is none) or ('restoring' in (alarm_text | lower)) }}"
+  # Alarm type. A clear ("Restoring normal") has none of its own, so it takes the
+  # type of the alarm it clears: the newest earlier raise from the same device type
+  # in the sensor's log (or, failing that, what that device type raises).
+  alarm_class: >-
+    {%- set dt = alarm.devType | default(none) -%}
+    {%- set at = alarm.alarmType | default(none) -%}
+    {%- if at is none and dt is not none and alarm_entity -%}
+    {%- set ns = namespace(at=none) -%}
+    {%- set log = state_attr(alarm_entity, 'events') or [] -%}
+    {%- for e in log -%}
+    {%- if ns.at is none and e is mapping and (e.devType | default(none)) == dt and (e.alarmType | default(none)) is not none
+          and (e.id | default(0) | int(0)) < (alarm.id | default(0) | int(0)) -%}{%- set ns.at = e.alarmType -%}{%- endif -%}
+    {%- endfor -%}
+    {%- set at = ns.at -%}
+    {%- endif -%}
+    {%- set at = (at | int(-1)) if at is not none else none -%}
+    {%- if at in [4, 5] or (at is none and dt in [26, 27]) -%}tank
+    {%- elif at == 3 or (at is none and dt in [16, 17, 18, 19]) -%}offline
+    {%- elif at == 6 or (at is none and dt == 20) -%}light_temp
+    {%- elif at in [1, 2] or (at is none and dt in [1, 2, 3, 5, 6, 7, 8]) -%}threshold
+    {%- else -%}other{%- endif -%}
+  # Is this alarm type ticked? ("All…" / "Faults only…" also match the option
+  # wording of older versions of this blueprint.)
   alarm_allowed: >-
-    {% set txt = alarm_text | lower %}
-    {% set sel = alarm_scope if (alarm_scope is sequence and alarm_scope is not string) else [alarm_scope] %}
-    {% set is_tank = ('tank' in txt or 'water' in txt) %}
-    {% set is_offline = ('offline' in txt) %}
-    {% set is_lt = ('light temp' in txt) %}
-    {% set is_thresh = ('threshold' in txt) %}
-    {% set is_other = not (is_tank or is_offline or is_lt or is_thresh) %}
-    {% set ns = namespace(ok=false) %}
-    {% if 'All (every alarm type)' in sel %}{% set ns.ok = true %}{% endif %}
-    {% if ('Faults only (tank, offline, light-temp, etc.)' in sel) and (not is_thresh) %}{% set ns.ok = true %}{% endif %}
-    {% if is_tank and ('Tank / water (full or empty)' in sel) %}{% set ns.ok = true %}{% endif %}
-    {% if is_offline and ('Device offline' in sel) %}{% set ns.ok = true %}{% endif %}
-    {% if is_lt and ('Light temperature too high' in sel) %}{% set ns.ok = true %}{% endif %}
-    {% if is_thresh and ('Above / below threshold' in sel) %}{% set ns.ok = true %}{% endif %}
-    {% if is_other and ('Other faults' in sel) %}{% set ns.ok = true %}{% endif %}
-    {{ ns.ok }}
+    {%- set sel = (alarm_scope if (alarm_scope is sequence and alarm_scope is not string) else [alarm_scope]) | map('string') | list -%}
+    {%- set c = alarm_class -%}
+    {{- (sel | select('match', 'All') | list | count > 0)
+        or ((sel | select('match', 'Faults only') | list | count > 0) and c != 'threshold')
+        or (c == 'tank' and 'Tank / water (full or empty)' in sel)
+        or (c == 'offline' and 'Device offline' in sel)
+        or (c == 'light_temp' and 'Light temperature too high' in sel)
+        or (c == 'threshold' and 'Above / below threshold' in sel)
+        or (c == 'other' and 'Other faults' in sel) -}}
   # Catch-up after a Home Assistant start or a (re)load of this automation: every
   # enabled check and sensor (it is re-checked below; only those out of range alert).
   catchup_pairs: >-
@@ -664,14 +695,14 @@ variables:
     {%- endfor -%}
     {%- endif -%}{{ ns.p }}
   # Should this run go ahead at all?
-  #   alarm     a ticked type, clears only if wanted
+  #   alarm     from a picked sensor's controller, a ticked type, clears only if wanted
   #   catchup   always on start; on automation_reloaded only if THIS automation was
   #             just (re)created and hasn't run since — the event fires for every
   #             reload, also of other automations
   #   recheck / phone   only the events this automation fired (and still out of range)
   run_ok: >-
     {%- if trigger.id == 'controller_alarm' -%}
-    {{- (alarm_allowed | bool) and (alarm_include_clears or not alarm_cleared) -}}
+    {{- alarm_entity != '' and alarm_allowed and (alarm_include_clears or not alarm_cleared) -}}
     {%- elif trigger.id == 'catchup' -%}
     {%- set lc = as_timestamp(this.last_changed, 0) -%}
     {%- set lt = as_timestamp(this.attributes.last_triggered, 0) if this.attributes.last_triggered else 0 -%}
@@ -740,7 +771,7 @@ triggers:
   - { trigger: state, id: dehumidifier_stuck,  entity_id: !input dehumidifier_switch,    to: "on", for: { minutes: !input device_runtime_minutes } }
   - { trigger: state, id: heater_stuck,        entity_id: !input heater_switch,          to: "on", for: { minutes: !input device_runtime_minutes } }
   - { trigger: state, id: water_leak,          entity_id: !input water_sensors,          to: "on" }
-  - { trigger: state, id: controller_alarm,    entity_id: !input alarms_sensors }
+  - { trigger: event, id: controller_alarm,    event_type: sf_alarm }
   - { trigger: event, id: recheck,             event_type: sf_grow_alerts_recheck }
   - { trigger: event, id: phone,               event_type: sf_grow_alerts_phone }
   # Keep these last: on some Home Assistant versions (e.g. 2024.12) the start

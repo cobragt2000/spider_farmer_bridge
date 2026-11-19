@@ -12959,7 +12959,6 @@ export class SpiderTimelapseCard extends LitElement {
   private _dragGrabY = 0;   // px offset of the cursor from the box's top edge at grab
   private _dragW = 0;       // box width in px (captured at grab; text width is stable mid-drag)
   private _dragH = 0;       // box height in px (for overlap checks)
-  private _dragEl: HTMLElement | null = null;  // the box being dragged (excluded from overlap)
   private _dragSibs: DOMRect[] = [];  // the OTHER boxes' rects, captured once at grab (they don't move)
   private _dragLastX = 0;    // last NON-overlapping box left (px) — base for axis-by-axis sliding
   private _dragLastY = 0;    // last NON-overlapping box top (px)
@@ -12973,7 +12972,7 @@ export class SpiderTimelapseCard extends LitElement {
       const b = el.getBoundingClientRect();
       this._dragGrabX = e.clientX - b.left;
       this._dragGrabY = e.clientY - b.top;
-      this._dragW = b.width; this._dragH = b.height; this._dragEl = el;
+      this._dragW = b.width; this._dragH = b.height;
       this._dragLastX = b.left; this._dragLastY = b.top;
       // Snapshot the other boxes' rects now; they stay put while we drag this one, and
       // reading them live each pointermove races Lit's async re-render (stale rects).
@@ -12981,7 +12980,7 @@ export class SpiderTimelapseCard extends LitElement {
         .filter((x) => x !== el)
         .map((x) => (x as HTMLElement).getBoundingClientRect());
     } else {
-      this._dragGrabX = 0; this._dragGrabY = 0; this._dragW = 0; this._dragH = 0; this._dragEl = null;
+      this._dragGrabX = 0; this._dragGrabY = 0; this._dragW = 0; this._dragH = 0;
       this._dragSibs = [];
     }
     window.addEventListener("pointermove", this._ovMove);

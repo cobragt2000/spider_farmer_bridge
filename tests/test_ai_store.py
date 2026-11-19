@@ -399,10 +399,27 @@ def test_schema_migration_from_3_20_51_store(tmp_path):
     assert s.stats("dp1")["rows"] == 3
     s.close()
     again = AiStore(path)                                                   # opens cleanly
-    idx = {r[1] for r in again._db.execute("PRAGMA index_list(samples)")}
-    assert "ux_samples" in idx and "ix_panel_ts" not in idx
+    sql = again._db.execute("SELECT sql FROM sqlite_master WHERE name='samples'").fetchone()[0]
+    assert "WITHOUT ROWID" in sql
+    names = {r[0] for r in again._db.execute("SELECT name FROM sqlite_master")}
+    assert "ix_panel_ts" not in names and "samples_v2" not in names
     assert again.purge(1.0) == 3                                           # live rows: purgeable
     again.close()
+
+
+def test_store_is_compact(tmp_path):
+    # Keyed WITHOUT ROWID table: no separate index → about 160 B per 5-value sample here
+    # (the 3.20.51 rowid table + (panel, ts) index took ~280 B).
+    import os
+    path = str(tmp_path / "s.db")
+    s = AiStore(path)
+    with s._tx() as db:
+        db.executemany("INSERT INTO samples (panel, ts, k, v) VALUES (?,?,?,?)",
+                       [("dp1", 1.7e9 + i * 60.0, k, 24.1) for i in range(20000)
+                        for k in ("temperature", "humidity", "vpd", "blower", "light_1")])
+    s.vacuum()
+    s.close()
+    assert os.path.getsize(path) / 20000 < 200
 
 
 def test_rows_without_a_value_are_skipped():

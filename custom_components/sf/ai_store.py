@@ -8,8 +8,10 @@ this store, so its history is never capped by the recorder's purge.
 
 One narrow table — `samples(panel, ts, k, v, loaded)` — so each panel can carry a
 different set of metric/device keys. A capture tick writes one row per key at a
-shared `ts`; reconstruction groups rows by `ts` back into `Sample`s. A (panel, ts, k)
-triple is unique, so loading the same profile twice can't duplicate rows. `loaded` = 1
+shared `ts`; reconstruction groups rows by `ts` back into `Sample`s. The table is
+clustered on its key (panel, ts, k) — a WITHOUT ROWID table needs no separate index, so
+it takes ~40 % less disk than the old rowid table + (panel, ts) index, and the key is
+unique, so loading the same profile twice can't duplicate rows. `loaded` = 1
 marks rows copied in from a saved learning profile: the retention purge keeps them
 (they are the warm start the user asked for); only "clean" or a replacing load
 removes them.
@@ -37,8 +39,13 @@ from .ai_climate import Sample
 
 # Schema history (PRAGMA user_version):
 #   0 — ≤ 3.20.51: samples(panel, ts, k, v) + index (panel, ts); values in HA's display unit.
-#   1 — samples.loaded flag, UNIQUE (panel, ts, k) (replaces the old index).
-SCHEMA_VERSION = 1
+#   1 — (development only) samples.loaded flag + UNIQUE (panel, ts, k) index.
+#   2 — samples rebuilt as a WITHOUT ROWID table keyed (panel, ts, k), with `loaded`.
+SCHEMA_VERSION = 2
+_CREATE_SAMPLES = (
+    "CREATE TABLE IF NOT EXISTS {name} (panel TEXT NOT NULL, ts REAL NOT NULL, "
+    "k TEXT NOT NULL, v REAL, loaded INTEGER NOT NULL DEFAULT 0, "
+    "PRIMARY KEY (panel, ts, k)) WITHOUT ROWID")
 
 
 class AiStore:
@@ -58,10 +65,9 @@ class AiStore:
         self.generation = 0
         self._stats_cache: dict = {}
         self._profiles_cache: list | None = None
+        self._rebuilt = False
         with self._tx() as db:
-            db.execute(
-                "CREATE TABLE IF NOT EXISTS samples (panel TEXT, ts REAL, k TEXT, v REAL, "
-                "loaded INTEGER NOT NULL DEFAULT 0)")
+            db.execute(_CREATE_SAMPLES.format(name="samples"))
             # Per-panel flags (e.g. whether the one-shot recorder backfill has run). Kept
             # separate from row counts so a live capture racing ahead of the first seed
             # can't make the seed think it's already done and skip the backfill.
@@ -79,23 +85,29 @@ class AiStore:
             db.execute(
                 "CREATE INDEX IF NOT EXISTS ix_profsamp ON profile_samples (profile_id, ts)")
             self._migrate(db)
+        if self._rebuilt:
+            # Hand the old table's pages back to the file system (one-time, after a rebuild).
+            with self._lock:
+                self._conn().execute("VACUUM")
 
     def _migrate(self, db) -> None:
         """Bring an older store up to SCHEMA_VERSION (inside the opening transaction)."""
         version = db.execute("PRAGMA user_version").fetchone()[0]
         if version >= SCHEMA_VERSION:
             return
-        cols = {r[1] for r in db.execute("PRAGMA table_info(samples)")}
-        if "loaded" not in cols:
-            db.execute("ALTER TABLE samples ADD COLUMN loaded INTEGER NOT NULL DEFAULT 0")
-        try:
-            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_samples ON samples (panel, ts, k)")
-        except sqlite3.IntegrityError:
-            # Duplicates from merging the same profile more than once: keep one of each.
-            db.execute("DELETE FROM samples WHERE rowid NOT IN "
-                       "(SELECT MIN(rowid) FROM samples GROUP BY panel, ts, k)")
-            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_samples ON samples (panel, ts, k)")
-        db.execute("DROP INDEX IF EXISTS ix_panel_ts")      # the unique index covers it
+        sql = db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='samples'"
+                         ).fetchone()[0] or ""
+        if "WITHOUT ROWID" not in sql.upper():
+            # ≤ 3.20.51 layout: copy into the keyed table. INSERT OR IGNORE in rowid order
+            # keeps the first of any duplicate rows (a profile merged more than once).
+            cols = {r[1] for r in db.execute("PRAGMA table_info(samples)")}
+            loaded = "loaded" if "loaded" in cols else "0"
+            db.execute(_CREATE_SAMPLES.format(name="samples_v2"))
+            db.execute("INSERT OR IGNORE INTO samples_v2 (panel, ts, k, v, loaded) "  # noqa: S608
+                       f"SELECT panel, ts, k, v, {loaded} FROM samples ORDER BY rowid")
+            db.execute("DROP TABLE samples")                 # drops its indexes too
+            db.execute("ALTER TABLE samples_v2 RENAME TO samples")
+            self._rebuilt = True
         db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     # ── connection plumbing ──────────────────────────────────────────────────

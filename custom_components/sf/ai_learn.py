@@ -928,6 +928,29 @@ def resolve_panel(panel: str, zones) -> tuple[str, Optional[dict]]:
     return ("panel", None)
 
 
+def learnable_panels(hass, slots: Sequence[str], zones) -> list[str]:
+    """The panels the learner actually trains, in sorted slot order: each non-absorbed slot
+    whose panel (or zone) has climate metrics AND at least one learnable device — the same
+    test the learn pass uses. Lights, strips without sensors and absorbed controllers are
+    not in it."""
+    def _gs(eid):
+        st = hass.states.get(eid)
+        return st.state if st is not None else None
+
+    eids = list(hass.states.async_entity_ids())
+    out = []
+    for slot in sorted(set(slots)):
+        kind, z = resolve_panel(slot, zones)
+        if kind == "absorbed":
+            continue
+        roles = read_outlet_roles(hass, slot)
+        c = (classify_zone(eids, z, get_state=_gs, roles=roles) if kind == "zone"
+             else classify_panel(eids, slot, get_state=_gs, roles=roles_for_slot(roles, slot)))
+        if c["metrics"] and c["devices"]:
+            out.append(slot)
+    return out
+
+
 def _slow_cached(bus, panel: str):
     """Recent step-response + self-test results for this panel, or None when they're
     missing or older than SLOW_ANALYSIS_EVERY_S (→ recompute this pass)."""

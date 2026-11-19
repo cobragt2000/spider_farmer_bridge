@@ -176,3 +176,29 @@ async def test_saving_a_zone_reloads_once(hass, _custom, monkeypatch):
     assert len(setups) == 1
     assert hass.data[DOMAIN][entry.entry_id][DATA_BUS]._ai_zones == [_ZONE]
     await _unload(hass, entry)
+
+
+async def test_profile_actions_without_panel_use_the_learnable_panel(hass, _custom):
+    # The card sends no panel; the first slot (an SE light here) was picked, so the profile
+    # was saved from — and loaded into — a slot with no data.
+    entry = await _setup_entry(hass, 19306, {
+        "ai_learn": True, "ai_store": True,
+        "device_slots": {"aaaaaaaaaaa1": "se1", "bbbbbbbbbbb2": "dp1"}})
+    data = hass.data[DOMAIN][entry.entry_id]
+    bus, st = data[DATA_BUS], data["ai_store"]
+    bus._slot_cache.update({"aaaaaaaaaaa1": "se1", "bbbbbbbbbbb2": "dp1"})
+    for eid, val in (("sensor.sf_dp1_temperature", "24.0"), ("sensor.sf_dp1_humidity", "60"),
+                     ("sensor.sf_dp1_blower_speed", "50"), ("sensor.sf_se1_light_1_brightness", "80")):
+        hass.states.async_set(eid, val)
+    for i in range(50):
+        await hass.async_add_executor_job(
+            st.append, "dp1", time.time() - 3000 + i * 60, {"temperature": 24.0, "blower": 50.0})
+    await hass.services.async_call(DOMAIN, "ai_save_profile", {"name": "grow1"}, blocking=True)
+    profs = await hass.async_add_executor_job(st.list_profiles)
+    assert profs[0]["panel"] == "dp1" and profs[0]["samples"] == 50
+    assert profs[0]["meta"]["devices"] == ["blower"]           # device check on the right panel
+    await hass.async_add_executor_job(st.reset, None)
+    await hass.services.async_call(DOMAIN, "ai_load_profile", {"name": "grow1"}, blocking=True)
+    assert (await hass.async_add_executor_job(st.stats, "dp1"))["samples"] == 50
+    assert (await hass.async_add_executor_job(st.stats, "se1"))["samples"] == 0
+    await _unload(hass, entry)

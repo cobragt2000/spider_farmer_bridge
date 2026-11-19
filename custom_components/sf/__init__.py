@@ -1392,17 +1392,30 @@ def _async_register_services(hass: HomeAssistant) -> None:
         return None, None
 
     def _ai_target_panel(bus, panel):
-        """Resolve the sensor/zone panel to act on: the given one if valid, else the first
-        non-absorbed learnable slot."""
-        from .ai_learn import resolve_panel
+        """Resolve the learning panel a profile action works on. A given slot is used as is
+        (a controller absorbed into a zone maps to the zone's sensor panel, where its data
+        is stored; a zone id maps to its sensor panel). Without one, the first LEARNABLE
+        panel in sorted slot order — not simply the first slot, which could be a light or
+        a strip with no data (the card sends no panel)."""
+        from .ai_learn import learnable_panels, resolve_panel
         zones = getattr(bus, "_ai_zones", []) or []
-        slots = list(dict(getattr(bus, "_slot_cache", {})).values())
-        if panel and panel in slots:
-            return panel
+        slots = sorted(set(dict(getattr(bus, "_slot_cache", {})).values()))
+        if panel:
+            zone = next((z for z in zones if z.get("id") == panel), None)
+            if zone is not None and zone.get("sensor_panel"):
+                return zone["sensor_panel"]
+            if panel in slots:
+                kind, z = resolve_panel(panel, zones)
+                if kind == "absorbed" and z.get("sensor_panel"):
+                    return z["sensor_panel"]
+                return panel
+        learnable = learnable_panels(hass, slots, zones)
+        if learnable:
+            return learnable[0]
         for slot in slots:
             if resolve_panel(slot, zones)[0] != "absorbed":
                 return slot
-        return panel or (slots[0] if slots else "")
+        return panel or ""
 
     def _ai_profile_meta(bus, panel):
         """Metadata saved with a profile — the device set (for a match check on load) and

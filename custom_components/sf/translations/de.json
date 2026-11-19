@@ -54,7 +54,7 @@
         "data_description": {
           "ai_learn": "⚠ Experimentell. Die KI lernt aus der Live-Erfassung, wie die Geräte jedes Zelts Temperatur, Luftfeuchte und VPD beeinflussen, und zeigt das auf der Karte „Spider-KI-Klimastatistik“. Sie beobachtet nur – sie steuert nie ein Gerät und braucht deshalb keine Gerätesteuerung.",
           "ai_store": "Der Recorder von Home Assistant löscht alte Daten (standardmäßig nach etwa 10 Tagen); das begrenzt, wie weit zurück die KI lernen kann. Eingeschaltet führt die Integration eine eigene kompakte Kopie deiner SF-Klimadaten (unter /config/sf/), sodass das Lernen über das Recorder-Fenster hinaus weiterwächst. Lass es aus, wenn du SF-Daten ohnehin lange im Recorder behältst oder SF vom Löschen ausgenommen hast. Gilt nur, wenn das adaptive Klima eingeschaltet ist.",
-          "ai_retention_days": "Wie lange der eigene KI-Speicher Daten behält. 0 behält alles (löscht nie) – etwa 1–2 MB pro Monat und Zelt. Gib eine Anzahl Tage an, um ältere Daten zu kürzen."
+          "ai_retention_days": "Wie lange der eigene KI-Speicher Daten behält. 0 behält alles (löscht nie) – grob 2–16 MB pro Monat und Zelt (etwa 0,2–0,4 KB pro gespeichertem Messpunkt; ein ruhiges Zelt speichert alle 5 Minuten einen, ein aktives bis zu alle paar Sekunden). Aus einem gespeicherten Lernprofil geladene Daten bleiben, bis du die KI-Lerndaten leerst. Gib eine Anzahl Tage an, um ältere Daten zu kürzen."
         }
       },
       "components": {

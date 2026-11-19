@@ -14370,7 +14370,8 @@ export class SpiderAiStatsCard extends LitElement {
     if (!name || !this.hass || this._busy) return;
     this._busy = true; this._msg = loc("Saving profile…");
     try {
-      await this.hass.callService("sf", "ai_save_profile", { name });
+      const panel = this._activePanel();
+      await this.hass.callService("sf", "ai_save_profile", { name, ...(panel ? { panel } : {}) });
       this._profName = ""; this._msg = loc('Saved "{name}".', { name });
     } catch (e: any) { this._msg = loc("Failed:") + " " + (e?.message || e); }
     finally { this._busy = false; setTimeout(() => { this._msg = ""; }, 7000); }
@@ -14386,7 +14387,8 @@ export class SpiderAiStatsCard extends LitElement {
     if (!confirm(mismatch ? warn : base)) return;
     this._busy = true; this._msg = loc('Loading "{name}"…', { name: p.name });
     try {
-      await this.hass.callService("sf", "ai_load_profile", { id: p.id });
+      const panel = this._activePanel();
+      await this.hass.callService("sf", "ai_load_profile", { id: p.id, ...(panel ? { panel } : {}) });
       this._msg = loc('Loaded "{name}" — models re-fit on the combined data.', { name: p.name });
     } catch (e: any) { this._msg = loc("Failed:") + " " + (e?.message || e); }
     finally { this._busy = false; setTimeout(() => { this._msg = ""; }, 7000); }

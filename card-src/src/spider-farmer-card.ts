@@ -14256,7 +14256,7 @@ export class SpiderAiStatsCard extends LitElement {
       return html`<div class="empty">
         <ha-icon icon="mdi:brain"></ha-icon>
         <div class="empty-t">${loc("No learning data yet")}</div>
-        <div class="empty-s">${loc("Enable")} <b>${loc("Adaptive climate (AI)")}</b> ${loc("in the integration options. It learns from live capture as soon as it's on — no device control needed.")}</div>
+        <div class="empty-s">${loc("To start, enable")} <b>${loc("Adaptive climate (AI)")}</b> ${loc("in the integration options. It learns from live capture as soon as it's on — no device control needed.")}</div>
       </div>`;
     }
     const rd = this._regimeData();
@@ -14301,7 +14301,7 @@ export class SpiderAiStatsCard extends LitElement {
                 <ha-icon icon=${meta.icon}></ha-icon>
                 <span class="model-name">${loc(meta.label)}</span>
                 <span class="chip" style="background:${this._confColor(md.confidence * 100)}22;color:${this._confColor(md.confidence * 100)}">
-                  ${(md.confidence * 100).toFixed(0)}% ${loc("conf")}</span>
+                  ${loc("{pct}% conf", { pct: (md.confidence * 100).toFixed(0) })}</span>
                 ${this._forecastChip(md.forecast)}
                 <span class="model-meta">n=${md.n} · R²=${(md.r2 ?? 0).toFixed(2)} · ${loc("drift")} ${md.drift >= 0 ? "+" : ""}${md.drift.toFixed(3)} ${meta.unit}</span>
                 <ha-icon class="m-chev" icon=${closed ? "mdi:chevron-down" : "mdi:chevron-up"}></ha-icon>

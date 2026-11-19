@@ -11603,6 +11603,7 @@ export class SpiderPpfdCard extends LitElement {
     if (b.tW != null) this.s.tW = b.tW;
     if (b.tL != null) this.s.tL = b.tL;
     if (b.tH != null) this.s.tH = b.tH;
+    if (this.s.placement !== "grid") this.s.numPlants = Math.min(12, this.s.numPlants);   // see setPlace
     this.auto = !!b.auto; this.brightSrc = b.src || "";
   }
   private hydrateLocal(): void {
@@ -11782,7 +11783,11 @@ export class SpiderPpfdCard extends LitElement {
   // Placement mode: seed custom from the current layout so dragging starts where plants are.
   private setPlace(m: "row" | "grid" | "perimeter" | "custom"): void {
     if (m === "grid") this.s.numPlants = Math.max(1, this.s.rows) * Math.max(1, this.s.cols);
-    if (m === "custom") this.s.custom = this.plantPositions().map(([x, z]) => [x / this.s.tW, z / this.s.tL] as [number, number]);
+    // Only Grid goes past the 12 the Number of plants input allows (up to 12×12);
+    // leaving it must not carry e.g. 144 plants into Row/Perimeter/Custom.
+    else this.s.numPlants = Math.min(12, this.s.numPlants);
+    if (m === "custom") this.s.custom = this.plantPositions().slice(0, this.s.numPlants)
+      .map(([x, z]) => [x / this.s.tW, z / this.s.tL] as [number, number]);
     this.s.placement = m; this.dirty = true; this.repaint();
   }
   // The panel's own PPFD sensor (sensor.sf_<panel>_ppfd), when present and reading.

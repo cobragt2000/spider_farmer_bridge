@@ -74,7 +74,11 @@ async def test_recorder_path_reads_only_new_history_after_first_pass(hass: HomeA
 # ── integration setup / options (needs the custom integration loaded) ─────────
 
 @pytest.fixture
-def _custom(enable_custom_integrations):
+def _custom(enable_custom_integrations, hass, tmp_path):
+    """Load the custom integration, in a config dir of this test's own: the older test
+    plugin shares one config dir between tests, so the durable store (config/sf) would
+    carry rows from one test into the next."""
+    hass.config.config_dir = str(tmp_path)
     yield
 
 
@@ -238,3 +242,86 @@ def test_light_keys_follow_the_light_role():
              "ac5:light_2": {"effort": "speed"}, "heater": {"effort": "gear"}}
     assert ai_learn._light_keys(list(specs), specs) == ["outlet_3", "ext_1", "ac5:light_2"]
     assert ai_learn._light_keys(list(specs)) == ["ac5:light_2"]        # names only (old call)
+
+
+async def test_ai_sensor_records_little_and_only_on_change(
+        recorder_mock, hass: HomeAssistant, enable_custom_integrations, hass_storage):
+    # Audit 3.20.51: every 15-s pass stamped a fresh last_fit, so the sensor wrote a new
+    # state row AND a new ~3 KB attributes row each time (~17 MB/day per panel), and
+    # rewrote .storage/sf_ai_model_<slot> (never read) for every slot.
+    from sqlalchemy import text
+    from custom_components.sf.ai_store import AiStore
+    from test_integration import CB_MAC_LC, _simulate_cb
+    try:
+        from pytest_homeassistant.components.recorder.common import async_wait_recording_done
+    except ImportError:
+        from pytest_homeassistant_custom_component.components.recorder.common import (
+            async_wait_recording_done)
+
+    with patch("custom_components.sf.ai_learn.async_learn_bus"), \
+         patch("custom_components.sf.ai_learn.async_capture_bus"):
+        entry = await _setup_entry(hass, 19310, {"ai_learn": True})
+        bus = hass.data[DOMAIN][entry.entry_id][DATA_BUS]
+        _simulate_cb(hass, bus)
+        await hass.async_block_till_done()
+        eid = next(e for e in hass.states.async_entity_ids() if e.endswith("_ai_confidence"))
+        slot = eid[len("sensor.sf_"):-len("_ai_confidence")]
+        store = AiStore(":memory:")
+        now = time.time()
+        for i in range(500):                                  # idle capture history
+            store.append(slot, now - 3600 - (500 - i) * 300,
+                         {"temperature": 24 + (i % 9) * 0.1, "humidity": 60.0 + i % 5,
+                          "blower": 40.0 + (i % 3) * 10})
+
+        def counts():
+            from homeassistant.components.recorder import get_instance
+            with get_instance(hass).engine.connect() as c:
+                mid = c.execute(text("SELECT metadata_id FROM states_meta WHERE entity_id=:e"),
+                                {"e": eid}).scalar()
+                rows = c.execute(text("SELECT COUNT(*) FROM states WHERE metadata_id=:m"),
+                                 {"m": mid}).scalar()
+                attrs = [r[0] for r in c.execute(text(
+                    "SELECT sa.shared_attrs FROM state_attributes sa WHERE sa.attributes_id IN "
+                    "(SELECT attributes_id FROM states WHERE metadata_id=:m)"), {"m": mid})]
+                return rows, attrs
+
+        await async_wait_recording_done(hass)
+        rows0, _ = await hass.async_add_executor_job(counts)
+        for k in range(60):                                   # 15 min of 15-s passes
+            if k % 20 == 0:                                   # a capture every 300 s
+                store.append(slot, time.time(), {"temperature": 24.3, "humidity": 61.0,
+                                                 "blower": 50.0})
+            await ai_learn.async_learn_panel(hass, bus, slot, CB_MAC_LC, store=store)
+            await hass.async_block_till_done()
+        await async_wait_recording_done(hass)
+        rows1, attrs = await hass.async_add_executor_job(counts)
+        st = hass.states.get(eid)
+        assert rows1 - rows0 == 3                             # one per change, not 60
+        assert all("models" not in a and "last_fit" not in a for a in attrs)
+        assert st.attributes["models"] and st.attributes["store_enabled"] is True   # card view
+        assert not [k for k in hass_storage if k.startswith("sf_ai_model")]
+        store.close()
+        await _unload(hass, entry)
+
+
+def test_ai_sensor_restores_state_and_attributes():
+    # Restore fed the saved STATE ("47.3") into the JSON payload handler → unknown + no
+    # attributes after every restart until the first pass.
+    from custom_components.sf.entity_defs import SfDef
+    from custom_components.sf.sensor import SfAiSensor
+    d = SfDef(platform="sensor", field="ai_confidence", name="AI Confidence",
+              mac="0a1b2c3d4e01", mac_raw="0A1B2C3D4E01", device_name="SF Panel",
+              device_model="Display Panel", unit="%", kind="ai")
+    s = SfAiSensor.__new__(SfAiSensor)
+    s.d = d
+    s._attr_native_value = None
+    s._attr_extra_state_attributes = {"sf_device": d.mac}
+    models = {"temperature": {"drift": 0.01, "gains": {"blower": -0.001}, "n": 10}}
+    last = SimpleNamespace(state="47.3", attributes={
+        "sf_device": d.mac, "models": models, "store_enabled": True, "store_rows": 1234,
+        "history_days": 3.5, "profiles": [{"id": 1, "name": "g"}], "unit_of_measurement": "%"})
+    s._restore(last)
+    assert s._attr_native_value == 47.3
+    a = s._attr_extra_state_attributes
+    assert a["models"] == models and a["store_enabled"] is True and a["store_rows"] == 1234
+    assert a["history_days"] == 3.5 and a["profiles"] == [{"id": 1, "name": "g"}]

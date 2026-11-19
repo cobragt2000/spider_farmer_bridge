@@ -404,8 +404,15 @@ def _result(samples, metrics, devices, full_samples=FULL_SAMPLES,
 def learn(metric_series, output_series, *, step_s: float = 120.0, slow=None,
           light_keys=None) -> dict:
     """Fit all metric models from raw series (recorder path), with day/night split.
-    Returns {confidence, models, samples, [day], [night], steps}."""
-    samples = build_samples(metric_series, output_series, step_s=step_s)
+    Returns {confidence, models, samples, [day], [night], steps}.
+
+    The grid sits on whole multiples of `step_s` (from the first moment every series has
+    started), so a window that slides by a few seconds per live pass keeps the same grid
+    points: the result changes when a new point is reached, not on every pass."""
+    import math as _m
+    firsts = [s[0][0] for s in (*metric_series.values(), *output_series.values()) if s]
+    t0 = _m.ceil(max(firsts) / step_s) * step_s if firsts else None
+    samples = build_samples(metric_series, output_series, step_s=step_s, t0=t0)
     return _result(samples, list(metric_series.keys()), list(output_series.keys()), slow=slow,
                    light_keys=light_keys)
 
@@ -447,7 +454,6 @@ def encode_snapshot(classified: dict, get_state) -> dict:
 
 # ── HA glue (thin; imports kept local so the pure core tests without HA) ──────
 
-STORE_VERSION = 1
 BACKFILL_DAYS = 10          # states-history reach (the recorder's purge window)
 CAPTURE_STEP_S = 120.0      # recorder-path synthetic step (dormant backfill only)
 # Event-driven capture (v3.20.32). We poll fast but only STORE a snapshot when something
@@ -477,11 +483,6 @@ DENSE_MAX_S = 600.0         # max gap still counted as "dense" forward/fine data
 # they're seeded from states history (10 days) and accrue full-res going forward.
 STATS_BACKFILL_DAYS = 400   # grab everything available; HA returns only what exists
 SEED_STEP_S = 3600.0        # seed grid = hourly (matches the statistics period)
-
-
-def _store(hass, panel: str):
-    from homeassistant.helpers.storage import Store
-    return Store(hass, STORE_VERSION, f"sf_ai_model_{panel}")
 
 
 # ── durable SF data store: capture, one-shot seed, purge ──────────────────────
@@ -1122,19 +1123,26 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
             meta[name] = m
     if meta:
         result["device_meta"] = meta
-    # Wall-clock stamp of THIS fit, so the card's "next update" countdown resets
-    # exactly on the mark at each pass. Needed because HA only bumps the sensor's
-    # last_updated when the payload changes — an identical re-fit (common once a
-    # model settles) left last_updated stale and the countdown stuck at "due now".
-    # A fresh last_fit every pass also guarantees last_updated advances. (v3.20.22)
-    import time as _time
-    result["last_fit"] = _time.time()
-    try:
-        await _store(hass, panel).async_save(result)
-    except Exception:  # noqa: BLE001 — cache is best-effort
-        pass
-    # Publish onto the bus so sensor.sf_<panel>_ai_confidence picks it up.
+    # Publish onto the bus so sensor.sf_<panel>_ai_confidence picks it up — but only when
+    # the result changed. A pass that learned nothing new (common once a model settles, or
+    # between captures) used to be published anyway with a fresh `last_fit`, so the sensor
+    # wrote a new state + ~3 KB attributes row to the recorder every 15 s. `last_fit` is
+    # now the wall-clock time of the last pass that changed the result. (The card's
+    # countdown that needed a fresh stamp each pass was replaced by "Updating live" in
+    # 3.20.38.) Nothing is cached in .storage any more: the per-panel sf_ai_model_<slot>
+    # files were rewritten every pass for every slot and never read. (audit 3.20.51)
     import json
+    import time as _time
+    body = json.dumps(result, sort_keys=True)
+    published = getattr(bus, "_ai_published", None)
+    if published is None:
+        published = bus._ai_published = {}
+    prev = published.get(mac)
+    if prev is not None and prev[0] == body:
+        result["last_fit"] = prev[1]
+        return result
+    result["last_fit"] = _time.time()
+    published[mac] = (body, result["last_fit"])
     bus.publish(f"ggs/ha/{mac}/ai_confidence/state", json.dumps(result), retain=True)
     return result
 

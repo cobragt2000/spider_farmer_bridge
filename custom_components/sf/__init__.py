@@ -191,19 +191,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # it never actuates — so it does NOT require device control (v3.20.30). Just the AI
     # flag turns on the learning + the AI Confidence sensor. Set before platforms load so
     # _add_defs filters the entity correctly from the start.
-    ai_enabled = bool(cfg.get(CONF_AI_LEARN, DEFAULT_AI_LEARN))
-    bus.ai_enabled = ai_enabled
-    if not ai_enabled:
-        _migrate_remove_ai_confidence(hass, entry)
     # Durable AI training store (opt-in, only when AI is on). Keeps SF climate data
     # independent of the recorder's purge so learning isn't capped at the recorder
     # window; off by default — users who already retain SF in the recorder don't
     # need it. Created below once the DB path is ready; held per-entry.
-    ai_store_on = ai_enabled and bool(cfg.get(CONF_AI_STORE, DEFAULT_AI_STORE))
     # Adaptive-climate zones (v3.20.11): group a sensor controller with devices from
     # other controllers + external HA entities, learned jointly. Held on the bus so
     # the learn/capture passes resolve each panel against them. Empty = per-panel.
-    bus._ai_zones = list(cfg.get(CONF_AI_ZONES) or []) if ai_enabled else []
+    ai_enabled, ai_store_on, ai_retention, ai_zones = _ai_settings(cfg)
+    bus.ai_enabled = ai_enabled
+    if not ai_enabled:
+        _migrate_remove_ai_confidence(hass, entry)
+    # What this setup was built from — the options listener reloads only when these change
+    # (the store as REQUESTED, so a store that failed to open doesn't reload on every write).
+    bus._ai_store_on = ai_store_on
+    bus._ai_retention = ai_retention
+    bus._ai_zones = ai_zones
 
     # ── Proxy — publishes decoded state into the bus ─────────────────────
     proxy_config = {
@@ -330,8 +333,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # cadence (so history grows past the recorder window), and purge on the
         # user's retention daily (0 = keep everything → no purge).
         if ai_store is not None:
-            retention_days = float(cfg.get(CONF_AI_RETENTION_DAYS, DEFAULT_AI_RETENTION_DAYS) or 0)
-            bus._ai_retention = retention_days      # so the options listener detects changes
+            retention_days = ai_retention
 
             # Event-driven capture: poll fast (CAPTURE_POLL_S); async_capture_bus itself
             # stores a row only when something actually moved (device transition or a metric
@@ -1842,6 +1844,19 @@ def _apply_diag_options(hass: HomeAssistant, cfg: dict) -> None:
         _LOGGER.info("Spider Farmer diagnostic log disabled")
 
 
+def _ai_settings(cfg: dict) -> tuple[bool, bool, float, list]:
+    """Adaptive-climate settings as setup uses them: (enabled, store requested, retention days,
+    zones). AI does not depend on device control (observe-only, v3.20.30); the store, its
+    retention and the zones only count while AI is on (the store's retention only while the
+    store is on)."""
+    enabled = bool(cfg.get(CONF_AI_LEARN, DEFAULT_AI_LEARN))
+    store = enabled and bool(cfg.get(CONF_AI_STORE, DEFAULT_AI_STORE))
+    retention = (float(cfg.get(CONF_AI_RETENTION_DAYS, DEFAULT_AI_RETENTION_DAYS) or 0)
+                 if store else 0.0)
+    zones = list(cfg.get(CONF_AI_ZONES) or []) if enabled else []
+    return enabled, store, retention, zones
+
+
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Apply option changes live without reloading the integration."""
     data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
@@ -1851,26 +1866,14 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         await hass.config_entries.async_reload(entry.entry_id)
         return
     cfg = {**entry.data, **(entry.options or {})}
-    # Adaptive climate (AI) toggling — or device control (which it depends on)
-    # flipping its effective state — changes which entities/timers exist, so take
-    # the reload path to create/remove them cleanly rather than live-patching.
-    new_ai = (bool(cfg.get(CONF_ALLOW_CONTROL, False))
-              and bool(cfg.get(CONF_AI_LEARN, DEFAULT_AI_LEARN)))
-    if bus is not None and bool(getattr(bus, "ai_enabled", False)) != new_ai:
-        await hass.config_entries.async_reload(entry.entry_id)
-        return
-    # Durable AI store toggling (opens/closes the DB + adds/removes capture & purge
-    # timers) or its retention changing (re-arms the daily purge) — reload to rebuild
-    # cleanly rather than live-patch timers.
-    new_store = new_ai and bool(cfg.get(CONF_AI_STORE, DEFAULT_AI_STORE))
-    store_now = data.get("ai_store") is not None
-    new_retention = float(cfg.get(CONF_AI_RETENTION_DAYS, DEFAULT_AI_RETENTION_DAYS) or 0)
-    if new_store != store_now or (new_store and new_retention != getattr(bus, "_ai_retention", new_retention)):
-        await hass.config_entries.async_reload(entry.entry_id)
-        return
-    # Zone definitions changed → reload (changes which panels are absorbed and what
-    # each sensor panel learns).
-    if bus is not None and (list(cfg.get(CONF_AI_ZONES) or []) != list(getattr(bus, "_ai_zones", []))):
+    # Adaptive climate (AI): toggling it, the durable store or its retention, or the zone
+    # definitions changes which entities/timers exist and what each panel learns, so take
+    # the reload path to rebuild cleanly rather than live-patching. Compare exactly what
+    # setup derived (_ai_settings) — anything else (a card option, a PPFD auto-save, a slot
+    # re-save) must NOT reload, which would drop every controller connection.
+    if bus is not None and _ai_settings(cfg) != (
+            bool(getattr(bus, "ai_enabled", False)), bool(getattr(bus, "_ai_store_on", False)),
+            float(getattr(bus, "_ai_retention", 0.0)), list(getattr(bus, "_ai_zones", []))):
         await hass.config_entries.async_reload(entry.entry_id)
         return
     await hass.async_add_executor_job(_apply_diag_options, hass, cfg)

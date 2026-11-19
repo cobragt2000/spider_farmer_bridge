@@ -15,7 +15,7 @@ blueprint:
     any extra actions you drop in. Defaults target the dp1 display panel; change
     the sensors to use another panel (ac5, etc.) or your own sensors.
   domain: automation
-  source_url: https://github.com/cobragt2000/spider_farmer_bridge
+  source_url: https://github.com/cobragt2000/spider_farmer_bridge/blob/main/custom_components/sf/blueprints/grow_alerts.yaml
   input:
     general:
       name: General
@@ -257,16 +257,18 @@ blueprint:
                 domain: sensor
         soil_ec_high:
           name: Alert when any probe EC rises ABOVE
-          description: Over-fed / salt build-up. Leave at 9999 to disable.
+          description: >
+            Over-fed / salt build-up, in your probe's unit (Spider Farmer probes
+            report mS/cm, typically 0.5–3). Leave at 9999 to disable. Example 2.5.
           default: 9999
           selector:
-            number: { min: 0, max: 9999, step: 1, mode: box }
+            number: { min: 0, max: 9999, step: 0.01, mode: box }
         soil_ec_low:
           name: Alert when any probe EC drops BELOW
-          description: Under-fed. Leave at -999 to disable.
+          description: Under-fed. Leave at -999 to disable. Example 0.8.
           default: -999
           selector:
-            number: { min: -999, max: 9999, step: 1, mode: box }
+            number: { min: -999, max: 9999, step: 0.01, mode: box }
 
     device_cant_keep_up:
       name: Device can't keep up
@@ -448,9 +450,11 @@ variables:
   soil_ec_high: !input soil_ec_high
   soil_ec_low: !input soil_ec_low
   renotify_after: !input renotify_after
+  # The duration selector (and the default) send {hours, minutes, seconds} — no
+  # `days`, so every part needs a default.
   renotify_secs: >-
-    {{ (renotify_after.days | int(0)) * 86400 + (renotify_after.hours | int(0)) * 3600
-       + (renotify_after.minutes | int(0)) * 60 + (renotify_after.seconds | int(0)) }}
+    {{ (renotify_after.days | default(0) | int(0)) * 86400 + (renotify_after.hours | default(0) | int(0)) * 3600
+       + (renotify_after.minutes | default(0) | int(0)) * 60 + (renotify_after.seconds | default(0) | int(0)) }}
   enable_persistent: !input enable_persistent
   mobile_notify_device: !input mobile_notify_device
   # Build the phone's notify service from the picked device:

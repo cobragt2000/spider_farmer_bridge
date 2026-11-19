@@ -7375,6 +7375,10 @@ export class SpiderFarmerCard extends LitElement {
       || powerDirty
       || this.outletNameDirty(slot, n);   // custom name edit arms Apply too (v0.21.53)
     const apply = () => {
+      // Resolve the device type before writing anything: an unknown type must not
+      // leave the socket half-changed (e.g. Light Env driver already disabled).
+      const spec = ST_DEVICE_TYPES.find((t) => t.label === type);
+      if (!spec) return;
       // Commit a custom-name edit first, on every device type (incl. the Light
       // Env branch below, which returns early). (v0.21.53)
       this.commitOutletName(slot, n);
@@ -7405,7 +7409,6 @@ export class SpiderFarmerCard extends LitElement {
       const typeChanged = draft.type !== undefined && draft.type !== curType;
       const cfgChanged = key in this.outletCfgDraft || key in this.outletDraft;
       if (typeChanged || cfgChanged || type !== "General device") {
-        const spec = ST_DEVICE_TYPES.find((t) => t.label === type)!;
         let mode = spec.mode;
         let cfg: Record<string, string> = { ...spec.cfg };
         if (type === "Blower") mode = ST_BLOWER_MODE[blower] || spec.mode;
@@ -7442,7 +7445,7 @@ export class SpiderFarmerCard extends LitElement {
         <select style="max-width:60%"
           @change=${(e: Event) => set({ type: (e.target as HTMLSelectElement).value })}>
           ${ST_DEVICE_TYPES.map((t) => html`
-            <option value=${loc(t.label)} ?selected=${t.label === type}>${loc(t.label)}</option>`)}
+            <option value=${t.label} ?selected=${t.label === type}>${loc(t.label)}</option>`)}
         </select>
       </div>
       ${type === "Blower" ? html`

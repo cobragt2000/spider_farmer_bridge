@@ -731,7 +731,7 @@ async def async_capture_bus(hass, bus, store) -> None:
             rows.append((slot, vals))   # store key = the (sensor) panel's slot
             last_vals[slot] = vals
             last_write[slot] = now
-    if not rows:
+    if not rows or getattr(store, "closed", False):
         return
 
     def _write():
@@ -1309,6 +1309,8 @@ async def async_learn_bus(hass, bus, days: float = BACKFILL_DAYS, store=None,
         zones = getattr(bus, "_ai_zones", []) or []
         try:
             for mac, slot in dict(getattr(bus, "_slot_cache", {})).items():
+                if getattr(store, "closed", False):
+                    return          # entry unloaded while this pass waited
                 kind, z = resolve_panel(slot, zones)
                 if kind == "absorbed":
                     continue        # learned as part of its zone's sensor panel

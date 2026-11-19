@@ -479,3 +479,20 @@ def test_non_finite_states_count_as_missing():
     spec = classified["devices"]["heater"]
     raw = {spec["active"]: [(0, "on")], spec["level"]: [(0, "inf"), (60, "5")]}
     assert device_effort_series(spec, raw) == [(0, 0.0), (60, 50.0)]
+
+
+async def test_closed_store_stops_learning_and_capture_quietly(monkeypatch):
+    import types
+    import custom_components.sf.ai_learn as al
+    from custom_components.sf.ai_store import AiStore
+    store = AiStore(":memory:")
+    store.close()
+    called = []
+
+    async def fake_panel(*a, **k):
+        called.append(1)
+
+    monkeypatch.setattr(al, "async_learn_panel", fake_panel)
+    bus = types.SimpleNamespace(_slot_cache={"aa": "dp1"}, _ai_zones=[])
+    await al.async_learn_bus(None, bus, store=store)
+    assert called == []

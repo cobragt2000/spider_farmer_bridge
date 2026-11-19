@@ -18,7 +18,6 @@ and publish are the thin HA wrappers at the bottom.
 
 from __future__ import annotations
 
-import bisect
 from dataclasses import replace
 from typing import Mapping, Optional, Sequence
 
@@ -28,7 +27,7 @@ from .ai_climate import (
     DENOISE_FRAMES, DENOISE_HALF_SEC, FULL_SAMPLES,
     fit_models, overall_confidence, split_day_night,
 )
-from .ai_history import build_samples, gear_effort, speed_effort
+from .ai_history import _Cursor, build_samples, gear_effort, speed_effort
 from .ai_readiness import (
     forecast_selftest, penalised_confidence, step_responses,
 )
@@ -232,14 +231,6 @@ def classify_zone(entity_ids: Sequence[str], zone: dict, get_state=None,
 
 # ── pure: effort encoding from raw history ───────────────────────────────────
 
-def _ffill(series: Series, t: float):
-    if not series:
-        return None
-    times = [p[0] for p in series]
-    i = bisect.bisect_right(times, t) - 1
-    return series[i][1] if i >= 0 else None
-
-
 def _num(v) -> Optional[float]:
     try:
         return float(v)
@@ -284,9 +275,12 @@ def device_effort_series(spec: dict, raw: Mapping[str, Series]) -> list[tuple[fl
     level_s = raw.get(spec["level"], [])
     times = sorted({t for t, _ in active_s} | {t for t, _ in level_s})
     out = []
+    # Walk both series forward once (O(n)); a bisect per timestamp that rebuilt the
+    # timestamp list each time was quadratic.
+    a_cur, l_cur = _Cursor(active_s), _Cursor(level_s)
     for t in times:
-        on = str(_ffill(active_s, t)).lower() == "on"
-        lvl = _ffill(level_s, t)
+        on = str(a_cur.at(t)).lower() == "on"
+        lvl = l_cur.at(t)
         if spec["effort"] == "gear":
             n = _num(lvl)
             eff = gear_effort(on, int(n), spec["max"]) if n is not None else 0.0

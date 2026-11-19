@@ -11743,6 +11743,12 @@ export class SpiderPpfdCard extends LitElement {
     }
   }
   protected firstUpdated(): void { this.loadThree(); }
+  connectedCallback(): void {
+    super.connectedCallback();
+    // Re-attached after a disconnect (tab switch in the Spider card, HA view
+    // navigation): the view was torn down then, so build it again on the same canvas.
+    if (this.hasUpdated && !this.renderer) this.loadThree();
+  }
   protected updated(): void {
     // Keep light/plant-height sliders within the current tent height.
     if (this.dirty) this.needRender = true;
@@ -12020,18 +12026,20 @@ export class SpiderPpfdCard extends LitElement {
       w._ppfdCBs = [];
       const sc = document.createElement("script");
       sc.src = ppfdThreeSrc();
-      sc.onload = () => w._ppfdCBs.forEach((cb: () => void) => cb());
+      // Run and drop the waiting callbacks, so the global list keeps no card alive.
+      sc.onload = () => w._ppfdCBs.splice(0).forEach((cb: () => void) => cb());
       document.head.appendChild(sc);
     }
-    w._ppfdCBs.push(() => this.initThree());
+    if (!w._ppfdCBs.includes(this._threeCb)) w._ppfdCBs.push(this._threeCb);
   }
+  private _threeCb = (): void => this.initThree();
   private canvas(): HTMLCanvasElement | null {
     return this.renderRoot.querySelector("#c") as HTMLCanvasElement | null;
   }
   private initThree(): void {
     const T = this.T = (window as any).THREE;
     const canvas = this.canvas();
-    if (!T || !canvas) return;
+    if (!T || !canvas || this.renderer || !this.isConnected) return;
     const W = (canvas.parentElement?.offsetWidth) || 400, H = 340;
     canvas.style.height = H + "px";
     const scene = this.scene = new T.Scene();
@@ -12047,34 +12055,54 @@ export class SpiderPpfdCard extends LitElement {
     this.dirty = true; this.needRender = true;
     const anim = () => {
       this.raf = requestAnimationFrame(anim);
+      // The canvas is hidden on the Settings tab, where dragging a plant marks the
+      // scene dirty on every move: build and draw only on the View tab (switching
+      // back sets needRender, the pending rebuild then runs once).
+      if (this.tab !== "view") return;
       if (this.dirty) { this.dirty = false; this.rebuild(); this.needRender = true; }
       if (this.needRender) { this.needRender = false; this.updCam(); renderer.render(scene, this.camera); }
     };
     anim();
   }
+  // Orbit / zoom handlers are fields, so a view re-initialised after a reconnect
+  // doesn't stack duplicate listeners, and the window ones (added only while the
+  // mouse drags) can be removed again.
+  private _camDown = (e: MouseEvent): void => {
+    this.cam.drag = true; this.cam.px = e.clientX; this.cam.py = e.clientY;
+    window.addEventListener("mouseup", this._camUp);
+    window.addEventListener("mousemove", this._camMove);
+  };
+  private _camUp = (): void => {
+    this.cam.drag = false;
+    window.removeEventListener("mouseup", this._camUp);
+    window.removeEventListener("mousemove", this._camMove);
+  };
+  private _camMove = (e: MouseEvent): void => {
+    if (!this.cam.drag) return;
+    this.cam.theta -= (e.clientX - this.cam.px) * 0.007;
+    this.cam.phi = Math.max(0.05, Math.min(1.3, this.cam.phi - (e.clientY - this.cam.py) * 0.005));
+    this.cam.px = e.clientX; this.cam.py = e.clientY; this.needRender = true;
+  };
+  private _camWheel = (e: WheelEvent): void => {
+    this.cam.r = Math.max(1.2, Math.min(10, this.cam.r + e.deltaY * 0.005));
+    this.needRender = true;
+  };
+  private _camTs: { x: number; y: number; t: number; p: number } | null = null;
+  private _camTouchStart = (e: TouchEvent): void => {
+    if (e.touches.length === 1) this._camTs = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: this.cam.theta, p: this.cam.phi };
+  };
+  private _camTouchMove = (e: TouchEvent): void => {
+    const ts = this._camTs;
+    if (!ts || e.touches.length !== 1) return;
+    this.cam.theta = ts.t - (e.touches[0].clientX - ts.x) * 0.007;
+    this.cam.phi = Math.max(0.05, Math.min(1.3, ts.p - (e.touches[0].clientY - ts.y) * 0.005));
+    this.needRender = true;
+  };
   private attachCam(canvas: HTMLCanvasElement): void {
-    canvas.addEventListener("mousedown", (e) => { this.cam.drag = true; this.cam.px = e.clientX; this.cam.py = e.clientY; });
-    window.addEventListener("mouseup", () => { this.cam.drag = false; });
-    window.addEventListener("mousemove", (e) => {
-      if (!this.cam.drag) return;
-      this.cam.theta -= (e.clientX - this.cam.px) * 0.007;
-      this.cam.phi = Math.max(0.05, Math.min(1.3, this.cam.phi - (e.clientY - this.cam.py) * 0.005));
-      this.cam.px = e.clientX; this.cam.py = e.clientY; this.needRender = true;
-    });
-    canvas.addEventListener("wheel", (e) => {
-      this.cam.r = Math.max(1.2, Math.min(10, this.cam.r + (e as WheelEvent).deltaY * 0.005));
-      this.needRender = true;
-    }, { passive: true });
-    let ts: { x: number; y: number; t: number; p: number } | null = null;
-    canvas.addEventListener("touchstart", (e) => {
-      if (e.touches.length === 1) ts = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: this.cam.theta, p: this.cam.phi };
-    });
-    canvas.addEventListener("touchmove", (e) => {
-      if (!ts || e.touches.length !== 1) return;
-      this.cam.theta = ts.t - (e.touches[0].clientX - ts.x) * 0.007;
-      this.cam.phi = Math.max(0.05, Math.min(1.3, ts.p - (e.touches[0].clientY - ts.y) * 0.005));
-      this.needRender = true;
-    }, { passive: true });
+    canvas.addEventListener("mousedown", this._camDown);
+    canvas.addEventListener("wheel", this._camWheel, { passive: true });
+    canvas.addEventListener("touchstart", this._camTouchStart);
+    canvas.addEventListener("touchmove", this._camTouchMove, { passive: true });
   }
   private updCam(): void {
     if (!this.camera) return;
@@ -12085,8 +12113,22 @@ export class SpiderPpfdCard extends LitElement {
     this.camera.lookAt(0, tH * 0.3, 0);
   }
   private rem(k: string): void {
-    if (this.o[k] && this.scene) this.scene.remove(this.o[k]);
+    const g = this.o[k];
+    if (g && this.scene) this.scene.remove(g);
+    if (g) this.disposeTree(g);
     this.o[k] = null;
+  }
+  // Free what a removed group holds on the GPU: geometries, materials and their
+  // textures (each sprite label owns a canvas texture). Sprites share three's one
+  // built-in geometry, which stays.
+  private disposeTree(root: any): void {
+    const mats = new Set<any>();
+    root.traverse((o: any) => {
+      if (o.geometry && !o.isSprite) o.geometry.dispose();
+      const m = o.material;
+      if (m) (Array.isArray(m) ? m : [m]).forEach((x: any) => mats.add(x));
+    });
+    mats.forEach((m) => { if (m.map) m.map.dispose(); m.dispose(); });
   }
   private sprite(text: string, sz: number): any {
     const T = this.T, c = document.createElement("canvas");
@@ -12271,8 +12313,18 @@ export class SpiderPpfdCard extends LitElement {
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
+    // Full teardown: stop the loop, leave the three.js load queue, drop the window
+    // listeners of a drag in progress, free the scene and the renderer. A later
+    // reconnect builds the view again (connectedCallback).
     if (this.raf) cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    const cbs = (window as any)._ppfdCBs as (() => void)[] | undefined;
+    const i = cbs ? cbs.indexOf(this._threeCb) : -1;
+    if (i >= 0) cbs!.splice(i, 1);
+    this._camUp();
+    for (const k of Object.keys(this.o)) this.rem(k);
     if (this.renderer) { try { this.renderer.dispose(); } catch { /* ignore */ } }
+    this.renderer = null; this.scene = null; this.camera = null;
   }
 
   static styles = css`

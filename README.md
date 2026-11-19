@@ -321,31 +321,38 @@ alert — enable a check simply by giving it a threshold; anything left at its d
 off:
 
 - **Air** — temperature, humidity and VPD, each with a high *and* low threshold, and
-  **optional separate day / night limits** that switch on a lights-on sensor (with a settle
-  window after the lights flip so a still-cooling tent doesn't false-alert).
+  **optional separate day / night limits** that switch on a lights-on sensor (a night limit
+  left empty uses the day one; a settle window after the lights flip holds alerts back so a
+  still-cooling tent doesn't false-alert, and alerts then if it's still out of range).
 - **Soil** — moisture, temperature and EC (high & low) across **any number of probes** at
   once; the alert names whichever probe crossed.
 - **Device can't keep up** — the humidifier / dehumidifier / heater has run for X minutes
   and its metric is *still* out of range (undersized, blocked, or an empty tank).
 - **Water leak** — any wet/leak `binary_sensor`, **any brand** (not just Spider Farmer);
   alerts the moment one reads wet.
-- **Controller & device alarms** — relays the controller's own alarm log
+- **Controller & device alarms** — relays each new entry of the controller's own alarm log
   (`sensor.sf_<panel>_alarms`): dehumidifier tank full, humidifier tank empty, a device
   going offline, "light temperature too high", heater faults, and so on — naming the device
   and the condition. **Tick the exact alarm types** to relay (tank/water, offline,
-  light-temp, above/below threshold, other faults); defaults to the hardware faults.
+  light-temp, above/below threshold, other faults); defaults to the hardware faults. A
+  "returns to normal" message counts as the type of the alarm it clears.
 
 Every alert waits a sustained time before firing (minutes **and** seconds, so a door
 opening or a mister pulse doesn't trip it), can re-notify on an interval while still out of
-range, and sends by any mix of a **persistent notification**, your **phone** (picked from a
-dropdown of your Companion-app devices), a **spoken TTS announcement** on a media player,
-plus an **Extra actions** slot for anything else (a second phone, a siren, a webhook).
+range (re-reading the value each time, and stopping as soon as it's back in range), and
+sends by any mix of a **persistent notification**, your **phone** (picked from a dropdown of
+your Companion-app devices), a **spoken TTS announcement** on a media player, plus an
+**Extra actions** slot for anything else (a second phone, a siren, a webhook). A reading
+that is already out of range when Home Assistant starts or the automation is (re)loaded
+alerts too, after the same sustained time.
 
 **It installs itself.** The integration copies the blueprint into
 `config/blueprints/automation/spider_farmer/` on startup, so after installing (or updating)
 the integration and restarting Home Assistant it's already there under **Settings →
-Automations & scenes → Blueprints** — no import step. (It only writes the file if missing or
-if its own managed copy changed, so your automations and any edits are never clobbered.)
+Automations & scenes → Blueprints** — no import step. (It writes the file only when it's
+missing or still exactly the copy the integration installed, so your automations and any
+edits are never clobbered. Once you've edited it, newer versions aren't installed over it —
+the log says so; delete the file and restart to get the bundled one again.)
 
 If you'd rather import it by hand, use **Blueprints → Import blueprint** and paste:
 
@@ -353,9 +360,9 @@ If you'd rather import it by hand, use **Blueprints → Import blueprint** and p
 https://github.com/cobragt2000/spider_farmer_bridge/blob/main/custom_components/sf/blueprints/grow_alerts.yaml
 ```
 
-Then **Create automation → Use blueprint → Spider Farmer - Grow Alerts**, pick your air
-sensors, set the thresholds you want, and choose how to be notified. Create one automation
-per tent if you run several.
+Then **Create automation → Use blueprint → Spider Farmer - Grow Alerts**, pick the sensors
+for the checks you want (all optional), set the thresholds, and choose how to be notified.
+Create one automation per tent if you run several.
 
 ## Screenshots
 

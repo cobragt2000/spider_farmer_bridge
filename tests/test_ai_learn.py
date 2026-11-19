@@ -384,3 +384,44 @@ def test_seed_gridding_hourly_stats_plus_sparse_gear():
     assert samples[4].outputs["heater"] == 50.0    # on, 5/10, once states cover it
     assert samples[5].outputs["heater"] == 50.0
     assert all(s.outputs["blower"] == 40.0 for s in samples)
+
+
+# ── recorder path: incremental history window (audit 3.20.51) ────────────────
+
+def _recorder_read(rows, start, end, include_start=True):
+    """What the recorder returns for get_significant_states(minimal_response=True):
+    the state at `start` (stamped `start`) when asked for, then each change in
+    (start, end), with consecutive duplicates dropped."""
+    out = {}
+    for eid, series in rows.items():
+        res = []
+        if include_start:
+            before = [r for r in series if r[0] < start]
+            if before:
+                res.append((start, before[-1][1]))
+        for t, v in series:
+            if start < t < end and (not res or res[-1][1] != v):
+                res.append((t, v))
+        if res:
+            out[eid] = res
+    return out
+
+
+def test_merge_history_equals_a_full_read():
+    from custom_components.sf.ai_learn import merge_history
+    rng = np.random.default_rng(4)
+    rows = {
+        "sensor.t": [(float(t), f"{20 + rng.integers(0, 4) * 0.1:.1f}") for t in range(0, 20000, 7)],
+        "sensor.b": [(float(t), str(int(rng.choice([0, 50])))) for t in range(0, 20000, 900)],
+        "binary_sensor.h": [(5.0, "off"), (19990.0, "on")],     # changes only at the edges
+        "sensor.late": [(15000.0, "1"), (15500.0, "2")],         # starts inside the window
+    }
+    days_s = 5000.0
+    prev_end = 10000.0
+    cached = _recorder_read(rows, prev_end - days_s, prev_end)
+    for end in (10015.0, 10600.0, 13333.0, 19995.0):
+        # Read only from shortly before the previous read's end (overlap), merge, slide.
+        new = _recorder_read(rows, prev_end - 600.0, end, include_start=False)
+        cached = merge_history(cached, new, end - days_s)
+        assert cached == _recorder_read(rows, end - days_s, end), end
+        prev_end = end

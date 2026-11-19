@@ -763,11 +763,18 @@ async def async_fetch_history(hass, entity_ids: Sequence[str], days: float):
     """Pull recorder history for the given entities over the last `days`,
     returned as {entity_id: [(epoch, state_str), ...]} sorted ascending."""
     from datetime import timedelta
-    from homeassistant.components.recorder import get_instance, history
     from homeassistant.util import dt as dt_util
 
     end = dt_util.utcnow()
-    start = end - timedelta(days=days)
+    return await _async_fetch_window(hass, entity_ids, end - timedelta(days=days), end, True)
+
+
+async def _async_fetch_window(hass, entity_ids: Sequence[str], start, end,
+                              include_start_state: bool):
+    """Recorder states for `entity_ids` in (start, end), as {eid: [(epoch, state), ...]}
+    ascending. With `include_start_state` the state in effect at `start` leads each series,
+    stamped at `start` (the recorder's own convention)."""
+    from homeassistant.components.recorder import get_instance, history
 
     def _run():
         # Query AND parse inside the executor so neither the DB read nor the
@@ -775,11 +782,13 @@ async def async_fetch_history(hass, entity_ids: Sequence[str], days: float):
         # event loop. (loop-safety)
         states = history.get_significant_states(
             hass, start, end, list(entity_ids),
+            include_start_time_state=include_start_state,
             minimal_response=True, no_attributes=True,
         )
         out: dict[str, list[tuple[float, object]]] = {}
         for eid, rows in (states or {}).items():
             series: list[tuple[float, object]] = []
+            pool: dict = {}             # share repeated state strings (the cache keeps them)
             for st in rows:
                 # get_significant_states rows are State objects (or minimal dicts).
                 when = getattr(st, "last_updated", None) or getattr(st, "last_changed", None)
@@ -790,12 +799,86 @@ async def async_fetch_history(hass, entity_ids: Sequence[str], days: float):
                 ts = _row_ts(when)
                 if ts is None:
                     continue
-                series.append((ts, val))
+                series.append((ts, pool.setdefault(val, val)))
             series.sort(key=lambda p: p[0])
             out[eid] = series
         return out
 
     return await get_instance(hass).async_add_executor_job(_run)
+
+
+# Recorder-path history cache (store off — the default). Re-reading the whole 10-day window
+# on every 15-s live pass was the expensive part of that path, so each panel keeps the last
+# window in memory and only asks the recorder for what is new since the previous read.
+HISTORY_OVERLAP_S = 600.0             # re-read this much before the last read (late commits)
+HISTORY_FULL_REFRESH_S = 6 * 3600.0   # …and re-read the whole window this often anyway
+
+
+def merge_history(cached: Mapping[str, Series], new: Mapping[str, Series],
+                  window_start: float) -> dict:
+    """Pure: extend a cached recorder window with newly read rows and slide its start, giving
+    what a fresh full read of (window_start, now) returns — each series led by the state in
+    effect at `window_start` (stamped there), then every change after it, with no two
+    consecutive rows holding the same state (the recorder's minimal-response form). `new`
+    holds rows read from shortly before the previous read's end; rows not newer than the
+    cached tail are ignored, so the overlap is harmless. Inputs are not modified."""
+    out: dict[str, list] = {}
+    for eid in set(cached) | set(new):
+        old = list(cached.get(eid) or [])
+        last_t = old[-1][0] if old else float("-inf")
+        for t, v in new.get(eid) or ():
+            if t <= last_t:
+                continue
+            if not old or old[-1][1] != v:
+                old.append((t, v))
+            last_t = t
+        if not old:
+            continue
+        # Slide the window start: the state in effect at window_start leads the series
+        # (like the recorder: last row before the start, stamped at the start; a row
+        # exactly at the start belongs to neither side).
+        j = 0
+        while j < len(old) and old[j][0] < window_start:
+            j += 1
+        k = j
+        while k < len(old) and old[k][0] == window_start:
+            k += 1
+        if j:
+            head = (window_start, old[j - 1][1])
+            rest = old[k:]
+            if rest and rest[0][1] == head[1]:
+                rest = rest[1:]
+            old = [head] + rest
+        out[eid] = old
+    return out
+
+
+async def async_fetch_history_cached(hass, bus, panel: str, entity_ids: Sequence[str],
+                                     days: float) -> dict:
+    """`async_fetch_history` for the live learning loop: the first call (and any change of
+    entities or window, and every HISTORY_FULL_REFRESH_S) reads the full window; the calls in
+    between read only the last few minutes and merge them into the cached window."""
+    import time as _t
+    from datetime import timedelta
+    from homeassistant.util import dt as dt_util
+
+    cache = getattr(bus, "_ai_hist", None)
+    if cache is None:
+        cache = bus._ai_hist = {}
+    key = (tuple(sorted(entity_ids)), float(days))
+    end = dt_util.utcnow()
+    mono = _t.monotonic()
+    ent = cache.get(panel)
+    if ent is None or ent["key"] != key or mono - ent["full_at"] >= HISTORY_FULL_REFRESH_S:
+        raw = await _async_fetch_window(hass, entity_ids, end - timedelta(days=days), end, True)
+        cache[panel] = {"key": key, "end": end, "full_at": mono, "raw": raw}
+        return raw
+    since = ent["end"] - timedelta(seconds=HISTORY_OVERLAP_S)
+    new = await _async_fetch_window(hass, entity_ids, since, end, False)
+    window_start = (end - timedelta(days=days)).timestamp()
+    raw = await hass.async_add_executor_job(merge_history, ent["raw"], new, window_start)
+    ent["end"], ent["raw"] = end, raw
+    return raw
 
 
 async def async_fetch_statistics(hass, entity_ids: Sequence[str], days: float):
@@ -943,7 +1026,7 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
         eids = list(classified["metrics"].values())
         for spec in classified["devices"].values():
             eids += [v for k, v in spec.items() if isinstance(v, str) and "." in v]
-        raw = await async_fetch_history(hass, eids, days)
+        raw = await async_fetch_history_cached(hass, bus, panel, eids, days)
         # Series-building + the OLS fit are pure CPU — keep them off the loop too.
         slow = _slow_cached(bus, panel)
         result = await hass.async_add_executor_job(

@@ -149,13 +149,21 @@ def _ffill(vals: Sequence[float]) -> list[float]:
 
 def _rows(samples: Sequence[Sample], metric: str, devices: Sequence[str],
           smooth_sec: float = 0.0, vent_devices: Sequence[str] = ()):
+    """(X, y, vdevs) — see `_rows_dt`, which also returns each row's interval length."""
+    X, y, _dt, vdevs = _rows_dt(samples, metric, devices, smooth_sec, vent_devices)
+    return X, y, vdevs
+
+
+def _rows_dt(samples: Sequence[Sample], metric: str, devices: Sequence[str],
+             smooth_sec: float = 0.0, vent_devices: Sequence[str] = ()):
     """Build the regression rows from consecutive usable sample pairs.
     y = per-minute rate of `metric`; X columns are [each device's output], then [a
     ventilation column output × (intake − tent) for each device in `vent_devices` that has
     an intake reference captured], then an intercept (drift). When `smooth_sec` > 0 the
     metric, device and intake channels are run through the same centered time-window
-    average. Returns (X, y, vdevs): vdevs is the ordered list of devices that actually got
-    a ventilation column (empty when no intake reference is present / coverage too thin)."""
+    average. Returns (X, y, dt, vdevs): dt is each row's interval length in seconds; vdevs is
+    the ordered list of devices that actually got a ventilation column (empty when no intake
+    reference is present / coverage too thin)."""
     ordered = sorted(samples, key=lambda s: s.t)
     n = len(ordered)
     times = [s.t for s in ordered]
@@ -178,6 +186,7 @@ def _rows(samples: Sequence[Sample], metric: str, devices: Sequence[str],
         av = _ffill(av)                 # one value per row once intake has started
     xs: list[list[float]] = []
     ys: list[float] = []
+    dts: list[float] = []
     for i in range(n - 1):
         dt = times[i + 1] - times[i]
         if not (MIN_DT_S <= dt <= MAX_DT_S):
@@ -196,7 +205,9 @@ def _rows(samples: Sequence[Sample], metric: str, devices: Sequence[str],
             vent = [dv[d][i] * gap for d in vdevs]
         ys.append((cv - pv) / (dt / 60.0))
         xs.append(row + vent + [1.0])   # output in effect = level at interval start
-    return np.asarray(xs, dtype=float), np.asarray(ys, dtype=float), vdevs
+        dts.append(dt)
+    return (np.asarray(xs, dtype=float), np.asarray(ys, dtype=float),
+            np.asarray(dts, dtype=float), vdevs)
 
 
 def _confidence(n: int, r2: float, full_samples: float = FULL_SAMPLES) -> float:
@@ -236,26 +247,42 @@ def fit_metric_model(
     samples: Sequence[Sample], metric: str, devices: Sequence[str],
     full_samples: float = FULL_SAMPLES, denoise_sec: float = DENOISE_HALF_SEC,
 ) -> MetricModel:
-    """Fit the per-metric response model via ordinary least squares. Devices that
-    don't vary across the rows are dropped (gain 0) so their coefficient can't pick
-    up noise. Degenerate inputs resolve to low/zero confidence rather than raising.
-    `full_samples` is the 'enough data' bar for confidence (set by the learning speed).
-    `denoise_sec` is the smoothing half-window for noise-limited metrics (the learn path
-    scales it to the capture cadence so it never flattens fast swings)."""
+    """Fit the per-metric response model via least squares, each row WEIGHTED BY ITS
+    INTERVAL LENGTH. Devices that don't vary across the rows are dropped (gain 0) so their
+    coefficient can't pick up noise. Degenerate inputs resolve to low/zero confidence rather
+    than raising. `full_samples` is the 'enough data' bar for confidence (set by the learning
+    speed). `denoise_sec` is the smoothing half-window for noise-limited metrics (the learn
+    path scales it to the capture cadence so it never flattens fast swings).
+
+    Why weighted (audit 3.20.51): event-driven capture stores a row exactly when a reading
+    moved past its jitter epsilon, so between device changes the stored intervals are short
+    precisely when sensor noise pushed the reading over the edge. With every row counted
+    equally those noise-picked rates dominate and pull every gain toward zero (simulated:
+    blower −0.0005 vs a true −0.001 at 0.05 ° sensor noise). Weighting each rate by its
+    duration makes the fit regress the TOTAL change over each stretch on the inputs held
+    during it — the intermediate, noise-triggered rows telescope away — and recovers the true
+    gains at every noise level. With evenly spaced rows (the recorder grid, the old 2-min
+    capture) all weights are equal and the result is exactly the plain least-squares fit."""
     devices = list(devices)
     smooth = denoise_sec if metric in DENOISE_METRICS else 0.0
-    X, y, vdevs = _rows(samples, metric, devices, smooth_sec=smooth, vent_devices=VENT_DEVICES)
+    X, y, dt, vdevs = _rows_dt(samples, metric, devices, smooth_sec=smooth,
+                               vent_devices=VENT_DEVICES)
     nd, nv = len(devices), len(vdevs)
     if X.shape[0] < 2:
         return MetricModel(metric, 0.0, {d: 0.0 for d in devices}, int(X.shape[0]), 0.0, 0.0)
+    w = dt / float(dt.mean())          # mean weight 1: even spacing → plain OLS, same scale
+
+    def _wvar(col) -> float:
+        mu = float(np.average(col, weights=w))
+        return float(np.average((col - mu) ** 2, weights=w))
 
     # Keep only columns with real variance (a constant column just absorbs noise); the
     # ventilation columns use their own, larger threshold since they're on an output×gap
     # scale. The intercept (drift) is always kept.
     dev_cols = X[:, :nd]
     vent_cols = X[:, nd:nd + nv]
-    keep = [i for i in range(nd) if float(dev_cols[:, i].var()) > MIN_OUTPUT_VAR]
-    keep_v = [j for j in range(nv) if float(vent_cols[:, j].var()) > MIN_VENT_VAR]
+    keep = [i for i in range(nd) if _wvar(dev_cols[:, i]) > MIN_OUTPUT_VAR]
+    keep_v = [j for j in range(nv) if _wvar(vent_cols[:, j]) > MIN_VENT_VAR]
     parts = []
     if keep:
         parts.append(dev_cols[:, keep])
@@ -266,10 +293,11 @@ def fit_metric_model(
     if Xk.shape[0] <= Xk.shape[1]:
         return MetricModel(metric, 0.0, {d: 0.0 for d in devices}, int(X.shape[0]), 0.0, 0.0)
 
-    beta, *_ = np.linalg.lstsq(Xk, y, rcond=None)
+    sw = np.sqrt(w)
+    beta, *_ = np.linalg.lstsq(Xk * sw[:, None], y * sw, rcond=None)
     pred = Xk @ beta
-    ss_res = float(np.sum((y - pred) ** 2))
-    ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+    ss_res = float(np.sum(w * (y - pred) ** 2))
+    ss_tot = float(np.sum(w * (y - np.average(y, weights=w)) ** 2))
     r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-12 else 0.0
     gains = {d: 0.0 for d in devices}            # dropped (constant) devices → 0
     for j, i in enumerate(keep):

@@ -252,3 +252,58 @@ def test_humidifier_and_dehumidifier_gains():
     temp_model = fit_metric_model(samples, "temperature", HUMID_DEVICES)
     assert abs(temp_model.gains["dehumidifier"] - HUMID_TRUE["temperature"]["dehumidifier"]) < 0.005
     assert abs(temp_model.gains["humidifier"]) < 0.005
+
+
+def _event_capture_sim(jitter, days=3.0, seed=5):
+    """A tent with KNOWN dynamics (dT/dt = 0.03 − 0.001·blower% + 0.0004·light% °/min),
+    read every 6 s with sensor jitter, and stored by the real event-driven capture gate
+    (5-s poll, store on a device change / a move past CAPTURE_EPS / the 300-s idle floor)."""
+    import random
+    from custom_components.sf.ai_learn import snapshot_changed, CAPTURE_IDLE_S
+    rnd = random.Random(seed)
+    frames, t, temp, blower = [], 0.0, 24.0, 40.0
+    while t < days * 86400:
+        light = 100.0 if 5.5 <= (t / 3600) % 24 < 20 else 0.0
+        if temp > 26:
+            blower = 80.0
+        elif temp < 24:
+            blower = 20.0
+        elif rnd.random() < 6.0 / 1800:
+            blower = rnd.choice([20.0, 50.0, 80.0])
+        temp += (0.03 - 0.001 * blower + 0.0004 * light) * 0.1 + rnd.gauss(0, 0.002)
+        frames.append((t, round(temp + rnd.gauss(0, jitter), 2), blower, light))
+        t += 6.0
+    out, last, last_w, fi, tp = [], None, -1e9, 0, 0.0
+    while tp < frames[-1][0]:
+        while fi + 1 < len(frames) and frames[fi + 1][0] <= tp:
+            fi += 1
+        _, x, b, li = frames[fi]
+        vals = {"temperature": x, "blower": b, "light_1": li}
+        if tp - last_w >= CAPTURE_IDLE_S or snapshot_changed(last, vals, ["temperature"]):
+            out.append(Sample(tp, {"temperature": x}, {"blower": b, "light_1": li}))
+            last, last_w = vals, tp
+        tp += 5.0
+    return out
+
+
+def test_event_driven_capture_does_not_bias_gains_toward_zero():
+    # Audit 3.20.51: with sensor noise ≥ 0.05 °, event-driven capture stores short intervals
+    # exactly when noise crossed the epsilon; an equal-weight fit of their rates shrank the
+    # blower gain to about half (−0.0005 vs −0.001). Duration-weighted rows recover it.
+    for jitter in (0.0, 0.05, 0.1):
+        m = fit_metric_model(_event_capture_sim(jitter), "temperature", ["blower", "light_1"],
+                             denoise_sec=12.0)
+        assert abs(m.gains["blower"] - (-0.001)) < 0.00015, (jitter, m.gains)
+        assert abs(m.gains["light_1"] - 0.0004) < 0.00008, (jitter, m.gains)
+        assert abs(m.drift - 0.03) < 0.004, (jitter, m.drift)
+
+
+def test_even_spacing_weighted_fit_equals_plain_least_squares():
+    # Even spacing → equal weights → exactly the old plain OLS (recorder grid, 2-min capture).
+    from custom_components.sf.ai_climate import _rows
+    samples = _synth(n=600, noise=0.02, seed=3)
+    X, y, _ = _rows(samples, "humidity", DEVICES)
+    beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+    m = fit_metric_model(samples, "humidity", DEVICES)
+    assert abs(m.gains["blower"] - beta[0]) < 1e-9 and abs(m.gains["heater"] - beta[1]) < 1e-9
+    assert abs(m.drift - beta[2]) < 1e-9

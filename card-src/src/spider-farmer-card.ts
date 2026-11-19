@@ -2114,7 +2114,7 @@ export class SpiderFarmerCard extends LitElement {
     const close = html`<ha-icon icon="mdi:close" @click=${() => {
       this.soilGraphOpen = null; this._graphSel = null; this._graphPin = null; }}></ha-icon>`;
     const head = (mid: unknown) => html`<div class="pg-head">
-      <span>${loc(label)} · By Probe</span>${rangeSel}<span class="pg-now">${mid}</span>${close}</div>`;
+      <span>${loc("{label} · By Probe", { label: loc(label) })}</span>${rangeSel}<span class="pg-now">${mid}</span>${close}</div>`;
 
     // Build one series per probe + the average. Each series extends to NOW with
     // its live value so the lines reach the present (matches the param graph).
@@ -2219,7 +2219,7 @@ export class SpiderFarmerCard extends LitElement {
       <div class="pg-legend">
         ${series.map((s) => {
           const sampled = selC != null && s.pts.length ? this._graphSampleAt(s.pts, selC).v : s.live;
-          const txt = s.off && selC == null ? "offline"
+          const txt = s.off && selC == null ? loc("offline")
             : (Number.isFinite(sampled) ? `${f(sampled)}${unit}` : "—");
           return html`<span class="pg-leg ${s.name === "Average" ? "avg" : ""}">
             <i style="background:${s.color}"></i>${loc(s.name)} <b>${txt}</b></span>`;
@@ -2774,7 +2774,7 @@ export class SpiderFarmerCard extends LitElement {
     return html`
       <div class="soil-pop">
         <div class="soil-pop-head sph-tc">
-          <span>${this.soilMetricLabel(metric)} · By Probe</span>
+          <span>${loc("{label} · By Probe", { label: loc(this.soilMetricLabel(metric)) })}</span>
           <ha-icon icon="mdi:close" role="button" aria-label=${loc("Close")}
             @click=${() => (this.soilOpen = null)}></ha-icon>
         </div>
@@ -2791,7 +2791,7 @@ export class SpiderFarmerCard extends LitElement {
             <div class="soil-pop-row ${off ? "offline" : ""}">
               <span class="spn">${loc(name)}</span>
               <span class="spv" style=${rc ? `color:${rc.color}` : nothing}>${off
-                ? html`Offline`
+                ? loc("Offline")
                 : html`${val}<span class="unit">${unit}</span>`}</span>
             </div>`;
         })}
@@ -2851,8 +2851,8 @@ export class SpiderFarmerCard extends LitElement {
       ? `background:${ALARM_HI_BG};box-shadow:inset 0 0 0 1px ${ALARM_HI}`
       : (open ? `box-shadow:inset 0 0 0 1px ${accent}` : "");
     const valText = offline
-      ? `${offline} offline`
-      : `${slots.length} probes`;
+      ? loc("{n} offline", { n: offline })
+      : loc("{n} probes", { n: slots.length });
     return html`
       <div class="tile clickable ${open ? "active" : ""}" style=${tileStyle || nothing}
         role="button" aria-expanded=${open ? "true" : "false"}
@@ -2862,7 +2862,7 @@ export class SpiderFarmerCard extends LitElement {
             icon=${open ? "mdi:chevron-up" : "mdi:chevron-down"}></ha-icon>
         </div>
         <ha-icon icon="mdi:sprout" style="color:${offline ? ALARM_HI : accent}"></ha-icon>
-        <div class="tile-val" style=${offline ? `color:${ALARM_HI}` : nothing}>${loc(valText)}</div>
+        <div class="tile-val" style=${offline ? `color:${ALARM_HI}` : nothing}>${valText}</div>
       </div>`;
   }
 
@@ -5209,7 +5209,8 @@ export class SpiderFarmerCard extends LitElement {
           <div style="flex:1">
             <div class="plan-banner-title">${loc("Planting plan stopped")}</div>
             <div class="plan-banner-sub">
-              ${stages.length} stage${stages.length === 1 ? "" : "s"} · running the manual Environment targets
+              ${loc(stages.length === 1 ? "{n} stage · running the manual Environment targets"
+                : "{n} stages · running the manual Environment targets", { n: stages.length })}
             </div>
           </div>
         </div>
@@ -5664,8 +5665,8 @@ export class SpiderFarmerCard extends LitElement {
         <div class="pe-light-head"><span>${which === "light1" ? loc("Light 1") : loc("Light 2")}</span>
           <span class="pe-modes">${modeBtn("Time Slot")}${modeBtn("PPFD")}</span></div>
         <div class="pe-timesrow">
-          <label>On${time(startK)}</label>
-          <label>Off${time(stopK)}</label>
+          <label>${loc("On")}${time(startK)}</label>
+          <label>${loc("Off")}${time(stopK)}</label>
         </div>
         ${dur ? html`<div class="pe-durrow">${loc("Light Duration · {duration}", { duration: dur })}</div>` : nothing}
         ${isPPFD ? html`
@@ -5709,8 +5710,8 @@ export class SpiderFarmerCard extends LitElement {
               @click=${() => { this.planDelArm = true; }}></ha-icon>
           </div>`}
       <div class="pe-dates">
-        <label>Start${date("start")}</label>
-        <label>End${date("end")}</label>
+        <label>${loc("Start")}${date("start")}</label>
+        <label>${loc("End")}${date("end")}</label>
       </div>
       <div class="pe-alarmrow">
         <label>${loc("Alarm")}<input type="datetime-local" class="pe-in"
@@ -5743,9 +5744,8 @@ export class SpiderFarmerCard extends LitElement {
         <ha-icon icon="mdi:check-circle" style="--mdc-icon-size:18px"></ha-icon>${this._tplMsg}</div>` : nothing}
       <div class="plan-note" style="margin-top:6px">
         <ha-icon icon="mdi:information-outline"></ha-icon>
-        <span>“Save as template” stores this whole plan under My templates (on the
-        controller, so it syncs across your devices) — it doesn't change the running
-        plan. Use “${this.planInfo().active ? loc("Save & activate") : loc("Save Plan")}” to apply it to the controller.</span>
+        <span>${loc("“Save as template” stores this whole plan under My templates (on the controller, so it syncs across your devices) — it doesn't change the running plan. Use “{button}” to apply it to the controller.",
+          { button: this.planInfo().active ? loc("Save & activate") : loc("Save Plan") })}</span>
       </div>`;
   }
 
@@ -5804,8 +5804,8 @@ export class SpiderFarmerCard extends LitElement {
       <div class="plan-metric">
         <span class="plan-metric-label">${loc(label)}</span>
         <span class="plan-metric-vals">
-          <span>N ${this.fmtNum(night)}${suffix}</span>
-          <span>D ${this.fmtNum(day)}${suffix}</span>
+          <span>${loc("N {value}", { value: this.fmtNum(night) + suffix })}</span>
+          <span>${loc("D {value}", { value: this.fmtNum(day) + suffix })}</span>
         </span>
       </div>`;
     // Light row for the active plan stage — same one-line badge layout as the
@@ -5818,7 +5818,7 @@ export class SpiderFarmerCard extends LitElement {
       let a = "", b = "";
       if (mode === "Manual") {
         const bri = Number(L.ts_bri) || 0;
-        a = bri > 0 ? `${bri}%` : "Off";
+        a = bri > 0 ? `${bri}%` : loc("Off");
       } else if (mode === "PPFD") {
         a = `${L.ppfd_start}–${L.ppfd_stop}`;
         // 20 µmol is the target floor (0/unset isn't a valid PPFD target — on/off
@@ -8080,15 +8080,14 @@ export class SpiderFarmerCard extends LitElement {
       </div>
       ${events.length
         ? html`
-            <div class="log-count">${events.length} ${
-              events.length === 1 ? "entry" : "entries"}${
+            <div class="log-count">${loc(events.length === 1 ? "{n} entry" : "{n} entries", { n: events.length })}${
               events.length > 10 ? loc(" — scroll for more") : ""}</div>
             <div class="log-list">
               ${events.map((e) => html`
                 <div class="log-row ${e.alarmType ? "raise" : "restore"}">
                   <div class="log-title">${
                     sources.length > 1 && dev === "all" ? `${e._src} ` : ""
-                  }${e.device || `Device ${e.devType}`} ${e.alarm || ""}</div>
+                  }${e.device || loc("Device {n}", { n: e.devType })} ${e.alarm || ""}</div>
                   <div class="log-time">${e.epoch ? fmt(e.epoch) : e.time || ""}</div>
                 </div>`)}
             </div>`
@@ -8299,7 +8298,7 @@ export class SpiderFarmerCard extends LitElement {
         <div class="leaf-cal-foot">
           <span>
             ${loc("Avg {value}", { value: avg != null ? avg.toFixed(1) + unit : "—" })}
-            · offset ${derived != null ? sign(derived) + unit : "—"}
+            · ${loc("offset {value}", { value: derived != null ? sign(derived) + unit : "—" })}
           </span>
           <button class="leaf-apply" ?disabled=${derived == null}
             @click=${() => derived != null && stageCal(derived)}>
@@ -10471,7 +10470,7 @@ export class SpiderFarmerCardEditor extends LitElement {
               (s) => html`<option value=${s} ?selected=${s === cur.panel}>${label(s)}</option>`
             )}
             ${cur.panel && !panels.includes(cur.panel)
-              ? html`<option value=${cur.panel} selected>${cur.panel} (not found)</option>`
+              ? html`<option value=${cur.panel} selected>${loc("{panel} (not found)", { panel: cur.panel })}</option>`
               : nothing}
           </select>
           <span class="hint">${loc("Which display panel this card shows.")}</span>
@@ -12511,7 +12510,7 @@ export class SpiderPpfdCard extends LitElement {
             </div>
             <div class="hint">
               ${this.auto && this.brightSrc
-                ? html`Reading ${(this.hass?.states[this.brightSrc]?.attributes.friendly_name) || this.brightSrc}: ${s.dim}%`
+                ? loc("Reading {name}: {pct}%", { name: (this.hass?.states[this.brightSrc]?.attributes.friendly_name) || this.brightSrc, pct: s.dim })
                 : loc("Pick a Spider Farmer light (live brightness) or a Schedule Brightness (target) and the value tracks it live.")}
             </div>
           </div>
@@ -13210,7 +13209,7 @@ export class SpiderTimelapseCard extends LitElement {
             return html`
             <div class="tl-manage-row">
               <span class="tl-manage-name">${nm}${it.tl_id === this.config.tl_id ? loc(" (this card)") : ""}
-                <span class="tl-manage-sub">${(it.camera || "—").replace("camera.", "")} · ${(it.status && it.status.frame_count) || 0} frames</span></span>
+                <span class="tl-manage-sub">${(it.camera || "—").replace("camera.", "")} · ${loc("{n} frames", { n: (it.status && it.status.frame_count) || 0 })}</span></span>
               <button class="tl-xbtn ${arm ? "danger" : ""}" title=${loc("Delete this time-lapse and its images")}
                 @click=${() => arm ? this._removeInstance(it.tl_id) : this._armRemove(it.tl_id)}>${arm ? loc("Delete?") : "🗑"}</button>
             </div>`; })}
@@ -13264,7 +13263,7 @@ export class SpiderTimelapseCard extends LitElement {
       <div class="tl-head">
         <span>${this._displayName(st)}</span>
         <span class="tl-right">
-          <span class="tl-sub">${capturing ? loc("● capturing") : "idle"} · ${this._fmtInterval(st.attributes.interval_s)} · ${st.attributes.frame_count ?? 0} frames${this._sizeBytes ? " · " + this._fmtSize(this._sizeBytes) : ""}</span>
+          <span class="tl-sub">${capturing ? loc("● capturing") : loc("idle")} · ${this._fmtInterval(st.attributes.interval_s)} · ${loc("{n} frames", { n: st.attributes.frame_count ?? 0 })}${this._sizeBytes ? " · " + this._fmtSize(this._sizeBytes) : ""}</span>
           <ha-icon class="tl-gear" icon="mdi:cog" @click=${() => this._settingsOpen ? (this._settingsOpen = false) : this._openSettings()}></ha-icon>
         </span>
       </div>
@@ -14100,7 +14099,7 @@ export class SpiderAiStatsCard extends LitElement {
     const arc = (a0: number, a1: number) =>
       `M ${CX + R * Math.cos(a0)} ${CY - R * Math.sin(a0)} A ${R} ${R} 0 0 1 ${CX + R * Math.cos(a1)} ${CY - R * Math.sin(a1)}`;
     const col = this._confColor(v);
-    return html`<svg viewBox="0 0 180 104" class="gauge" role="img" aria-label="AI confidence ${v.toFixed(0)}%">
+    return html`<svg viewBox="0 0 180 104" class="gauge" role="img" aria-label=${loc("AI learning confidence {pct}%", { pct: v.toFixed(0) })}>
       <path d=${arc(Math.PI, 0)} stroke="var(--divider-color,#333)" stroke-width=${W} fill="none" stroke-linecap="round"></path>
       <path d=${arc(Math.PI, ang)} stroke=${col} stroke-width=${W} fill="none" stroke-linecap="round"></path>
       <circle cx=${x} cy=${y} r="7" fill=${col} stroke="var(--card-background-color,#111)" stroke-width="2"></circle>

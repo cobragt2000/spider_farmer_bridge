@@ -153,3 +153,26 @@ async def test_retention_purge_runs_shortly_after_setup(hass, _custom):
         await hass.async_block_till_done()
         assert (await hass.async_add_executor_job(st.stats, "dp1"))["rows"] == 1
         await _unload(hass, entry)
+
+
+async def test_saving_a_zone_reloads_once(hass, _custom, monkeypatch):
+    entry = await _setup_entry(hass, 19305, {"ai_learn": True})
+    import custom_components.sf as sf_init
+    setups = []
+    orig = sf_init.async_setup_entry
+
+    async def counting(h, e):
+        setups.append(1)
+        return await orig(h, e)
+
+    monkeypatch.setattr(sf_init, "async_setup_entry", counting)
+    from custom_components.sf.config_flow import SfBridgeOptionsFlow
+    flow = SfBridgeOptionsFlow(entry)
+    flow.hass = hass
+    flow.handler = entry.entry_id
+    flow.flow_id = "x"
+    flow._save_zones([_ZONE])
+    await hass.async_block_till_done()
+    assert len(setups) == 1
+    assert hass.data[DOMAIN][entry.entry_id][DATA_BUS]._ai_zones == [_ZONE]
+    await _unload(hass, entry)

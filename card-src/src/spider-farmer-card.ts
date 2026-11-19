@@ -11418,6 +11418,30 @@ function ppfdCopyPos(a: [number, number][] | undefined): [number, number][] {
   return (a || []).map((p) => (Array.isArray(p) ? [p[0], p[1]] : p) as [number, number]);
 }
 
+// Where a PPFD calibration came from: the panel's PPFD sensor, or a meter reading at
+// the given light-to-meter heights (inches). Stored like this (not as display text,
+// which would freeze the language and units of the moment it was set).
+type PpfdCalRef = "" | string | { src: "sensor" } | { src: "meter"; in: number[] };
+// Saved value → PpfdCalRef. Older cards stored display text; the forms they wrote
+// ("panel sensor"/"Panel-Sensor", '12" + 24"', "30 cm + 61 cm") are read back into
+// the neutral form, anything else is kept as text.
+function ppfdCalRefIn(v: any): PpfdCalRef {
+  if (v && typeof v === "object") {
+    if (v.src === "sensor") return { src: "sensor" };
+    if (v.src === "meter" && Array.isArray(v.in)) return { src: "meter", in: v.in.map(Number).filter((n: number) => n > 0) };
+    return "";
+  }
+  const t = String(v ?? "").trim();
+  if (!t) return "";
+  if (/^panel[ -]sensor$/i.test(t)) return { src: "sensor" };
+  const parts = t.split(" + ");
+  const at = parts.map((p) => {
+    const m = /^(\d+)(?:"| cm)$/.exec(p);
+    return m ? (p.endsWith("cm") ? Math.round(Number(m[1]) / 2.54) : Number(m[1])) : NaN;
+  });
+  return at.every((n) => n > 0) ? { src: "meter", in: at } : t;
+}
+
 const PLACE_LABEL: Record<string, string> = { row: "Row", grid: "Grid", perimeter: "Perimeter", custom: "Custom" };
 function ppfdZone(avg: number): { label: string; color: string } {
   if (avg < 200) return { label: "Too dim", color: "#4488dd" };
@@ -11441,7 +11465,7 @@ export class SpiderPpfdCard extends LitElement {
     tW: 0.61, tL: 1.22, tH: 1.981, model: "SE4500",
     hin: 18, plantIn: 12, numPlants: 2, dim: 100, photo: 18, metric: false,
     placement: "row" as "row" | "grid" | "perimeter" | "custom",
-    rows: 1, cols: 2, margin: 0.14, cal: 1, calRef: "",
+    rows: 1, cols: 2, margin: 0.14, cal: 1, calRef: "" as PpfdCalRef,
     custom: [] as [number, number][],
   };
   private manualDim = 100;
@@ -11484,7 +11508,7 @@ export class SpiderPpfdCard extends LitElement {
     this.s.cols = (d as any).plant_cols ?? 2;
     this.s.margin = (d as any).plant_margin ?? 0.14;
     this.s.cal = (d as any).ppfd_cal ?? 1;
-    this.s.calRef = (d as any).ppfd_cal_ref ?? "";
+    this.s.calRef = ppfdCalRefIn((d as any).ppfd_cal_ref);
     this.s.custom = Array.isArray((d as any).plant_positions) ? ppfdCopyPos((d as any).plant_positions) : [];
     this.s.dim = d.dimmer_percent ?? 100;
     this.manualDim = this.s.dim;
@@ -11601,7 +11625,7 @@ export class SpiderPpfdCard extends LitElement {
     if (b.cols != null) this.s.cols = b.cols;
     if (b.margin != null) this.s.margin = b.margin;
     if (b.cal != null) this.s.cal = b.cal;
-    if (b.calRef != null) this.s.calRef = b.calRef;
+    if (b.calRef != null) this.s.calRef = ppfdCalRefIn(b.calRef);
     if (Array.isArray(b.custom)) this.s.custom = b.custom;
     if (b.photo != null) this.s.photo = b.photo;
     if (b.dim != null) { this.manualDim = b.dim; this.s.dim = b.dim; }
@@ -11809,7 +11833,7 @@ export class SpiderPpfdCard extends LitElement {
     const eff = Math.max(1, this.s.hin - this.s.plantIn);
     const base = ppfdAt(light, eff, this.s.dim).center;
     if (base <= 0) return;
-    this.s.cal = ps.val / base; this.s.calRef = loc("panel sensor");
+    this.s.cal = ps.val / base; this.s.calRef = { src: "sensor" };
     this.dirty = true; this.repaint(); this.saveView();
   }
   private onCalibrate(): void {
@@ -11828,10 +11852,18 @@ export class SpiderPpfdCard extends LitElement {
     const den = usable.reduce((a, [, b]) => a + b * b, 0);
     if (den <= 0) return;
     this.s.cal = num / den;
-    const parts: string[] = []; if (m12) parts.push(this.fmtSmall(12)); if (m24) parts.push(this.fmtSmall(24));
-    this.s.calRef = parts.join(" + ");
+    const at: number[] = []; if (m12) at.push(12); if (m24) at.push(24);
+    this.s.calRef = { src: "meter", in: at };
     this.dirty = true; this.repaint();
     this.saveView();   // calibration applies immediately (not gated by Apply/Discard)
+  }
+  // Where the calibration came from, in the current language and units.
+  private calRefText(): string {
+    const r = this.s.calRef;
+    if (!r) return "";
+    if (typeof r === "string") return r;          // unrecognised text from an older card
+    if (r.src === "sensor") return loc("panel sensor");
+    return (r.in || []).map((h) => this.fmtSmall(h)).join(" + ");
   }
   private onCalReset(): void {
     this.s.cal = 1; this.s.calRef = ""; this.dirty = true; this.repaint();
@@ -12482,7 +12514,7 @@ export class SpiderPpfdCard extends LitElement {
           <div class="pnote">
             ${perPlant.length > 1
               ? loc("{n} plants · {min}–{max} μmol/m²/s at canopy", { n: perPlant.length, min: canopyMin, max: canopyMax })
-              : loc("{n} plant at canopy", { n: perPlant.length })}${(Math.abs(cal - 1) > 0.001) ? " · " + loc("calibrated ×{f}", { f: cal.toFixed(2) }) + (s.calRef ? " @ " + s.calRef : "") : ""}
+              : loc("{n} plant at canopy", { n: perPlant.length })}${(Math.abs(cal - 1) > 0.001) ? " · " + loc("calibrated ×{f}", { f: cal.toFixed(2) }) + (s.calRef ? " @ " + this.calRefText() : "") : ""}
           </div>
           <div class="leg"><span>${loc("Low")}</span><div class="legbar"></div><span>${loc("High PPFD")}</span></div>
           <div class="zone">
@@ -12565,7 +12597,7 @@ export class SpiderPpfdCard extends LitElement {
             <div class="prow">
               <button class="pbtn" @click=${() => this.onCalibrate()}>${loc("Calibrate")}</button>
               ${(Math.abs((s.cal || 1) - 1) > 0.001)
-                ? html`<span class="cnote">${loc("×{f}, set at {r}", { f: (s.cal || 1).toFixed(2), r: s.calRef || loc("meter") })}</span><button class="pbtn ghost" @click=${() => this.onCalReset()}>${loc("Reset")}</button>`
+                ? html`<span class="cnote">${loc("×{f}, set at {r}", { f: (s.cal || 1).toFixed(2), r: this.calRefText() || loc("meter") })}</span><button class="pbtn ghost" @click=${() => this.onCalReset()}>${loc("Reset")}</button>`
                 : html`<span class="cnote">${loc("not calibrated")}</span>`}
             </div>
           </div>

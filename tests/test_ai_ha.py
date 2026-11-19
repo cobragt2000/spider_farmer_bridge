@@ -325,3 +325,24 @@ def test_ai_sensor_restores_state_and_attributes():
     a = s._attr_extra_state_attributes
     assert a["models"] == models and a["store_enabled"] is True and a["store_rows"] == 1234
     assert a["history_days"] == 3.5 and a["profiles"] == [{"id": 1, "name": "g"}]
+
+
+async def test_store_confidence_is_scored_by_covered_time(hass: HomeAssistant):
+    # One busy day of 6-s capture is 14,400 rows — twice the old 7,200-row "enough data"
+    # bar — but only 1 of the ~10 days the bar stands for.
+    from custom_components.sf.ai_store import AiStore
+    hass.states.async_set("sensor.sf_dp1_temperature", "24.0")
+    hass.states.async_set("sensor.sf_dp1_blower_speed", "40")
+    store = AiStore(":memory:")
+    now, temp = time.time(), 24.0
+    for i in range(14400):
+        blower = 80.0 if (i // 50) % 2 else 20.0
+        temp += (0.05 - 0.001 * blower) * 0.1
+        store.append("dp1", now - 86400 + i * 6, {"temperature": round(temp, 3), "blower": blower})
+    bus = SimpleNamespace(publish=lambda *a, **k: None)
+    res = await ai_learn.async_learn_panel(hass, bus, "dp1", "aa", store=store)
+    md = res["models"]["temperature"]
+    assert md["n"] > 7200 and md["r2"] > 0.5
+    assert md["confidence"] <= 0.1 + 1e-9
+    store.close()
+

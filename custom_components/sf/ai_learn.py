@@ -25,7 +25,7 @@ from typing import Mapping, Optional, Sequence
 import re
 
 from .ai_climate import (
-    DENOISE_FRAMES, DENOISE_HALF_SEC, FULL_SAMPLES,
+    DENOISE_FRAMES, DENOISE_HALF_SEC, FULL_SAMPLES, FULL_SPAN_S,
     fit_models, overall_confidence, split_day_night,
 )
 from .ai_history import _Cursor, build_samples, gear_effort, speed_effort
@@ -352,13 +352,15 @@ def _light_keys(devices, specs: Optional[Mapping[str, dict]] = None) -> list:
 
 
 def _result(samples, metrics, devices, full_samples=FULL_SAMPLES,
-            denoise_sec=DENOISE_HALF_SEC, slow=None, light_keys=None) -> dict:
+            denoise_sec=DENOISE_HALF_SEC, slow=None, light_keys=None,
+            full_span_s=None) -> dict:
     """Fit the COMBINED model (all samples) plus separate DAY and NIGHT models when
     grow lights are present — day and night are different regimes, so learning them
     apart keeps night data from biasing the daytime response (and vice-versa).
     `full_samples` = the confidence 'enough data' bar, set by the learning-speed window.
     `denoise_sec` = the cadence-scaled smoothing half-window for noise-limited metrics.
     `light_keys` = the grow-light devices (default: the controller light channels by name).
+    `full_span_s` = a covered-time 'enough data' bar instead of `full_samples` (store path).
 
     Control-readiness (v3.20.39, see ai_readiness):
       - `slow` carries the step responses + forecast self-test from a recent pass; when None
@@ -368,26 +370,35 @@ def _result(samples, metrics, devices, full_samples=FULL_SAMPLES,
     devices = list(devices)
     lights = (_light_keys(devices) if light_keys is None      # day/night split uses the
               else [d for d in light_keys if d in devices])    # light keys
-    regimes = {"all": (samples, full_samples)}
+    regimes = {"all": (samples, full_samples, full_span_s)}
     if lights:
         day, night = split_day_night(samples, lights)
         # Day/night each see about half the window, so their 'enough' bar is halved too.
         half = max(1.0, full_samples / 2.0)
-        regimes["day"] = (day, half)
-        regimes["night"] = (night, half)
+        half_span = full_span_s / 2.0 if full_span_s else None
+        regimes["day"] = (day, half, half_span)
+        regimes["night"] = (night, half, half_span)
     fresh = slow is None
     if fresh:
         slow = {"steps": step_responses(samples, metrics, devices), "selftest": {}}
-        for reg, (rs, fs) in regimes.items():
+        for reg, (rs, fs, fsp) in regimes.items():
             slow["selftest"][reg] = forecast_selftest(
                 rs, metrics, devices,
-                lambda s, m, d, fs=fs: fit_models(s, m, d, fs, denoise_sec))
+                lambda s, m, d, fs=fs, fsp=fsp: fit_models(s, m, d, fs, denoise_sec, fsp))
+    fitted = {reg: (fit_models(rs, metrics, devices, fs, denoise_sec, fsp), len(rs))
+              for reg, (rs, fs, fsp) in regimes.items()}
+    return _assemble(fitted, slow, fresh)
+
+
+def _assemble(fitted: Mapping[str, tuple], slow: dict, fresh: bool) -> dict:
+    """Result dict from {regime: (models, sample count)} plus the slow analyses: the forecast
+    self-test rides inside each model and a FAILED test halves that model's learning %."""
     out: dict = {}
-    for reg, (rs, fs) in regimes.items():
+    for reg, (fit, nsamples) in fitted.items():
         tests = (slow.get("selftest") or {}).get(reg) or {}
         models = {m: replace(md, confidence=penalised_confidence(md.confidence, tests.get(m)))
-                  for m, md in fit_models(rs, metrics, devices, fs, denoise_sec).items()}
-        summ = _summarize(models, len(rs))
+                  for m, md in fit.items()}
+        summ = _summarize(models, nsamples)
         for m, t in tests.items():
             if m in summ["models"]:
                 summ["models"][m]["forecast"] = t
@@ -418,9 +429,11 @@ def learn(metric_series, output_series, *, step_s: float = 120.0, slow=None,
 
 
 def learn_samples(samples, metrics, devices, full_samples=FULL_SAMPLES,
-                  denoise_sec=DENOISE_HALF_SEC, slow=None, light_keys=None) -> dict:
+                  denoise_sec=DENOISE_HALF_SEC, slow=None, light_keys=None,
+                  full_span_s=None) -> dict:
     """Fit from pre-built Samples (the durable-store path), with day/night split."""
-    return _result(samples, metrics, devices, full_samples, denoise_sec, slow, light_keys)
+    return _result(samples, metrics, devices, full_samples, denoise_sec, slow, light_keys,
+                   full_span_s)
 
 
 # ── pure: live snapshot encoding (for the durable capture tick) ───────────────
@@ -465,7 +478,8 @@ CAPTURE_STEP_S = 120.0      # recorder-path synthetic step (dormant backfill onl
 CAPTURE_POLL_S = 5.0        # how often we LOOK (cheap in-memory compare; writes only on change)
 CAPTURE_FRAME_S = 6.0       # measured SF live-frame cadence — the capture resolution floor
 CAPTURE_IDLE_S = 300.0      # force a snapshot at least this often even when nothing moved
-CAPTURE_EFFECTIVE_S = 60.0  # nominal avg sample spacing (active+idle) for the confidence bar
+CAPTURE_EFFECTIVE_S = 60.0  # nominal avg sample spacing (active+idle); the confidence bar
+                            # now uses covered time instead (ai_climate.FULL_SPAN_S)
 # A metric counts as "moved" (worth storing) only past these absolute deltas — above the
 # per-frame sensor jitter, so a genuinely steady tent stays sparse. A real swing blows past
 # them. Any DEVICE on/off/level change always stores (that transition is the key event).
@@ -1019,11 +1033,12 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
         import time as _t
         _win = read_learn_window(hass, panel)
         since = max(0.0, _t.time() - _win * 86400.0) if _win > 0 else 0.0
-        # Capture is event-driven (variable rate), so the confidence "enough data" bar for a
-        # windowed level is set from a NOMINAL average spacing (CAPTURE_EFFECTIVE_S) — a
-        # window reaches full confidence once it holds ~that density; a dynamic tent fills
-        # faster. Slow (all data) keeps the fixed FULL_SAMPLES bar.
-        full = (_win * 86400.0 / CAPTURE_EFFECTIVE_S) if _win > 0 else FULL_SAMPLES
+        # Capture is event-driven (variable rate: a row per ~6 s in a swing, one per 300 s
+        # when steady), so the confidence "enough data" bar is the TIME the usable intervals
+        # cover: a windowed level is full once its window is covered, Slow (all data) after
+        # FULL_SPAN_S (~10 days, what the old 7200-row bar meant at 2-min capture). A row
+        # count reached "full" after half a day of swings, or only after weeks of calm.
+        span = _win * 86400.0 if _win > 0 else FULL_SPAN_S
         # Denoise half-window tracks the hardware frame rate (a couple of frames), so it
         # de-jitters without flattening the seconds-scale swings a small tent actually has.
         denoise = min(DENOISE_HALF_SEC, DENOISE_FRAMES * CAPTURE_FRAME_S)
@@ -1034,8 +1049,8 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
 
         def _fit():
             samples = store.samples(panel, metrics, since)
-            res = learn_samples(samples, metrics, devices, full, denoise, slow=slow,
-                                light_keys=lights)
+            res = learn_samples(samples, metrics, devices, FULL_SAMPLES, denoise, slow=slow,
+                                light_keys=lights, full_span_s=span)
             res["_store_stats"] = store.stats(panel)   # rows + distinct-ts samples + range
             res["_store_bytes"] = store.size_bytes()   # whole-DB file size
             res["_store_recent"] = store.recent_samples(panel, recent_since)  # count in window

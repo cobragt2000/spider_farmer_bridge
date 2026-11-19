@@ -51,6 +51,12 @@ MAX_DT_S = 3900.0
 #     made every real model read as near-untrained). (John, 2026-11-12)
 FULL_SAMPLES = 7200
 R2_FULL = 0.25
+# Event-driven capture (v3.20.32) stores anywhere from a row per 6 s (a swing) to one per
+# 300 s (steady), so a ROW count no longer says how much history there is: 7200 rows can be
+# half a day of swings or 25 days of a steady tent. The durable-store path therefore scores
+# volume by the TIME its usable intervals cover against this span — the same ~10 days the
+# 7200-row bar meant for 2-min capture. (audit 3.20.51)
+FULL_SPAN_S = 10 * 86400.0
 
 
 @dataclass(frozen=True)
@@ -246,6 +252,12 @@ def _confidence(n: int, r2: float, full_samples: float = FULL_SAMPLES) -> float:
     return round(vol * quality, 4)
 
 
+def _confidence_span(covered_s: float, r2: float, full_span_s: float) -> float:
+    """`_confidence` with the volume scored by covered TIME (see FULL_SPAN_S)."""
+    vol = min(1.0, covered_s / max(1.0, full_span_s))
+    quality = max(0.0, min(1.0, r2 / R2_FULL))
+    return round(vol * quality, 4)
+
 
 # A device whose output barely varies across the training rows carries no
 # information about its effect — fitting it anyway just absorbs noise into a
@@ -304,10 +316,12 @@ class FitStats:
 
 def model_from_stats(st: FitStats, metric: str, devices: Sequence[str],
                      vcols: Sequence[str] = (), use_vent: bool = True,
-                     full_samples: float = FULL_SAMPLES) -> MetricModel:
+                     full_samples: float = FULL_SAMPLES,
+                     full_span_s: float | None = None) -> MetricModel:
     """Solve the per-metric model from FitStats whose columns are [devices…, a ventilation
     column per `vcols`…, intercept]. `use_vent` False ignores the ventilation columns (too
-    little intake data). Volume for the confidence: row count against `full_samples`."""
+    little intake data). Volume for the confidence: row count against `full_samples`, or —
+    when `full_span_s` is given — covered time against that span."""
     devices = list(devices)
     nd, nv = len(devices), len(vcols)
     k = nd + nv + 1
@@ -345,19 +359,21 @@ def model_from_stats(st: FitStats, metric: str, devices: Sequence[str],
     vent = {}                                    # device -> ventilation gain (gradient effect)
     for j, jj in enumerate(keep_v):
         vent[vcols[jj]] = float(beta[len(keep) + j])
-    return MetricModel(metric, float(beta[-1]), gains, n, round(r2, 4),
-                       _confidence(n, r2, full_samples), vent)
+    conf = (_confidence_span(st.sw, r2, full_span_s) if full_span_s
+            else _confidence(n, r2, full_samples))
+    return MetricModel(metric, float(beta[-1]), gains, n, round(r2, 4), conf, vent)
 
 
 def fit_metric_model(
     samples: Sequence[Sample], metric: str, devices: Sequence[str],
     full_samples: float = FULL_SAMPLES, denoise_sec: float = DENOISE_HALF_SEC,
+    full_span_s: float | None = None,
 ) -> MetricModel:
     """Fit the per-metric response model via least squares, each row WEIGHTED BY ITS
     INTERVAL LENGTH. Devices that don't vary across the rows are dropped (gain 0) so their
     coefficient can't pick up noise. Degenerate inputs resolve to low/zero confidence rather
     than raising. `full_samples` is the 'enough data' bar for confidence (set by the learning
-    speed). `denoise_sec` is
+    speed); `full_span_s`, when given, replaces it with a covered-time bar. `denoise_sec` is
     the smoothing half-window for noise-limited metrics (the learn path scales it to the
     capture cadence so it never flattens fast swings).
 
@@ -375,17 +391,19 @@ def fit_metric_model(
     X, y, dt, vdevs = _rows_dt(samples, metric, devices, smooth_sec=smooth,
                                vent_devices=VENT_DEVICES)
     return model_from_stats(FitStats.from_rows(X, y, dt), metric, devices, vdevs, True,
-                            full_samples)
+                            full_samples, full_span_s)
 
 
 def fit_models(
     samples: Sequence[Sample], metrics: Sequence[str], devices: Sequence[str],
     full_samples: float = FULL_SAMPLES, denoise_sec: float = DENOISE_HALF_SEC,
+    full_span_s: float | None = None,
 ) -> dict[str, MetricModel]:
     """Fit a model for every metric. Keyed by metric name. `full_samples` = the confidence
-    'enough data' bar (set by the learning-speed window); `denoise_sec` = the cadence-scaled
-    smoothing half-window for noise-limited metrics."""
-    return {m: fit_metric_model(samples, m, devices, full_samples, denoise_sec) for m in metrics}
+    'enough data' bar (set by the learning-speed window), or `full_span_s` as a covered-time
+    bar; `denoise_sec` = the cadence-scaled smoothing half-window for noise-limited metrics."""
+    return {m: fit_metric_model(samples, m, devices, full_samples, denoise_sec, full_span_s)
+            for m in metrics}
 
 
 def split_day_night(samples: Sequence[Sample], light_keys: Sequence[str],

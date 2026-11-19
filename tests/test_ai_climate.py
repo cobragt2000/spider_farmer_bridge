@@ -309,7 +309,6 @@ def test_even_spacing_weighted_fit_equals_plain_least_squares():
     assert abs(m.drift - beta[2]) < 1e-9
 
 
-
 def test_fit_stats_of_parts_add_up_to_the_fit_of_the_whole():
     # The solver works on additive sufficient statistics, so a long history can be folded
     # piece by piece: stats(A) + stats(B) give exactly the fit over A + B.
@@ -326,3 +325,15 @@ def test_fit_stats_of_parts_add_up_to_the_fit_of_the_whole():
     assert all(abs(m.gains[d] - whole.gains[d]) < 1e-12 for d in DEVICES)
     ref = fit_metric_model(samples, "temperature", DEVICES, denoise_sec=0.0)
     assert abs(ref.gains["blower"] - m.gains["blower"]) < 1e-9
+
+
+def test_confidence_volume_counts_covered_time_not_rows():
+    # The 'enough data' bar (7200 rows) assumed 2-min capture. Event-driven capture stores up
+    # to a row per 6 s, so one busy day already counted as "full" — 10 days in the docs.
+    one_day_dense = _synth(n=14400, noise=0.0)
+    for i, s in enumerate(one_day_dense):          # 6-s spacing → 14400 rows = 1 day
+        one_day_dense[i] = Sample(i * 6.0, s.metrics, s.outputs)
+    from custom_components.sf.ai_climate import FULL_SPAN_S
+    m = fit_metric_model(one_day_dense, "temperature", DEVICES, full_span_s=FULL_SPAN_S)
+    assert m.n > FULL_SAMPLES
+    assert m.confidence <= 0.1 + 1e-9             # 1 of 10 days covered

@@ -75,7 +75,9 @@ const RUN_MODE_LABELS: Record<string, string> = {
   "humidity only": "Humidity Only",
   "temperature & humidity": "Temperature & Humidity",
 };
-const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];   // 0=Sun … 6=Sat
+// Weekday initials, 0=Sun … 6=Sat. One translatable row (single letters would be
+// ambiguous keys: T is Tuesday and Thursday).
+const dayLetters = (): string[] => loc("S M T W T F S").split(" ");
 
 const SLOT_RE = /^sf_(dp\d+|ac5|ac10|st\d+)_/;
 
@@ -7730,7 +7732,7 @@ export class SpiderFarmerCard extends LitElement {
                 @click=${() => this.editOutlet(slot, n, (a) => a.splice(i, 1))}>✕</button>
             </div>
             <div class="days">
-              ${DAY_LETTERS.map(
+              ${dayLetters().map(
                 (d, di) => html`<button
                   class="day ${p.days.includes(di) ? "on" : ""}"
                   style=${p.days.includes(di) ? `background:${accent};border-color:${accent}` : ""}
@@ -10819,7 +10821,7 @@ export class SpiderLightCard extends LitElement {
             @click=${() => this.edit(slot, (a) => a.splice(i, 1))}>✕</button>
         </div>
         <div class="days">
-          ${DAY_LETTERS.map(
+          ${dayLetters().map(
             (d, di) => html`<button
               class="day ${p.days.includes(di) ? "on" : ""}"
               style=${p.days.includes(di) ? `background:${accent};border-color:${accent}` : ""}

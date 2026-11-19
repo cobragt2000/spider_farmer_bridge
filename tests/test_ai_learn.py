@@ -386,7 +386,7 @@ def test_seed_gridding_hourly_stats_plus_sparse_gear():
     assert all(s.outputs["blower"] == 40.0 for s in samples)
 
 
-# ── recorder path: incremental history window (audit 3.20.51) ────────────────
+# ── recorder path: incremental history window (v3.20.52) ────────────────
 
 def _recorder_read(rows, start, end, include_start=True):
     """What the recorder returns for get_significant_states(minimal_response=True):
@@ -428,7 +428,7 @@ def test_merge_history_equals_a_full_read():
 
 
 async def test_forced_pass_waits_and_never_overlaps(monkeypatch):
-    # Audit 3.20.51: force=True bypassed the running-pass guard and the first pass to
+    # v3.20.52 fix: force=True bypassed the running-pass guard and the first pass to
     # finish cleared it, so a forced pass (profile save/load, clean) ran alongside a
     # scheduled one and the next tick started a third.
     import asyncio
@@ -460,7 +460,7 @@ async def test_forced_pass_waits_and_never_overlaps(monkeypatch):
 
 
 def test_non_finite_states_count_as_missing():
-    # Audit 3.20.51: a level state "nan"/"inf" crashed the capture tick (int(nan)) — and a
+    # v3.20.52 fix: a level state "nan"/"inf" crashed the capture tick (int(nan)) — and a
     # "nan" reading is no reading. Treat them like "unknown".
     classified = {
         "metrics": {"temperature": f"sensor.{P}temperature", "humidity": f"sensor.{P}humidity"},

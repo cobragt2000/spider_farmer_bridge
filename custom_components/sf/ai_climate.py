@@ -55,7 +55,7 @@ R2_FULL = 0.25
 # 300 s (steady), so a ROW count no longer says how much history there is: 7200 rows can be
 # half a day of swings or 25 days of a steady tent. The durable-store path therefore scores
 # volume by the TIME its usable intervals cover against this span — the same ~10 days the
-# 7200-row bar meant for 2-min capture. (audit 3.20.51)
+# 7200-row bar meant for 2-min capture. (v3.20.52)
 FULL_SPAN_S = 10 * 86400.0
 
 
@@ -377,7 +377,7 @@ def fit_metric_model(
     the smoothing half-window for noise-limited metrics (the learn path scales it to the
     capture cadence so it never flattens fast swings).
 
-    Why weighted (audit 3.20.51): event-driven capture stores a row exactly when a reading
+    Why weighted (v3.20.52): event-driven capture stores a row exactly when a reading
     moved past its jitter epsilon, so between device changes the stored intervals are short
     precisely when sensor noise pushed the reading over the edge. With every row counted
     equally those noise-picked rates dominate and pull every gain toward zero (simulated:

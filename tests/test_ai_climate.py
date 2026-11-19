@@ -287,7 +287,7 @@ def _event_capture_sim(jitter, days=3.0, seed=5):
 
 
 def test_event_driven_capture_does_not_bias_gains_toward_zero():
-    # Audit 3.20.51: with sensor noise ≥ 0.05 °, event-driven capture stores short intervals
+    # v3.20.52 fix: with sensor noise ≥ 0.05 °, event-driven capture stores short intervals
     # exactly when noise crossed the epsilon; an equal-weight fit of their rates shrank the
     # blower gain to about half (−0.0005 vs −0.001). Duration-weighted rows recover it.
     for jitter in (0.0, 0.05, 0.1):
@@ -350,7 +350,7 @@ def _store_stream(seed=3, n=3000):
 
 
 def test_incremental_fit_equals_a_full_refit_and_reads_only_the_tail():
-    # Audit 3.20.51 (store on, Slow = all data): every 15-s pass loaded the whole store and
+    # v3.20.52 fix (store on, Slow = all data): every 15-s pass loaded the whole store and
     # refitted it (a year of 60-s capture: 4 s and ~600 MB per pass). IncrementalFit folds
     # settled rows once; the models must equal a full refit over every sample.
     from custom_components.sf.ai_climate import (

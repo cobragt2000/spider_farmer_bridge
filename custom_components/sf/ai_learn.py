@@ -1260,7 +1260,7 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
     # now the wall-clock time of the last pass that changed the result. (The card's
     # countdown that needed a fresh stamp each pass was replaced by "Updating live" in
     # 3.20.38.) Nothing is cached in .storage any more: the per-panel sf_ai_model_<slot>
-    # files were rewritten every pass for every slot and never read. (audit 3.20.51)
+    # files were rewritten every pass for every slot and never read. (v3.20.52)
     import json
     import time as _time
     body = json.dumps(result, sort_keys=True)

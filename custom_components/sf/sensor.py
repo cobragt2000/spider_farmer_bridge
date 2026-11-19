@@ -335,7 +335,7 @@ class SfAiSensor(SfSensor):
     # The model summary is ~3 KB and changes with almost every live pass; the recorder
     # stored all of it as a new attributes row each time (~17 MB/day per panel at one
     # pass per 15 s). History graphs only need the state, so keep these out of the
-    # recorder — the card reads them live from the state machine. (audit 3.20.51)
+    # recorder — the card reads them live from the state machine. (v3.20.52)
     _unrecorded_attributes = frozenset({
         "models", "samples", "day", "night", "history_days", "store_rows", "store_recent",
         "store_recent_s", "store_days", "store_bytes", "store_first", "store_last",

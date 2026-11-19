@@ -121,7 +121,7 @@ class _CountingSeries:
 
 
 def test_build_samples_forward_fill_is_linear_not_quadratic():
-    # Audit 3.20.51: _value_at rebuilt the whole timestamp list for EVERY grid point, so
+    # v3.20.52 fix: _value_at rebuilt the whole timestamp list for EVERY grid point, so
     # a 10-day recorder window cost grid × states (22 s per 15-s pass at 436k states).
     # A forward-walking cursor reads each element a bounded number of times.
     n = 3000

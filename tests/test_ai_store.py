@@ -228,7 +228,7 @@ def test_stats_overall_and_per_panel():
     s.close()
 
 
-# ── audit 3.20.51 regressions ─────────────────────────────────────────────────
+# ── v3.20.52 regressions ──────────────────────────────────────────────────────
 
 def test_concurrent_capture_fit_and_profile_ops_do_not_corrupt_transactions(tmp_path):
     # One sqlite3 connection is shared by several executor threads (capture every 5 s, fit

@@ -1,4 +1,4 @@
-"""Adaptive climate — Home Assistant-backed regressions from the 3.20.51 audit.
+"""Adaptive climate — Home Assistant-backed regressions fixed in v3.20.52.
 
 These run the real HA glue (options listener, timers, services, sensor) with the durable
 store and recorder mocked or in a temp dir. Nothing here talks to a real controller."""
@@ -109,7 +109,7 @@ _ZONE = {"id": "z", "name": "Z", "sensor_panel": "dp1", "device_panels": [], "ex
     {"ai_learn": True, "ai_store": False, "ai_retention_days": 30},   # retention w/o store
 ])
 async def test_option_write_does_not_reload_when_ai_settings_unchanged(hass, _custom, options):
-    # Audit 3.20.51: the listener treated AI as "device control AND ai_learn" while setup
+    # v3.20.52 fix: the listener treated AI as "device control AND ai_learn" while setup
     # (since 3.20.30) uses ai_learn alone, and compared configured zones although setup
     # keeps none while AI is off — so every card-option write reloaded the integration and
     # dropped the controller connections.
@@ -210,7 +210,7 @@ async def test_profile_actions_without_panel_use_the_learnable_panel(hass, _cust
 
 
 async def test_day_night_split_with_grow_light_on_a_role_tagged_outlet(hass: HomeAssistant):
-    # Audit 3.20.51: only the controller light channels (light_1/light_2) were recognised,
+    # v3.20.52 fix: only the controller light channels (light_1/light_2) were recognised,
     # so a grow light on a plug outlet (role "light") or an external entity got no
     # day/night models.
     import json
@@ -247,7 +247,7 @@ def test_light_keys_follow_the_light_role():
 
 async def test_ai_sensor_records_little_and_only_on_change(
         recorder_mock, hass: HomeAssistant, enable_custom_integrations, hass_storage):
-    # Audit 3.20.51: every 15-s pass stamped a fresh last_fit, so the sensor wrote a new
+    # v3.20.52 fix: every 15-s pass stamped a fresh last_fit, so the sensor wrote a new
     # state row AND a new ~3 KB attributes row each time (~17 MB/day per panel), and
     # rewrote .storage/sf_ai_model_<slot> (never read) for every slot.
     from sqlalchemy import text

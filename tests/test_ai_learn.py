@@ -457,3 +457,25 @@ async def test_forced_pass_waits_and_never_overlaps(monkeypatch):
     assert peak == 1
     assert order == ["tick", "forced-data"]       # the forced pass ran, after the tick
     assert bus._ai_learning is False
+
+
+def test_non_finite_states_count_as_missing():
+    # Audit 3.20.51: a level state "nan"/"inf" crashed the capture tick (int(nan)) — and a
+    # "nan" reading is no reading. Treat them like "unknown".
+    classified = {
+        "metrics": {"temperature": f"sensor.{P}temperature", "humidity": f"sensor.{P}humidity"},
+        "devices": {
+            "blower": {"effort": "speed", "speed": f"sensor.{P}blower_speed"},
+            "heater": {"effort": "gear", "active": f"binary_sensor.{P}heater_active",
+                       "level": f"sensor.{P}heater_level", "max": 10},
+        },
+    }
+    for bad in ("nan", "inf", "-inf", "NaN"):
+        state = {f"sensor.{P}temperature": bad, f"sensor.{P}humidity": "55",
+                 f"sensor.{P}blower_speed": bad,
+                 f"binary_sensor.{P}heater_active": "on", f"sensor.{P}heater_level": bad}
+        vals = encode_snapshot(classified, state.get)
+        assert vals == {"humidity": 55.0, "heater": 0.0}, (bad, vals)
+    spec = classified["devices"]["heater"]
+    raw = {spec["active"]: [(0, "on")], spec["level"]: [(0, "inf"), (60, "5")]}
+    assert device_effort_series(spec, raw) == [(0, 0.0), (60, 50.0)]

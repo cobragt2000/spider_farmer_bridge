@@ -18,6 +18,7 @@ and publish are the thin HA wrappers at the bottom.
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 from typing import Mapping, Optional, Sequence
 
@@ -232,10 +233,14 @@ def classify_zone(entity_ids: Sequence[str], zone: dict, get_state=None,
 # ── pure: effort encoding from raw history ───────────────────────────────────
 
 def _num(v) -> Optional[float]:
+    """A state as a finite number, else None (missing). "nan"/"inf" states parse as floats
+    but are not readings: they crashed the capture tick (int(nan) in the gear encoding)
+    and would poison a fit, so they count as missing like "unknown"."""
     try:
-        return float(v)
+        n = float(v)
     except (TypeError, ValueError):
         return None
+    return n if math.isfinite(n) else None
 
 
 def _row_ts(when) -> Optional[float]:

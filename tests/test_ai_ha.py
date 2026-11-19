@@ -202,3 +202,39 @@ async def test_profile_actions_without_panel_use_the_learnable_panel(hass, _cust
     assert (await hass.async_add_executor_job(st.stats, "dp1"))["samples"] == 50
     assert (await hass.async_add_executor_job(st.stats, "se1"))["samples"] == 0
     await _unload(hass, entry)
+
+
+async def test_day_night_split_with_grow_light_on_a_role_tagged_outlet(hass: HomeAssistant):
+    # Audit 3.20.51: only the controller light channels (light_1/light_2) were recognised,
+    # so a grow light on a plug outlet (role "light") or an external entity got no
+    # day/night models.
+    import json
+    from custom_components.sf.ai_store import AiStore
+    hass.states.async_set("sensor.sf_dp1_temperature", "24.0")
+    hass.states.async_set("sensor.sf_dp1_blower_speed", "40")
+    hass.states.async_set("switch.sf_dp1_outlet_3", "on")
+    hass.states.async_set("select.sf_dp1_outlet_3_mode", "Manual")
+    hass.states.async_set("sensor.sf_dp1_alarm_settings", "ok", {"card_options": {
+        "ai_outlet_roles": json.dumps({"dp1:outlet_3": "light"})}})
+    store = AiStore(":memory:")
+    t0 = time.time() - 2 * 86400
+    for i in range(2 * 24 * 12):                        # 2 days, every 5 min
+        t = t0 + i * 300
+        lit = 100.0 if (i // 12) % 24 < 16 else 0.0      # 16 h on / 8 h off
+        store.append("dp1", t, {"temperature": 24.0 + (i % 7) * 0.1,
+                                "blower": 40.0 + (i % 3) * 10, "outlet_3": lit})
+    bus = SimpleNamespace(publish=lambda *a, **k: None)
+    res = await ai_learn.async_learn_panel(hass, bus, "dp1", "aa", store=store)
+    assert "day" in res and "night" in res
+    assert res["day"]["samples"] + res["night"]["samples"] == res["samples"]
+    assert res["day"]["samples"] > res["night"]["samples"] > 0
+    store.close()
+
+
+def test_light_keys_follow_the_light_role():
+    specs = {"outlet_3": {"effort": "switch", "role": "light"},
+             "ext_1": {"effort": "switch", "external": True, "role": "light"},
+             "ext_2": {"effort": "switch", "external": True, "role": "other"},
+             "ac5:light_2": {"effort": "speed"}, "heater": {"effort": "gear"}}
+    assert ai_learn._light_keys(list(specs), specs) == ["outlet_3", "ext_1", "ac5:light_2"]
+    assert ai_learn._light_keys(list(specs)) == ["ac5:light_2"]        # names only (old call)

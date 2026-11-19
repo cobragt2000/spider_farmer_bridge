@@ -340,19 +340,25 @@ def _summarize(models, nsamples: int) -> dict:
     }
 
 
-def _light_keys(devices) -> list:
-    """Device keys that are grow lights (light_1/light_2, possibly panel-prefixed in
-    a zone). Used to split samples into day (lights on) vs night."""
-    return [d for d in devices if re.search(r"(^|:)light_\d", str(d))]
+def _light_keys(devices, specs: Optional[Mapping[str, dict]] = None) -> list:
+    """Device keys that are grow lights: the controller light channels (light_1/light_2,
+    possibly panel-prefixed in a zone) and — when the classified `specs` are given — any
+    outlet or external entity whose learning role is "light" (a grow light on a plug
+    outlet or switched by HA). Used to split samples into day (lights on) vs night."""
+    specs = specs or {}
+    return [d for d in devices
+            if re.search(r"(^|:)light_\d", str(d))
+            or str((specs.get(d) or {}).get("role") or "").lower() == "light"]
 
 
 def _result(samples, metrics, devices, full_samples=FULL_SAMPLES,
-            denoise_sec=DENOISE_HALF_SEC, slow=None) -> dict:
+            denoise_sec=DENOISE_HALF_SEC, slow=None, light_keys=None) -> dict:
     """Fit the COMBINED model (all samples) plus separate DAY and NIGHT models when
     grow lights are present — day and night are different regimes, so learning them
     apart keeps night data from biasing the daytime response (and vice-versa).
     `full_samples` = the confidence 'enough data' bar, set by the learning-speed window.
     `denoise_sec` = the cadence-scaled smoothing half-window for noise-limited metrics.
+    `light_keys` = the grow-light devices (default: the controller light channels by name).
 
     Control-readiness (v3.20.39, see ai_readiness):
       - `slow` carries the step responses + forecast self-test from a recent pass; when None
@@ -360,7 +366,8 @@ def _result(samples, metrics, devices, full_samples=FULL_SAMPLES,
         self-test halves that model's learning %."""
     metrics = list(metrics)
     devices = list(devices)
-    lights = _light_keys(devices)                 # day/night split uses the light keys
+    lights = (_light_keys(devices) if light_keys is None      # day/night split uses the
+              else [d for d in light_keys if d in devices])    # light keys
     regimes = {"all": (samples, full_samples)}
     if lights:
         day, night = split_day_night(samples, lights)
@@ -394,17 +401,19 @@ def _result(samples, metrics, devices, full_samples=FULL_SAMPLES,
     return out
 
 
-def learn(metric_series, output_series, *, step_s: float = 120.0, slow=None) -> dict:
+def learn(metric_series, output_series, *, step_s: float = 120.0, slow=None,
+          light_keys=None) -> dict:
     """Fit all metric models from raw series (recorder path), with day/night split.
     Returns {confidence, models, samples, [day], [night], steps}."""
     samples = build_samples(metric_series, output_series, step_s=step_s)
-    return _result(samples, list(metric_series.keys()), list(output_series.keys()), slow=slow)
+    return _result(samples, list(metric_series.keys()), list(output_series.keys()), slow=slow,
+                   light_keys=light_keys)
 
 
 def learn_samples(samples, metrics, devices, full_samples=FULL_SAMPLES,
-                  denoise_sec=DENOISE_HALF_SEC, slow=None) -> dict:
+                  denoise_sec=DENOISE_HALF_SEC, slow=None, light_keys=None) -> dict:
     """Fit from pre-built Samples (the durable-store path), with day/night split."""
-    return _result(samples, metrics, devices, full_samples, denoise_sec, slow)
+    return _result(samples, metrics, devices, full_samples, denoise_sec, slow, light_keys)
 
 
 # ── pure: live snapshot encoding (for the durable capture tick) ───────────────
@@ -993,6 +1002,7 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
     classified = (classify_zone(eids_all, zone, get_state=_gs, roles=_roles) if zone
                   else classify_panel(eids_all, panel, get_state=_gs,
                                       roles=roles_for_slot(_roles, panel)))
+    lights = _light_keys(classified["devices"].keys(), classified["devices"])
     if not classified["metrics"] or not classified["devices"]:
         result = {"confidence": 0.0, "models": {}, "samples": 0}
     elif store is not None:
@@ -1023,7 +1033,8 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
 
         def _fit():
             samples = store.samples(panel, metrics, since)
-            res = learn_samples(samples, metrics, devices, full, denoise, slow=slow)
+            res = learn_samples(samples, metrics, devices, full, denoise, slow=slow,
+                                light_keys=lights)
             res["_store_stats"] = store.stats(panel)   # rows + distinct-ts samples + range
             res["_store_bytes"] = store.size_bytes()   # whole-DB file size
             res["_store_recent"] = store.recent_samples(panel, recent_since)  # count in window
@@ -1058,7 +1069,7 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
         # Series-building + the OLS fit are pure CPU — keep them off the loop too.
         slow = _slow_cached(bus, panel)
         result = await hass.async_add_executor_job(
-            lambda: learn(*build_panel_series(raw, classified), slow=slow)
+            lambda: learn(*build_panel_series(raw, classified), slow=slow, light_keys=lights)
         )
         result["store_enabled"] = False
     if "_slow" in result:

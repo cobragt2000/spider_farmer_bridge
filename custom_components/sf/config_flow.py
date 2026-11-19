@@ -299,10 +299,10 @@ class SfBridgeOptionsFlow(config_entries.OptionsFlow):
             step_id="ai_zone_edit", data_schema=vol.Schema(fields), errors=errors)
 
     def _save_zones(self, zones: list):
+        # The options update listener sees the zone change and reloads the entry once
+        # (only while adaptive climate is on — otherwise zones aren't in use yet).
         self.hass.config_entries.async_update_entry(
             self._entry, options={**(self._entry.options or {}), CONF_AI_ZONES: zones})
-        self.hass.async_create_task(
-            self.hass.config_entries.async_reload(self._entry.entry_id))
         return self.async_create_entry(title="", data=dict(self._entry.options or {}))
 
     async def async_step_settings(self, user_input=None):

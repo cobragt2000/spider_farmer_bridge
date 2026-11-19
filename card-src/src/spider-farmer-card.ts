@@ -75,7 +75,9 @@ const RUN_MODE_LABELS: Record<string, string> = {
   "humidity only": "Humidity Only",
   "temperature & humidity": "Temperature & Humidity",
 };
-const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];   // 0=Sun … 6=Sat
+// Weekday initials, 0=Sun … 6=Sat. One translatable row (single letters would be
+// ambiguous keys: T is Tuesday and Thursday).
+const dayLetters = (): string[] => loc("S M T W T F S").split(" ");
 
 const SLOT_RE = /^sf_(dp\d+|ac5|ac10|st\d+)_/;
 
@@ -2114,7 +2116,7 @@ export class SpiderFarmerCard extends LitElement {
     const close = html`<ha-icon icon="mdi:close" @click=${() => {
       this.soilGraphOpen = null; this._graphSel = null; this._graphPin = null; }}></ha-icon>`;
     const head = (mid: unknown) => html`<div class="pg-head">
-      <span>${loc(label)} · By Probe</span>${rangeSel}<span class="pg-now">${mid}</span>${close}</div>`;
+      <span>${loc("{label} · By Probe", { label: loc(label) })}</span>${rangeSel}<span class="pg-now">${mid}</span>${close}</div>`;
 
     // Build one series per probe + the average. Each series extends to NOW with
     // its live value so the lines reach the present (matches the param graph).
@@ -2219,7 +2221,7 @@ export class SpiderFarmerCard extends LitElement {
       <div class="pg-legend">
         ${series.map((s) => {
           const sampled = selC != null && s.pts.length ? this._graphSampleAt(s.pts, selC).v : s.live;
-          const txt = s.off && selC == null ? "offline"
+          const txt = s.off && selC == null ? loc("offline")
             : (Number.isFinite(sampled) ? `${f(sampled)}${unit}` : "—");
           return html`<span class="pg-leg ${s.name === "Average" ? "avg" : ""}">
             <i style="background:${s.color}"></i>${loc(s.name)} <b>${txt}</b></span>`;
@@ -2283,10 +2285,12 @@ export class SpiderFarmerCard extends LitElement {
     if (id) this._used.add(id);
     return this.hass?.states[id];
   }
-  // True if any entity we read last render changed state between two hass objects.
+  // True if any entity we read last render changed state between two hass objects
+  // (or the user's language changed — the texts follow it).
   private _hassTouchedUs(oldH?: Hass, newH?: Hass): boolean {
     if (!oldH || !newH) return true;
     if (this._used.size === 0) return true;      // haven't rendered yet — don't skip
+    if ((oldH as any).locale !== (newH as any).locale || (oldH as any).language !== (newH as any).language) return true;
     for (const id of this._used) if (oldH.states[id] !== newH.states[id]) return true;
     return false;
   }
@@ -2297,10 +2301,14 @@ export class SpiderFarmerCard extends LitElement {
   protected shouldUpdate(changed: PropertyValues): boolean {
     // A hass-only change that didn't touch any entity we render → skip. Other
     // state (tab, drafts, timers, reorder…) still renders via the allowlist below.
+    // The embedded PPFD / Climate AI card gets the new hass handed over directly and
+    // filters for itself, so its tab no longer re-renders this whole card on every
+    // HA state change.
     if (changed.size === 1 && changed.has("hass")
-        && !this._hassTouchedUs(changed.get("hass") as Hass | undefined, this.hass)
-        && this.tab !== "ppfd" && this.tab !== "ai")
+        && !this._hassTouchedUs(changed.get("hass") as Hass | undefined, this.hass)) {
+      for (const el of [this._ppfdEl, this._aiEl]) if (el && el.isConnected) el.hass = this.hass;
       return false;
+    }
     return changed.has("config") || changed.has("hass")
       || changed.has("tab") || changed.has("soilOpen") || changed.has("soilGraphOpen")
       || changed.has("soilAllOpen") || changed.has("soilMode") || changed.has("soilKeep")
@@ -2768,7 +2776,7 @@ export class SpiderFarmerCard extends LitElement {
     return html`
       <div class="soil-pop">
         <div class="soil-pop-head sph-tc">
-          <span>${this.soilMetricLabel(metric)} · By Probe</span>
+          <span>${loc("{label} · By Probe", { label: loc(this.soilMetricLabel(metric)) })}</span>
           <ha-icon icon="mdi:close" role="button" aria-label=${loc("Close")}
             @click=${() => (this.soilOpen = null)}></ha-icon>
         </div>
@@ -2785,7 +2793,7 @@ export class SpiderFarmerCard extends LitElement {
             <div class="soil-pop-row ${off ? "offline" : ""}">
               <span class="spn">${loc(name)}</span>
               <span class="spv" style=${rc ? `color:${rc.color}` : nothing}>${off
-                ? html`Offline`
+                ? loc("Offline")
                 : html`${val}<span class="unit">${unit}</span>`}</span>
             </div>`;
         })}
@@ -2845,8 +2853,8 @@ export class SpiderFarmerCard extends LitElement {
       ? `background:${ALARM_HI_BG};box-shadow:inset 0 0 0 1px ${ALARM_HI}`
       : (open ? `box-shadow:inset 0 0 0 1px ${accent}` : "");
     const valText = offline
-      ? `${offline} offline`
-      : `${slots.length} probes`;
+      ? loc("{n} offline", { n: offline })
+      : loc("{n} probes", { n: slots.length });
     return html`
       <div class="tile clickable ${open ? "active" : ""}" style=${tileStyle || nothing}
         role="button" aria-expanded=${open ? "true" : "false"}
@@ -2856,7 +2864,7 @@ export class SpiderFarmerCard extends LitElement {
             icon=${open ? "mdi:chevron-up" : "mdi:chevron-down"}></ha-icon>
         </div>
         <ha-icon icon="mdi:sprout" style="color:${offline ? ALARM_HI : accent}"></ha-icon>
-        <div class="tile-val" style=${offline ? `color:${ALARM_HI}` : nothing}>${loc(valText)}</div>
+        <div class="tile-val" style=${offline ? `color:${ALARM_HI}` : nothing}>${valText}</div>
       </div>`;
   }
 
@@ -5203,7 +5211,8 @@ export class SpiderFarmerCard extends LitElement {
           <div style="flex:1">
             <div class="plan-banner-title">${loc("Planting plan stopped")}</div>
             <div class="plan-banner-sub">
-              ${stages.length} stage${stages.length === 1 ? "" : "s"} · running the manual Environment targets
+              ${loc(stages.length === 1 ? "{n} stage · running the manual Environment targets"
+                : "{n} stages · running the manual Environment targets", { n: stages.length })}
             </div>
           </div>
         </div>
@@ -5658,8 +5667,8 @@ export class SpiderFarmerCard extends LitElement {
         <div class="pe-light-head"><span>${which === "light1" ? loc("Light 1") : loc("Light 2")}</span>
           <span class="pe-modes">${modeBtn("Time Slot")}${modeBtn("PPFD")}</span></div>
         <div class="pe-timesrow">
-          <label>On${time(startK)}</label>
-          <label>Off${time(stopK)}</label>
+          <label>${loc("On")}${time(startK)}</label>
+          <label>${loc("Off")}${time(stopK)}</label>
         </div>
         ${dur ? html`<div class="pe-durrow">${loc("Light Duration · {duration}", { duration: dur })}</div>` : nothing}
         ${isPPFD ? html`
@@ -5703,8 +5712,8 @@ export class SpiderFarmerCard extends LitElement {
               @click=${() => { this.planDelArm = true; }}></ha-icon>
           </div>`}
       <div class="pe-dates">
-        <label>Start${date("start")}</label>
-        <label>End${date("end")}</label>
+        <label>${loc("Start")}${date("start")}</label>
+        <label>${loc("End")}${date("end")}</label>
       </div>
       <div class="pe-alarmrow">
         <label>${loc("Alarm")}<input type="datetime-local" class="pe-in"
@@ -5737,9 +5746,8 @@ export class SpiderFarmerCard extends LitElement {
         <ha-icon icon="mdi:check-circle" style="--mdc-icon-size:18px"></ha-icon>${this._tplMsg}</div>` : nothing}
       <div class="plan-note" style="margin-top:6px">
         <ha-icon icon="mdi:information-outline"></ha-icon>
-        <span>“Save as template” stores this whole plan under My templates (on the
-        controller, so it syncs across your devices) — it doesn't change the running
-        plan. Use “${this.planInfo().active ? loc("Save & activate") : loc("Save Plan")}” to apply it to the controller.</span>
+        <span>${loc("“Save as template” stores this whole plan under My templates (on the controller, so it syncs across your devices) — it doesn't change the running plan. Use “{button}” to apply it to the controller.",
+          { button: this.planInfo().active ? loc("Save & activate") : loc("Save Plan") })}</span>
       </div>`;
   }
 
@@ -5798,8 +5806,8 @@ export class SpiderFarmerCard extends LitElement {
       <div class="plan-metric">
         <span class="plan-metric-label">${loc(label)}</span>
         <span class="plan-metric-vals">
-          <span>N ${this.fmtNum(night)}${suffix}</span>
-          <span>D ${this.fmtNum(day)}${suffix}</span>
+          <span>${loc("N {value}", { value: this.fmtNum(night) + suffix })}</span>
+          <span>${loc("D {value}", { value: this.fmtNum(day) + suffix })}</span>
         </span>
       </div>`;
     // Light row for the active plan stage — same one-line badge layout as the
@@ -5812,7 +5820,7 @@ export class SpiderFarmerCard extends LitElement {
       let a = "", b = "";
       if (mode === "Manual") {
         const bri = Number(L.ts_bri) || 0;
-        a = bri > 0 ? `${bri}%` : "Off";
+        a = bri > 0 ? `${bri}%` : loc("Off");
       } else if (mode === "PPFD") {
         a = `${L.ppfd_start}–${L.ppfd_stop}`;
         // 20 µmol is the target floor (0/unset isn't a valid PPFD target — on/off
@@ -6526,7 +6534,7 @@ export class SpiderFarmerCard extends LitElement {
   // Overview AI tile: learning confidence, taps through to the Climate AI view. (v3.20.43)
   private _aiTile() {
     const p = this.config.panel;
-    const st = p ? this.hass?.states[`sensor.sf_${p}_ai_confidence`] : undefined;
+    const st = p ? this.get(`sensor.sf_${p}_ai_confidence`) : undefined;
     if (!st || st.state === "unknown" || st.state === "unavailable") return nothing;
     const conf = Math.round(parseFloat(st.state) || 0);
     const open = this.aiTileOpen;
@@ -7375,6 +7383,10 @@ export class SpiderFarmerCard extends LitElement {
       || powerDirty
       || this.outletNameDirty(slot, n);   // custom name edit arms Apply too (v0.21.53)
     const apply = () => {
+      // Resolve the device type before writing anything: an unknown type must not
+      // leave the socket half-changed (e.g. Light Env driver already disabled).
+      const spec = ST_DEVICE_TYPES.find((t) => t.label === type);
+      if (!spec) return;
       // Commit a custom-name edit first, on every device type (incl. the Light
       // Env branch below, which returns early). (v0.21.53)
       this.commitOutletName(slot, n);
@@ -7405,7 +7417,6 @@ export class SpiderFarmerCard extends LitElement {
       const typeChanged = draft.type !== undefined && draft.type !== curType;
       const cfgChanged = key in this.outletCfgDraft || key in this.outletDraft;
       if (typeChanged || cfgChanged || type !== "General device") {
-        const spec = ST_DEVICE_TYPES.find((t) => t.label === type)!;
         let mode = spec.mode;
         let cfg: Record<string, string> = { ...spec.cfg };
         if (type === "Blower") mode = ST_BLOWER_MODE[blower] || spec.mode;
@@ -7442,7 +7453,7 @@ export class SpiderFarmerCard extends LitElement {
         <select style="max-width:60%"
           @change=${(e: Event) => set({ type: (e.target as HTMLSelectElement).value })}>
           ${ST_DEVICE_TYPES.map((t) => html`
-            <option value=${loc(t.label)} ?selected=${t.label === type}>${loc(t.label)}</option>`)}
+            <option value=${t.label} ?selected=${t.label === type}>${loc(t.label)}</option>`)}
         </select>
       </div>
       ${type === "Blower" ? html`
@@ -7721,7 +7732,7 @@ export class SpiderFarmerCard extends LitElement {
                 @click=${() => this.editOutlet(slot, n, (a) => a.splice(i, 1))}>✕</button>
             </div>
             <div class="days">
-              ${DAY_LETTERS.map(
+              ${dayLetters().map(
                 (d, di) => html`<button
                   class="day ${p.days.includes(di) ? "on" : ""}"
                   style=${p.days.includes(di) ? `background:${accent};border-color:${accent}` : ""}
@@ -8071,15 +8082,14 @@ export class SpiderFarmerCard extends LitElement {
       </div>
       ${events.length
         ? html`
-            <div class="log-count">${events.length} ${
-              events.length === 1 ? "entry" : "entries"}${
+            <div class="log-count">${loc(events.length === 1 ? "{n} entry" : "{n} entries", { n: events.length })}${
               events.length > 10 ? loc(" — scroll for more") : ""}</div>
             <div class="log-list">
               ${events.map((e) => html`
                 <div class="log-row ${e.alarmType ? "raise" : "restore"}">
                   <div class="log-title">${
                     sources.length > 1 && dev === "all" ? `${e._src} ` : ""
-                  }${e.device || `Device ${e.devType}`} ${e.alarm || ""}</div>
+                  }${e.device || loc("Device {n}", { n: e.devType })} ${e.alarm || ""}</div>
                   <div class="log-time">${e.epoch ? fmt(e.epoch) : e.time || ""}</div>
                 </div>`)}
             </div>`
@@ -8290,7 +8300,7 @@ export class SpiderFarmerCard extends LitElement {
         <div class="leaf-cal-foot">
           <span>
             ${loc("Avg {value}", { value: avg != null ? avg.toFixed(1) + unit : "—" })}
-            · offset ${derived != null ? sign(derived) + unit : "—"}
+            · ${loc("offset {value}", { value: derived != null ? sign(derived) + unit : "—" })}
           </span>
           <button class="leaf-apply" ?disabled=${derived == null}
             @click=${() => derived != null && stageCal(derived)}>
@@ -10462,7 +10472,7 @@ export class SpiderFarmerCardEditor extends LitElement {
               (s) => html`<option value=${s} ?selected=${s === cur.panel}>${label(s)}</option>`
             )}
             ${cur.panel && !panels.includes(cur.panel)
-              ? html`<option value=${cur.panel} selected>${cur.panel} (not found)</option>`
+              ? html`<option value=${cur.panel} selected>${loc("{panel} (not found)", { panel: cur.panel })}</option>`
               : nothing}
           </select>
           <span class="hint">${loc("Which display panel this card shows.")}</span>
@@ -10811,7 +10821,7 @@ export class SpiderLightCard extends LitElement {
             @click=${() => this.edit(slot, (a) => a.splice(i, 1))}>✕</button>
         </div>
         <div class="days">
-          ${DAY_LETTERS.map(
+          ${dayLetters().map(
             (d, di) => html`<button
               class="day ${p.days.includes(di) ? "on" : ""}"
               style=${p.days.includes(di) ? `background:${accent};border-color:${accent}` : ""}
@@ -11404,6 +11414,36 @@ function ppfdColor(v: number, mx: number): [number, number, number] {
   return [r, g, b];
 }
 
+// Deep copy of the custom plant positions ([x, z] fractions of the tent; a missing
+// entry stays missing, plantPositions() puts that plant in the centre).
+function ppfdCopyPos(a: [number, number][] | undefined): [number, number][] {
+  return (a || []).map((p) => (Array.isArray(p) ? [p[0], p[1]] : p) as [number, number]);
+}
+
+// Where a PPFD calibration came from: the panel's PPFD sensor, or a meter reading at
+// the given light-to-meter heights (inches). Stored like this (not as display text,
+// which would freeze the language and units of the moment it was set).
+type PpfdCalRef = "" | string | { src: "sensor" } | { src: "meter"; in: number[] };
+// Saved value → PpfdCalRef. Older cards stored display text; the forms they wrote
+// ("panel sensor"/"Panel-Sensor", '12" + 24"', "30 cm + 61 cm") are read back into
+// the neutral form, anything else is kept as text.
+function ppfdCalRefIn(v: any): PpfdCalRef {
+  if (v && typeof v === "object") {
+    if (v.src === "sensor") return { src: "sensor" };
+    if (v.src === "meter" && Array.isArray(v.in)) return { src: "meter", in: v.in.map(Number).filter((n: number) => n > 0) };
+    return "";
+  }
+  const t = String(v ?? "").trim();
+  if (!t) return "";
+  if (/^panel[ -]sensor$/i.test(t)) return { src: "sensor" };
+  const parts = t.split(" + ");
+  const at = parts.map((p) => {
+    const m = /^(\d+)(?:"| cm)$/.exec(p);
+    return m ? (p.endsWith("cm") ? Math.round(Number(m[1]) / 2.54) : Number(m[1])) : NaN;
+  });
+  return at.every((n) => n > 0) ? { src: "meter", in: at } : t;
+}
+
 const PLACE_LABEL: Record<string, string> = { row: "Row", grid: "Grid", perimeter: "Perimeter", custom: "Custom" };
 function ppfdZone(avg: number): { label: string; color: string } {
   if (avg < 200) return { label: "Too dim", color: "#4488dd" };
@@ -11427,7 +11467,7 @@ export class SpiderPpfdCard extends LitElement {
     tW: 0.61, tL: 1.22, tH: 1.981, model: "SE4500",
     hin: 18, plantIn: 12, numPlants: 2, dim: 100, photo: 18, metric: false,
     placement: "row" as "row" | "grid" | "perimeter" | "custom",
-    rows: 1, cols: 2, margin: 0.14, cal: 1, calRef: "",
+    rows: 1, cols: 2, margin: 0.14, cal: 1, calRef: "" as PpfdCalRef,
     custom: [] as [number, number][],
   };
   private manualDim = 100;
@@ -11470,8 +11510,8 @@ export class SpiderPpfdCard extends LitElement {
     this.s.cols = (d as any).plant_cols ?? 2;
     this.s.margin = (d as any).plant_margin ?? 0.14;
     this.s.cal = (d as any).ppfd_cal ?? 1;
-    this.s.calRef = (d as any).ppfd_cal_ref ?? "";
-    this.s.custom = Array.isArray((d as any).plant_positions) ? (d as any).plant_positions : [];
+    this.s.calRef = ppfdCalRefIn((d as any).ppfd_cal_ref);
+    this.s.custom = Array.isArray((d as any).plant_positions) ? ppfdCopyPos((d as any).plant_positions) : [];
     this.s.dim = d.dimmer_percent ?? 100;
     this.manualDim = this.s.dim;
     this.s.photo = d.photoperiod_hours ?? 18;
@@ -11569,7 +11609,9 @@ export class SpiderPpfdCard extends LitElement {
       model: this.s.model, hin: this.s.hin, plantIn: this.s.plantIn,
       numPlants: this.s.numPlants, photo: this.s.photo, dim: this.manualDim,
       placement: this.s.placement, rows: this.s.rows, cols: this.s.cols,
-      margin: this.s.margin, cal: this.s.cal, calRef: this.s.calRef, custom: this.s.custom,
+      // Copy, never alias: the drag map edits this.s.custom in place, and a shared
+      // array would make the saved snapshot follow the drag (no Apply, no Discard).
+      margin: this.s.margin, cal: this.s.cal, calRef: this.s.calRef, custom: ppfdCopyPos(this.s.custom),
       tW: this.s.tW, tL: this.s.tL, tH: this.s.tH,
       auto: !!this.auto, src: this.brightSrc || "",
     };
@@ -11585,13 +11627,14 @@ export class SpiderPpfdCard extends LitElement {
     if (b.cols != null) this.s.cols = b.cols;
     if (b.margin != null) this.s.margin = b.margin;
     if (b.cal != null) this.s.cal = b.cal;
-    if (b.calRef != null) this.s.calRef = b.calRef;
+    if (b.calRef != null) this.s.calRef = ppfdCalRefIn(b.calRef);
     if (Array.isArray(b.custom)) this.s.custom = b.custom;
     if (b.photo != null) this.s.photo = b.photo;
     if (b.dim != null) { this.manualDim = b.dim; this.s.dim = b.dim; }
     if (b.tW != null) this.s.tW = b.tW;
     if (b.tL != null) this.s.tL = b.tL;
     if (b.tH != null) this.s.tH = b.tH;
+    if (this.s.placement !== "grid") this.s.numPlants = Math.min(12, this.s.numPlants);   // see setPlace
     this.auto = !!b.auto; this.brightSrc = b.src || "";
   }
   private hydrateLocal(): void {
@@ -11647,7 +11690,7 @@ export class SpiderPpfdCard extends LitElement {
     this.s.placement = this.saved.placement ?? "row";
     this.s.rows = this.saved.rows ?? 1; this.s.cols = this.saved.cols ?? 2;
     this.s.margin = this.saved.margin ?? 0.14;
-    this.s.custom = Array.isArray(this.saved.custom) ? this.saved.custom : [];
+    this.s.custom = Array.isArray(this.saved.custom) ? ppfdCopyPos(this.saved.custom) : [];
     this.s.photo = this.saved.photo ?? this.s.photo;
     this.s.tW = this.saved.tW; this.s.tL = this.saved.tL; this.s.tH = this.saved.tH;
     if (this.auto) this.readLive(); else this.s.dim = this.manualDim;
@@ -11732,6 +11775,12 @@ export class SpiderPpfdCard extends LitElement {
     }
   }
   protected firstUpdated(): void { this.loadThree(); }
+  connectedCallback(): void {
+    super.connectedCallback();
+    // Re-attached after a disconnect (tab switch in the Spider card, HA view
+    // navigation): the view was torn down then, so build it again on the same canvas.
+    if (this.hasUpdated && !this.renderer) this.loadThree();
+  }
   protected updated(): void {
     // Keep light/plant-height sliders within the current tent height.
     if (this.dirty) this.needRender = true;
@@ -11765,7 +11814,11 @@ export class SpiderPpfdCard extends LitElement {
   // Placement mode: seed custom from the current layout so dragging starts where plants are.
   private setPlace(m: "row" | "grid" | "perimeter" | "custom"): void {
     if (m === "grid") this.s.numPlants = Math.max(1, this.s.rows) * Math.max(1, this.s.cols);
-    if (m === "custom") this.s.custom = this.plantPositions().map(([x, z]) => [x / this.s.tW, z / this.s.tL] as [number, number]);
+    // Only Grid goes past the 12 the Number of plants input allows (up to 12×12);
+    // leaving it must not carry e.g. 144 plants into Row/Perimeter/Custom.
+    else this.s.numPlants = Math.min(12, this.s.numPlants);
+    if (m === "custom") this.s.custom = this.plantPositions().slice(0, this.s.numPlants)
+      .map(([x, z]) => [x / this.s.tW, z / this.s.tL] as [number, number]);
     this.s.placement = m; this.dirty = true; this.repaint();
   }
   // The panel's own PPFD sensor (sensor.sf_<panel>_ppfd), when present and reading.
@@ -11782,7 +11835,7 @@ export class SpiderPpfdCard extends LitElement {
     const eff = Math.max(1, this.s.hin - this.s.plantIn);
     const base = ppfdAt(light, eff, this.s.dim).center;
     if (base <= 0) return;
-    this.s.cal = ps.val / base; this.s.calRef = loc("panel sensor");
+    this.s.cal = ps.val / base; this.s.calRef = { src: "sensor" };
     this.dirty = true; this.repaint(); this.saveView();
   }
   private onCalibrate(): void {
@@ -11801,10 +11854,18 @@ export class SpiderPpfdCard extends LitElement {
     const den = usable.reduce((a, [, b]) => a + b * b, 0);
     if (den <= 0) return;
     this.s.cal = num / den;
-    const parts: string[] = []; if (m12) parts.push(this.fmtSmall(12)); if (m24) parts.push(this.fmtSmall(24));
-    this.s.calRef = parts.join(" + ");
+    const at: number[] = []; if (m12) at.push(12); if (m24) at.push(24);
+    this.s.calRef = { src: "meter", in: at };
     this.dirty = true; this.repaint();
     this.saveView();   // calibration applies immediately (not gated by Apply/Discard)
+  }
+  // Where the calibration came from, in the current language and units.
+  private calRefText(): string {
+    const r = this.s.calRef;
+    if (!r) return "";
+    if (typeof r === "string") return r;          // unrecognised text from an older card
+    if (r.src === "sensor") return loc("panel sensor");
+    return (r.in || []).map((h) => this.fmtSmall(h)).join(" + ");
   }
   private onCalReset(): void {
     this.s.cal = 1; this.s.calRef = ""; this.dirty = true; this.repaint();
@@ -11864,33 +11925,58 @@ export class SpiderPpfdCard extends LitElement {
     return this.plantPositions().map(([x, z]) =>
       Math.round(this.radialPpfd(center, avg, edge, Math.hypot(x, z) / maxR) * cal));
   }
-  // Top-down drag map for Custom placement.
-  private _plantMap() {
+  // Plant-map geometry in SVG units: the tent outline keeps the true proportions
+  // (Ht tall, from y0) inside a viewBox at least 40 tall, so the dots stay usable on
+  // a very slim tent. Drawing and pointer maths both use it.
+  private _mapGeom(): { land: boolean; W: number; H: number; y0: number; Ht: number } {
     const { tW, tL } = this.s;
     const land = tL >= tW;                          // longer tent side drawn horizontally
     const longL = land ? tL : tW, shortL = land ? tW : tL;
-    const W = 100, H = Math.max(40, Math.round(100 * shortL / longL));
+    const W = 100, Ht = 100 * shortL / longL, H = Math.max(40, Ht);
+    return { land, W, H, y0: (H - Ht) / 2, Ht };
+  }
+  // Top-down drag map for Custom placement.
+  private _plantMap() {
+    const { tW, tL } = this.s;
+    const { land, W, H, y0, Ht } = this._mapGeom();
     const pos = this.plantPositions();
     return html`<div class="pmapwrap">
       <div class="hint">${loc("Drag each plant to place it in the tent (shown from above).")}</div>
-      <svg class="pmap" viewBox="0 0 ${W} ${H}" style="aspect-ratio:${longL} / ${shortL}"
+      <svg class="pmap" viewBox="0 0 ${W} ${H}" style="aspect-ratio:${W} / ${H}"
         @pointermove=${this._mapMove} @pointerup=${this._mapUp} @pointerleave=${this._mapUp}>
-        <rect x="1" y="1" width=${W - 2} height=${H - 2} rx="3" class="pmaptent"></rect>
-        <line x1=${W / 2} y1="1" x2=${W / 2} y2=${H - 1} class="pmapmid"></line>
-        <line x1="1" y1=${H / 2} x2=${W - 1} y2=${H / 2} class="pmapmid"></line>
+        <rect x="1" y=${y0 + 1} width=${W - 2} height=${Ht - 2} rx="3" class="pmaptent"></rect>
+        <line x1=${W / 2} y1=${y0 + 1} x2=${W / 2} y2=${y0 + Ht - 1} class="pmapmid"></line>
+        <line x1="1" y1=${y0 + Ht / 2} x2=${W - 1} y2=${y0 + Ht / 2} class="pmapmid"></line>
         ${pos.map(([x, z], i) => {
           const cfx = x / tW, cfz = z / tL;
           const hF = land ? cfz : cfx, vF = land ? cfx : cfz;
-          const cx = (hF + 0.5) * W, cy = (vF + 0.5) * H;
+          const cx = (hF + 0.5) * W, cy = y0 + (vF + 0.5) * Ht;
           return svg`<circle cx=${cx} cy=${cy} r="5" class="pmapdot" @pointerdown=${(e: PointerEvent) => this._mapDown(i, e)}></circle><text x=${cx} y=${cy + 2.3} class="pmaptxt">${i + 1}</text>`; })}
       </svg>
     </div>`;
   }
+  // Pointer → [horizontal, vertical] tent fraction (-0.5..0.5) on the plant map. Goes
+  // through the SVG's screen matrix, so it stays exact where the drawing doesn't fill
+  // the element box (letterboxing); the bounding box is only a fallback.
+  private _mapPt(svgEl: SVGSVGElement, e: PointerEvent): [number, number] {
+    const { W, H, y0, Ht } = this._mapGeom();
+    const m = svgEl.getScreenCTM?.();
+    let x: number, y: number;
+    if (m) {
+      const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
+      x = p.x; y = p.y;
+    } else {
+      const rc = svgEl.getBoundingClientRect();
+      x = (e.clientX - rc.left) / rc.width * W; y = (e.clientY - rc.top) / rc.height * H;
+    }
+    return [x / W - 0.5, (y - y0) / Ht - 0.5];
+  }
   // Pointer → [width-frac, length-frac], honouring landscape orientation + the grab offset.
-  private _mapFracs(e: PointerEvent, rc: DOMRect): [number, number] {
+  private _mapFracs(e: PointerEvent, svgEl: SVGSVGElement): [number, number] {
     const land = this.s.tL >= this.s.tW;
-    let hF = (e.clientX - rc.left) / rc.width - 0.5 + this._dragOff[0];
-    let vF = (e.clientY - rc.top) / rc.height - 0.5 + this._dragOff[1];
+    const [pH, pV] = this._mapPt(svgEl, e);
+    let hF = pH + this._dragOff[0];
+    let vF = pV + this._dragOff[1];
     hF = Math.max(-0.48, Math.min(0.48, hF)); vF = Math.max(-0.48, Math.min(0.48, vF));
     return land ? [vF, hF] : [hF, vF];
   }
@@ -11899,8 +11985,7 @@ export class SpiderPpfdCard extends LitElement {
     const svgEl = (e.target as Element).closest("svg") as SVGSVGElement | null;
     const land = this.s.tL >= this.s.tW;
     if (svgEl) {
-      const rc = svgEl.getBoundingClientRect();
-      const pH = (e.clientX - rc.left) / rc.width - 0.5, pV = (e.clientY - rc.top) / rc.height - 0.5;
+      const [pH, pV] = this._mapPt(svgEl, e);
       const cur = (this.s.custom && this.s.custom[i]) ? this.s.custom[i] : [0, 0];
       const dotH = land ? cur[1] : cur[0], dotV = land ? cur[0] : cur[1];
       this._dragOff = [dotH - pH, dotV - pV];       // keep the grabbed point under the pointer
@@ -11910,8 +11995,7 @@ export class SpiderPpfdCard extends LitElement {
   }
   private _mapMove(e: PointerEvent): void {
     if (this._dragPlant < 0) return;
-    const rc = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
-    const [cfx, cfz] = this._mapFracs(e, rc);
+    const [cfx, cfz] = this._mapFracs(e, e.currentTarget as SVGSVGElement);
     if (!this.s.custom) this.s.custom = [];
     this.s.custom[this._dragPlant] = [cfx, cfz];
     this.dirty = true; this.repaint();
@@ -12009,18 +12093,20 @@ export class SpiderPpfdCard extends LitElement {
       w._ppfdCBs = [];
       const sc = document.createElement("script");
       sc.src = ppfdThreeSrc();
-      sc.onload = () => w._ppfdCBs.forEach((cb: () => void) => cb());
+      // Run and drop the waiting callbacks, so the global list keeps no card alive.
+      sc.onload = () => w._ppfdCBs.splice(0).forEach((cb: () => void) => cb());
       document.head.appendChild(sc);
     }
-    w._ppfdCBs.push(() => this.initThree());
+    if (!w._ppfdCBs.includes(this._threeCb)) w._ppfdCBs.push(this._threeCb);
   }
+  private _threeCb = (): void => this.initThree();
   private canvas(): HTMLCanvasElement | null {
     return this.renderRoot.querySelector("#c") as HTMLCanvasElement | null;
   }
   private initThree(): void {
     const T = this.T = (window as any).THREE;
     const canvas = this.canvas();
-    if (!T || !canvas) return;
+    if (!T || !canvas || this.renderer || !this.isConnected) return;
     const W = (canvas.parentElement?.offsetWidth) || 400, H = 340;
     canvas.style.height = H + "px";
     const scene = this.scene = new T.Scene();
@@ -12036,34 +12122,54 @@ export class SpiderPpfdCard extends LitElement {
     this.dirty = true; this.needRender = true;
     const anim = () => {
       this.raf = requestAnimationFrame(anim);
+      // The canvas is hidden on the Settings tab, where dragging a plant marks the
+      // scene dirty on every move: build and draw only on the View tab (switching
+      // back sets needRender, the pending rebuild then runs once).
+      if (this.tab !== "view") return;
       if (this.dirty) { this.dirty = false; this.rebuild(); this.needRender = true; }
       if (this.needRender) { this.needRender = false; this.updCam(); renderer.render(scene, this.camera); }
     };
     anim();
   }
+  // Orbit / zoom handlers are fields, so a view re-initialised after a reconnect
+  // doesn't stack duplicate listeners, and the window ones (added only while the
+  // mouse drags) can be removed again.
+  private _camDown = (e: MouseEvent): void => {
+    this.cam.drag = true; this.cam.px = e.clientX; this.cam.py = e.clientY;
+    window.addEventListener("mouseup", this._camUp);
+    window.addEventListener("mousemove", this._camMove);
+  };
+  private _camUp = (): void => {
+    this.cam.drag = false;
+    window.removeEventListener("mouseup", this._camUp);
+    window.removeEventListener("mousemove", this._camMove);
+  };
+  private _camMove = (e: MouseEvent): void => {
+    if (!this.cam.drag) return;
+    this.cam.theta -= (e.clientX - this.cam.px) * 0.007;
+    this.cam.phi = Math.max(0.05, Math.min(1.3, this.cam.phi - (e.clientY - this.cam.py) * 0.005));
+    this.cam.px = e.clientX; this.cam.py = e.clientY; this.needRender = true;
+  };
+  private _camWheel = (e: WheelEvent): void => {
+    this.cam.r = Math.max(1.2, Math.min(10, this.cam.r + e.deltaY * 0.005));
+    this.needRender = true;
+  };
+  private _camTs: { x: number; y: number; t: number; p: number } | null = null;
+  private _camTouchStart = (e: TouchEvent): void => {
+    if (e.touches.length === 1) this._camTs = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: this.cam.theta, p: this.cam.phi };
+  };
+  private _camTouchMove = (e: TouchEvent): void => {
+    const ts = this._camTs;
+    if (!ts || e.touches.length !== 1) return;
+    this.cam.theta = ts.t - (e.touches[0].clientX - ts.x) * 0.007;
+    this.cam.phi = Math.max(0.05, Math.min(1.3, ts.p - (e.touches[0].clientY - ts.y) * 0.005));
+    this.needRender = true;
+  };
   private attachCam(canvas: HTMLCanvasElement): void {
-    canvas.addEventListener("mousedown", (e) => { this.cam.drag = true; this.cam.px = e.clientX; this.cam.py = e.clientY; });
-    window.addEventListener("mouseup", () => { this.cam.drag = false; });
-    window.addEventListener("mousemove", (e) => {
-      if (!this.cam.drag) return;
-      this.cam.theta -= (e.clientX - this.cam.px) * 0.007;
-      this.cam.phi = Math.max(0.05, Math.min(1.3, this.cam.phi - (e.clientY - this.cam.py) * 0.005));
-      this.cam.px = e.clientX; this.cam.py = e.clientY; this.needRender = true;
-    });
-    canvas.addEventListener("wheel", (e) => {
-      this.cam.r = Math.max(1.2, Math.min(10, this.cam.r + (e as WheelEvent).deltaY * 0.005));
-      this.needRender = true;
-    }, { passive: true });
-    let ts: { x: number; y: number; t: number; p: number } | null = null;
-    canvas.addEventListener("touchstart", (e) => {
-      if (e.touches.length === 1) ts = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: this.cam.theta, p: this.cam.phi };
-    });
-    canvas.addEventListener("touchmove", (e) => {
-      if (!ts || e.touches.length !== 1) return;
-      this.cam.theta = ts.t - (e.touches[0].clientX - ts.x) * 0.007;
-      this.cam.phi = Math.max(0.05, Math.min(1.3, ts.p - (e.touches[0].clientY - ts.y) * 0.005));
-      this.needRender = true;
-    }, { passive: true });
+    canvas.addEventListener("mousedown", this._camDown);
+    canvas.addEventListener("wheel", this._camWheel, { passive: true });
+    canvas.addEventListener("touchstart", this._camTouchStart);
+    canvas.addEventListener("touchmove", this._camTouchMove, { passive: true });
   }
   private updCam(): void {
     if (!this.camera) return;
@@ -12074,8 +12180,22 @@ export class SpiderPpfdCard extends LitElement {
     this.camera.lookAt(0, tH * 0.3, 0);
   }
   private rem(k: string): void {
-    if (this.o[k] && this.scene) this.scene.remove(this.o[k]);
+    const g = this.o[k];
+    if (g && this.scene) this.scene.remove(g);
+    if (g) this.disposeTree(g);
     this.o[k] = null;
+  }
+  // Free what a removed group holds on the GPU: geometries, materials and their
+  // textures (each sprite label owns a canvas texture). Sprites share three's one
+  // built-in geometry, which stays.
+  private disposeTree(root: any): void {
+    const mats = new Set<any>();
+    root.traverse((o: any) => {
+      if (o.geometry && !o.isSprite) o.geometry.dispose();
+      const m = o.material;
+      if (m) (Array.isArray(m) ? m : [m]).forEach((x: any) => mats.add(x));
+    });
+    mats.forEach((m) => { if (m.map) m.map.dispose(); m.dispose(); });
   }
   private sprite(text: string, sz: number): any {
     const T = this.T, c = document.createElement("canvas");
@@ -12093,7 +12213,9 @@ export class SpiderPpfdCard extends LitElement {
     const { tW, tL, tH, model, hin, plantIn, dim } = this.s;
     const light = PPFD_LIGHTS[model] || PPFD_LIGHTS.SE4500;
     const effectiveH = Math.max(1, hin - plantIn);
-    const ppfd = ppfdAt(light, effectiveH, dim);
+    // Calibrated like the stat tiles, so the 3D labels and heat map match them.
+    const raw = ppfdAt(light, effectiveH, dim), cal = this.s.cal || 1;
+    const ppfd = { center: Math.round(raw.center * cal), avg: Math.round(raw.avg * cal), edge: Math.round(raw.edge * cal) };
     const pY = plantIn * 0.0254, y = hin * 0.0254;
     const hw = tW / 2, hl = tL / 2;
     // A real fixture's long axis runs along the tent's longer horizontal side.
@@ -12260,8 +12382,18 @@ export class SpiderPpfdCard extends LitElement {
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
+    // Full teardown: stop the loop, leave the three.js load queue, drop the window
+    // listeners of a drag in progress, free the scene and the renderer. A later
+    // reconnect builds the view again (connectedCallback).
     if (this.raf) cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    const cbs = (window as any)._ppfdCBs as (() => void)[] | undefined;
+    const i = cbs ? cbs.indexOf(this._threeCb) : -1;
+    if (i >= 0) cbs!.splice(i, 1);
+    this._camUp();
+    for (const k of Object.keys(this.o)) this.rem(k);
     if (this.renderer) { try { this.renderer.dispose(); } catch { /* ignore */ } }
+    this.renderer = null; this.scene = null; this.camera = null;
   }
 
   static styles = css`
@@ -12384,7 +12516,7 @@ export class SpiderPpfdCard extends LitElement {
           <div class="pnote">
             ${perPlant.length > 1
               ? loc("{n} plants · {min}–{max} μmol/m²/s at canopy", { n: perPlant.length, min: canopyMin, max: canopyMax })
-              : loc("{n} plant at canopy", { n: perPlant.length })}${(Math.abs(cal - 1) > 0.001) ? " · " + loc("calibrated ×{f}", { f: cal.toFixed(2) }) + (s.calRef ? " @ " + s.calRef : "") : ""}
+              : loc("{n} plant at canopy", { n: perPlant.length })}${(Math.abs(cal - 1) > 0.001) ? " · " + loc("calibrated ×{f}", { f: cal.toFixed(2) }) + (s.calRef ? " @ " + this.calRefText() : "") : ""}
           </div>
           <div class="leg"><span>${loc("Low")}</span><div class="legbar"></div><span>${loc("High PPFD")}</span></div>
           <div class="zone">
@@ -12412,7 +12544,7 @@ export class SpiderPpfdCard extends LitElement {
             </div>
             <div class="hint">
               ${this.auto && this.brightSrc
-                ? html`Reading ${(this.hass?.states[this.brightSrc]?.attributes.friendly_name) || this.brightSrc}: ${s.dim}%`
+                ? loc("Reading {name}: {pct}%", { name: (this.hass?.states[this.brightSrc]?.attributes.friendly_name) || this.brightSrc, pct: s.dim })
                 : loc("Pick a Spider Farmer light (live brightness) or a Schedule Brightness (target) and the value tracks it live.")}
             </div>
           </div>
@@ -12467,7 +12599,7 @@ export class SpiderPpfdCard extends LitElement {
             <div class="prow">
               <button class="pbtn" @click=${() => this.onCalibrate()}>${loc("Calibrate")}</button>
               ${(Math.abs((s.cal || 1) - 1) > 0.001)
-                ? html`<span class="cnote">${loc("×{f}, set at {r}", { f: (s.cal || 1).toFixed(2), r: s.calRef || loc("meter") })}</span><button class="pbtn ghost" @click=${() => this.onCalReset()}>${loc("Reset")}</button>`
+                ? html`<span class="cnote">${loc("×{f}, set at {r}", { f: (s.cal || 1).toFixed(2), r: this.calRefText() || loc("meter") })}</span><button class="pbtn ghost" @click=${() => this.onCalReset()}>${loc("Reset")}</button>`
                 : html`<span class="cnote">${loc("not calibrated")}</span>`}
             </div>
           </div>
@@ -12866,7 +12998,6 @@ export class SpiderTimelapseCard extends LitElement {
   private _dragGrabY = 0;   // px offset of the cursor from the box's top edge at grab
   private _dragW = 0;       // box width in px (captured at grab; text width is stable mid-drag)
   private _dragH = 0;       // box height in px (for overlap checks)
-  private _dragEl: HTMLElement | null = null;  // the box being dragged (excluded from overlap)
   private _dragSibs: DOMRect[] = [];  // the OTHER boxes' rects, captured once at grab (they don't move)
   private _dragLastX = 0;    // last NON-overlapping box left (px) — base for axis-by-axis sliding
   private _dragLastY = 0;    // last NON-overlapping box top (px)
@@ -12880,7 +13011,7 @@ export class SpiderTimelapseCard extends LitElement {
       const b = el.getBoundingClientRect();
       this._dragGrabX = e.clientX - b.left;
       this._dragGrabY = e.clientY - b.top;
-      this._dragW = b.width; this._dragH = b.height; this._dragEl = el;
+      this._dragW = b.width; this._dragH = b.height;
       this._dragLastX = b.left; this._dragLastY = b.top;
       // Snapshot the other boxes' rects now; they stay put while we drag this one, and
       // reading them live each pointermove races Lit's async re-render (stale rects).
@@ -12888,7 +13019,7 @@ export class SpiderTimelapseCard extends LitElement {
         .filter((x) => x !== el)
         .map((x) => (x as HTMLElement).getBoundingClientRect());
     } else {
-      this._dragGrabX = 0; this._dragGrabY = 0; this._dragW = 0; this._dragH = 0; this._dragEl = null;
+      this._dragGrabX = 0; this._dragGrabY = 0; this._dragW = 0; this._dragH = 0;
       this._dragSibs = [];
     }
     window.addEventListener("pointermove", this._ovMove);
@@ -13112,7 +13243,7 @@ export class SpiderTimelapseCard extends LitElement {
             return html`
             <div class="tl-manage-row">
               <span class="tl-manage-name">${nm}${it.tl_id === this.config.tl_id ? loc(" (this card)") : ""}
-                <span class="tl-manage-sub">${(it.camera || "—").replace("camera.", "")} · ${(it.status && it.status.frame_count) || 0} frames</span></span>
+                <span class="tl-manage-sub">${(it.camera || "—").replace("camera.", "")} · ${loc("{n} frames", { n: (it.status && it.status.frame_count) || 0 })}</span></span>
               <button class="tl-xbtn ${arm ? "danger" : ""}" title=${loc("Delete this time-lapse and its images")}
                 @click=${() => arm ? this._removeInstance(it.tl_id) : this._armRemove(it.tl_id)}>${arm ? loc("Delete?") : "🗑"}</button>
             </div>`; })}
@@ -13166,7 +13297,7 @@ export class SpiderTimelapseCard extends LitElement {
       <div class="tl-head">
         <span>${this._displayName(st)}</span>
         <span class="tl-right">
-          <span class="tl-sub">${capturing ? loc("● capturing") : "idle"} · ${this._fmtInterval(st.attributes.interval_s)} · ${st.attributes.frame_count ?? 0} frames${this._sizeBytes ? " · " + this._fmtSize(this._sizeBytes) : ""}</span>
+          <span class="tl-sub">${capturing ? loc("● capturing") : loc("idle")} · ${this._fmtInterval(st.attributes.interval_s)} · ${loc("{n} frames", { n: st.attributes.frame_count ?? 0 })}${this._sizeBytes ? " · " + this._fmtSize(this._sizeBytes) : ""}</span>
           <ha-icon class="tl-gear" icon="mdi:cog" @click=${() => this._settingsOpen ? (this._settingsOpen = false) : this._openSettings()}></ha-icon>
         </span>
       </div>
@@ -13544,6 +13675,7 @@ export class SpiderAiStatsCardEditor extends LitElement {
       .filter(Boolean).sort();
   }
   render() {
+    setLanguage(this.hass);
     const c = this._config || {};
     const panels = this._panels();
     return html`<div class="ped">
@@ -13672,7 +13804,7 @@ export class SpiderAiStatsCard extends LitElement {
     const h = this.hass; if (!h) return nothing;
     const p = this._activePanel();
     const num = (eid?: string) => {
-      const s = eid ? h.states[eid] : undefined;
+      const s = eid ? this._st(eid) : undefined;
       const v = s ? parseFloat(s.state) : NaN;
       return { ok: Number.isFinite(v), v, unit: s?.attributes?.unit_of_measurement || "" };
     };
@@ -13705,8 +13837,8 @@ export class SpiderAiStatsCard extends LitElement {
     const h = this.hass; if (!h) return null;
     const ambEid = mk === "temperature" ? this._ambientTemp : mk === "humidity" ? this._ambientHumidity : "";
     if (!ambEid) return null;
-    const a = parseFloat(h.states[ambEid]?.state);
-    const t = parseFloat(h.states[`sensor.sf_${this._activePanel()}_${mk}`]?.state);
+    const a = parseFloat(this._st(ambEid)?.state);
+    const t = parseFloat(this._st(`sensor.sf_${this._activePanel()}_${mk}`)?.state);
     return (Number.isFinite(a) && Number.isFinite(t)) ? a - t : null;
   }
   // The blower's real effect is ventilation (it pulls cooler/drier intake through the tent),
@@ -13794,6 +13926,9 @@ export class SpiderAiStatsCard extends LitElement {
     const p = this._activePanel();
     if (p === this._optsPanel) return;
     this._optsPanel = p;
+    // Staged Settings edits belong to the panel they were made on: Apply must never
+    // write them (outlet roles, intake sensors, learning speed …) to another panel.
+    this._draft = null;
     const co = p ? (this.hass?.states[`sensor.sf_${p}_alarm_settings`]
       ?.attributes?.card_options as Record<string, string> | undefined) : undefined;
     this._hideTabs = (co?.["ai_hide_tabs"] ?? co?.["dev_ai_hide_tabs"]) === "1";
@@ -13908,24 +14043,56 @@ export class SpiderAiStatsCard extends LitElement {
   getCardSize() { return 8; }
   static getStubConfig() { return { type: "custom:spider-ai-card" }; }
 
-  // All AI-confidence sensors present, as {panel, eid}.
+  // All AI-confidence sensors present, as {panel, eid}. Scans every entity id, so the
+  // result is kept per hass.states object (a render asks for it many times).
+  private _sensCache: { states: any; list: { panel: string; eid: string }[] } | null = null;
   private _sensors(): { panel: string; eid: string }[] {
     const h = this.hass; if (!h) return [];
+    if (this._sensCache && this._sensCache.states === h.states) return this._sensCache.list;
     const out: { panel: string; eid: string }[] = [];
     for (const eid of Object.keys(h.states)) {
       const m = eid.match(/^sensor\.sf_(.+)_ai_confidence$/);
       if (m) out.push({ panel: m[1], eid });
     }
-    return out.sort((a, b) => a.panel.localeCompare(b.panel));
+    out.sort((a, b) => a.panel.localeCompare(b.panel));
+    this._sensCache = { states: h.states, list: out };
+    return out;
   }
+  // The configured panel, even when it has no learning sensor (then the card says so
+  // rather than showing — and writing — another panel's data); unset = first found.
   private _activePanel(): string {
+    if (this._panel) return this._panel;
     const list = this._sensors();
-    if (this._panel && list.some((s) => s.panel === this._panel)) return this._panel;
     return list.length ? list[0].panel : "";
+  }
+  // A configured panel without a learning sensor while other panels have one.
+  private _noPanelData(): boolean {
+    const list = this._sensors();
+    return !!this._panel && list.length > 0 && !list.some((s) => s.panel === this._panel);
   }
   private _entity() {
     const p = this._activePanel();
-    return p ? this.hass?.states[`sensor.sf_${p}_ai_confidence`] : undefined;
+    return p ? this._st(`sensor.sf_${p}_ai_confidence`) : undefined;
+  }
+  // Entities read during the last render: a hass change that touched none of them
+  // (and added/removed no learning sensor, kept the language) skips the render — HA
+  // hands every card a new hass on each state change anywhere. Same scheme as the
+  // Spider card's _used. The Settings tab always renders (its entity pickers want
+  // the live hass).
+  private _used = new Set<string>();
+  private _usedPanels = "";
+  private _st(id: string): any {
+    if (id) this._used.add(id);
+    return this.hass?.states[id];
+  }
+  protected shouldUpdate(changed: PropertyValues): boolean {
+    if (changed.size !== 1 || !changed.has("hass") || this._tab !== "overview") return true;
+    const oldH = changed.get("hass") as any, h = this.hass;
+    if (!oldH || !h || !this._used.size) return true;
+    if (oldH.locale !== h.locale || oldH.language !== h.language) return true;
+    if (this._sensors().map((x) => x.panel).join() !== this._usedPanels) return true;
+    for (const id of this._used) if (oldH.states[id] !== h.states[id]) return true;
+    return false;
   }
   private accent() { return "var(--sf-ai-accent, #7c5cff)"; }
 
@@ -13945,8 +14112,8 @@ export class SpiderAiStatsCard extends LitElement {
     const out: { key: string; panel: string; n: number; mode: string; env: boolean }[] = [];
     for (const panel of this._zonePanels()) {
       for (let n = 1; n <= MAX_OUTLETS; n++) {
-        if (!h.states[`switch.sf_${panel}_outlet_${n}`]) continue;
-        const mode = String(h.states[`select.sf_${panel}_outlet_${n}_mode`]?.state || "").trim();
+        if (!this._st(`switch.sf_${panel}_outlet_${n}`)) continue;
+        const mode = String(this._st(`select.sf_${panel}_outlet_${n}_mode`)?.state || "").trim();
         out.push({ key: `${panel}:outlet_${n}`, panel, n, mode, env: ENV.has(mode) });
       }
     }
@@ -13966,7 +14133,7 @@ export class SpiderAiStatsCard extends LitElement {
     const arc = (a0: number, a1: number) =>
       `M ${CX + R * Math.cos(a0)} ${CY - R * Math.sin(a0)} A ${R} ${R} 0 0 1 ${CX + R * Math.cos(a1)} ${CY - R * Math.sin(a1)}`;
     const col = this._confColor(v);
-    return html`<svg viewBox="0 0 180 104" class="gauge" role="img" aria-label="AI confidence ${v.toFixed(0)}%">
+    return html`<svg viewBox="0 0 180 104" class="gauge" role="img" aria-label=${loc("AI learning confidence {pct}%", { pct: v.toFixed(0) })}>
       <path d=${arc(Math.PI, 0)} stroke="var(--divider-color,#333)" stroke-width=${W} fill="none" stroke-linecap="round"></path>
       <path d=${arc(Math.PI, ang)} stroke=${col} stroke-width=${W} fill="none" stroke-linecap="round"></path>
       <circle cx=${x} cy=${y} r="7" fill=${col} stroke="var(--card-background-color,#111)" stroke-width="2"></circle>
@@ -14050,7 +14217,7 @@ export class SpiderAiStatsCard extends LitElement {
     if (meta.external || /^ext_\d+$/.test(dev)) {
       const role = meta.role && meta.role !== "other"
         ? loc(meta.role.charAt(0).toUpperCase() + meta.role.slice(1)) : loc("External");
-      const fn = meta.entity_id ? this.hass?.states?.[meta.entity_id]?.attributes?.friendly_name : "";
+      const fn = meta.entity_id ? this._st(meta.entity_id)?.attributes?.friendly_name : "";
       return fn ? `${fn} · ${role}` : loc("{role} (external)", { role });
     }
     const pm = dev.match(/^([a-z0-9]+):(.+)$/i);
@@ -14086,11 +14253,12 @@ export class SpiderAiStatsCard extends LitElement {
 
   private _overview() {
     const e = this._entity();
+    if (this._noPanelData()) return this._noPanelDataNote();
     if (!e || e.state === "unknown" || e.state === "unavailable") {
       return html`<div class="empty">
         <ha-icon icon="mdi:brain"></ha-icon>
         <div class="empty-t">${loc("No learning data yet")}</div>
-        <div class="empty-s">${loc("Enable")} <b>${loc("Adaptive climate (AI)")}</b> ${loc("in the integration options. It learns from live capture as soon as it's on — no device control needed.")}</div>
+        <div class="empty-s">${loc("To start, enable")} <b>${loc("Adaptive climate (AI)")}</b> ${loc("in the integration options. It learns from live capture as soon as it's on — no device control needed.")}</div>
       </div>`;
     }
     const rd = this._regimeData();
@@ -14135,7 +14303,7 @@ export class SpiderAiStatsCard extends LitElement {
                 <ha-icon icon=${meta.icon}></ha-icon>
                 <span class="model-name">${loc(meta.label)}</span>
                 <span class="chip" style="background:${this._confColor(md.confidence * 100)}22;color:${this._confColor(md.confidence * 100)}">
-                  ${(md.confidence * 100).toFixed(0)}% ${loc("conf")}</span>
+                  ${loc("{pct}% conf", { pct: (md.confidence * 100).toFixed(0) })}</span>
                 ${this._forecastChip(md.forecast)}
                 <span class="model-meta">n=${md.n} · R²=${(md.r2 ?? 0).toFixed(2)} · ${loc("drift")} ${md.drift >= 0 ? "+" : ""}${md.drift.toFixed(3)} ${meta.unit}</span>
                 <ha-icon class="m-chev" icon=${closed ? "mdi:chevron-down" : "mdi:chevron-up"}></ha-icon>
@@ -14177,6 +14345,14 @@ export class SpiderAiStatsCard extends LitElement {
               })}`)}
           </div>` : nothing}
       </div>`;
+  }
+
+  private _noPanelDataNote() {
+    return html`<div class="empty">
+      <ha-icon icon="mdi:brain"></ha-icon>
+      <div class="empty-t">${loc("No adaptive-climate data for this panel")}</div>
+      <div class="empty-s">${loc("Panel {panel} has no learning sensor. Learning runs per panel or zone — a panel whose devices belong to a zone is learned on the zone's sensor panel.", { panel: this._panel })}</div>
+    </div>`;
   }
 
   // Durable store on for this panel? (published by the integration on the sensor.)
@@ -14278,7 +14454,8 @@ export class SpiderAiStatsCard extends LitElement {
     if (!name || !this.hass || this._busy) return;
     this._busy = true; this._msg = loc("Saving profile…");
     try {
-      await this.hass.callService("sf", "ai_save_profile", { name });
+      const panel = this._activePanel();
+      await this.hass.callService("sf", "ai_save_profile", { name, ...(panel ? { panel } : {}) });
       this._profName = ""; this._msg = loc('Saved "{name}".', { name });
     } catch (e: any) { this._msg = loc("Failed:") + " " + (e?.message || e); }
     finally { this._busy = false; setTimeout(() => { this._msg = ""; }, 7000); }
@@ -14294,7 +14471,8 @@ export class SpiderAiStatsCard extends LitElement {
     if (!confirm(mismatch ? warn : base)) return;
     this._busy = true; this._msg = loc('Loading "{name}"…', { name: p.name });
     try {
-      await this.hass.callService("sf", "ai_load_profile", { id: p.id });
+      const panel = this._activePanel();
+      await this.hass.callService("sf", "ai_load_profile", { id: p.id, ...(panel ? { panel } : {}) });
       this._msg = loc('Loaded "{name}" — models re-fit on the combined data.', { name: p.name });
     } catch (e: any) { this._msg = loc("Failed:") + " " + (e?.message || e); }
     finally { this._busy = false; setTimeout(() => { this._msg = ""; }, 7000); }
@@ -14353,13 +14531,21 @@ export class SpiderAiStatsCard extends LitElement {
   private _settings() {
     const list = this._sensors();
     const active = this._activePanel();
+    const noData = this._noPanelData();
+    const panels = list.map((s) => s.panel);
+    if (noData) panels.unshift(active);          // keep the configured panel selectable/shown
     return html`<div class="set">
-      ${list.length > 1 ? html`
+      ${panels.length > 1 ? html`
         <div class="toggle-row"><span>${loc("Panel")}</span>
           <select @change=${(e: Event) => (this._panel = (e.target as HTMLSelectElement).value)}>
-            ${list.map((s) => html`<option value=${s.panel} ?selected=${s.panel === active}>${s.panel}</option>`)}
+            ${panels.map((p) => html`<option value=${p} ?selected=${p === active}>${p}</option>`)}
           </select>
         </div>` : nothing}
+      ${noData ? this._noPanelDataNote() : this._settingsBody()}
+    </div>`;
+  }
+  private _settingsBody() {
+    return html`
       <div class="sec-h">${loc("Learning data")}</div>
       ${this._storeOn()
         ? html`<div class="note">${loc("Learns only from live capture once adaptive climate is on — stored the moment a device switches or the air moves, no HA history imported. Read-only.")}</div>
@@ -14398,12 +14584,14 @@ export class SpiderAiStatsCard extends LitElement {
           @click=${() => this._stageHideTabs()}></button>
       </div>
       ${commitBar(this.accent(), this._settingsDirty(),
-        () => this._applySettings(), () => this._discardSettings(), "apply-bar")}
-    </div>`;
+        () => this._applySettings(), () => this._discardSettings(), "apply-bar")}`;
   }
 
   render() {
+    setLanguage(this.hass);
     if (!this.hass) return nothing;
+    this._used = new Set();
+    this._usedPanels = this._sensors().map((x) => x.panel).join();
     const title = this._config.title || loc("AI Climate Stats");
     const hasTabs = this._tabsShown();
     return html`<ha-card>

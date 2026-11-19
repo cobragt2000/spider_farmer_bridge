@@ -54,7 +54,7 @@
         "data_description": {
           "ai_learn": "⚠ Experimental. The AI learns from live capture how each tent's devices move temperature, humidity and VPD, and shows it on the Spider AI Climate Stats card. It only observes — it never controls a device, so it doesn't need device control.",
           "ai_store": "Home Assistant's recorder purges old data (default ~10 days), which caps how far back the AI can learn. Turn this on to have the integration keep its own compact copy of your SF climate data (under /config/sf/), so learning keeps growing past the recorder's window. Leave it off if you already keep SF data in the recorder long-term or have excluded SF from purge. Only applies when adaptive climate is on.",
-          "ai_retention_days": "How long the dedicated AI store keeps data. 0 keeps everything (never deletes) — about 1–2 MB per month per tent. Set a number of days to trim older data."
+          "ai_retention_days": "How long the dedicated AI store keeps data. 0 keeps everything (never deletes) — roughly 2–16 MB per month per tent (about 0.2–0.4 KB per stored snapshot; a calm tent stores one every 5 minutes, a busy one up to one every few seconds). Data loaded from a saved learning profile is kept until you clean the learning data. Set a number of days to trim older data."
         }
       },
       "components": {

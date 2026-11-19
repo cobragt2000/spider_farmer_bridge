@@ -54,7 +54,7 @@
         "data_description": {
           "ai_learn": "⚠ Experimentell. Die KI lernt aus der Live-Erfassung, wie die Geräte jedes Zelts Temperatur, Luftfeuchte und VPD beeinflussen, und zeigt das auf der Karte „Spider-KI-Klimastatistik“. Sie beobachtet nur – sie steuert nie ein Gerät und braucht deshalb keine Gerätesteuerung.",
           "ai_store": "Der Recorder von Home Assistant löscht alte Daten (standardmäßig nach etwa 10 Tagen); das begrenzt, wie weit zurück die KI lernen kann. Eingeschaltet führt die Integration eine eigene kompakte Kopie deiner SF-Klimadaten (unter /config/sf/), sodass das Lernen über das Recorder-Fenster hinaus weiterwächst. Lass es aus, wenn du SF-Daten ohnehin lange im Recorder behältst oder SF vom Löschen ausgenommen hast. Gilt nur, wenn das adaptive Klima eingeschaltet ist.",
-          "ai_retention_days": "Wie lange der eigene KI-Speicher Daten behält. 0 behält alles (löscht nie) – etwa 1–2 MB pro Monat und Zelt. Gib eine Anzahl Tage an, um ältere Daten zu kürzen."
+          "ai_retention_days": "Wie lange der eigene KI-Speicher Daten behält. 0 behält alles (löscht nie) – grob 2–16 MB pro Monat und Zelt (etwa 0,2–0,4 KB pro gespeichertem Messpunkt; ein ruhiges Zelt speichert alle 5 Minuten einen, ein aktives bis zu alle paar Sekunden). Aus einem gespeicherten Lernprofil geladene Daten bleiben, bis du die KI-Lerndaten leerst. Gib eine Anzahl Tage an, um ältere Daten zu kürzen."
         }
       },
       "components": {
@@ -63,7 +63,7 @@
       },
       "ai_zones": {
         "title": "Klimazonen (KI)",
-        "description": "Eine Zone fasst EINEN Sensor-Controller mit Geräten anderer Controller (und externen HA-Geräten) zusammen, damit ein Grow, der über mehrere SF-Geräte verteilt ist, gemeinsam gelernt wird – z. B. misst ein DP das Zelt, während ein AC5/AC10 ohne DP die Steckdosen schaltet. Das Ergebnis der Zone erscheint am Sensor KI-Zuverlässigkeit ihres Sensor-Controllers; Controller in einer Zone lernen nicht mehr für sich allein. Wähle eine Zone zum Bearbeiten oder lege eine neue an.\n\n{zones}",
+        "description": "Eine Zone fasst EINEN Sensor-Controller mit Geräten anderer Controller (und externen HA-Geräten) zusammen, damit ein Grow, der über mehrere SF-Geräte verteilt ist, gemeinsam gelernt wird – z. B. misst ein DP das Zelt, während ein AC5/AC10 ohne DP die Steckdosen schaltet. Das Ergebnis der Zone erscheint am Sensor KI-Lernsicherheit ihres Sensor-Controllers; Controller in einer Zone lernen nicht mehr für sich allein. Wähle eine Zone zum Bearbeiten oder lege eine neue an.\n\n{zones}",
         "data": {
           "zone": "Zone"
         }
@@ -395,7 +395,7 @@
     },
     "sensor": {
       "ai_confidence": {
-        "name": "KI-Zuverlässigkeit"
+        "name": "KI-Lernsicherheit"
       },
       "alarm_settings": {
         "name": "Alarmeinstellungen"
@@ -1070,7 +1070,7 @@
     },
     "ai_learn": {
       "name": "KI lernen (adaptives Klima)",
-      "description": "Startet jetzt einen Lerndurchlauf des adaptiven Klimas, der nur beobachtet – bildet für jedes Panel aus dem Verlauf von Home Assistant die Modelle, wie die Geräte auf die Messwerte wirken, und aktualisiert den Sensor KI-Zuverlässigkeit. Nützlich, um den Verlauf einmalig nachzuholen. Steuert KEIN Gerät.",
+      "description": "Startet jetzt einen Lerndurchlauf des adaptiven Klimas, der nur beobachtet – bildet für jedes Panel aus dem Verlauf von Home Assistant die Modelle, wie die Geräte auf die Messwerte wirken, und aktualisiert den Sensor KI-Lernsicherheit. Nützlich, um den Verlauf einmalig nachzuholen. Steuert KEIN Gerät.",
       "fields": {
         "days": {
           "name": "Verlaufszeitraum (Tage)",

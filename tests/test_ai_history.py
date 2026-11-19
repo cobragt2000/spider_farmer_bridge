@@ -94,3 +94,57 @@ def test_end_to_end_recovers_gain_from_irregular_history():
     assert abs(m.gains["dehumidifier"] - gain) < 0.005
     assert abs(m.drift - drift) < 0.02
     assert m.confidence > 0.7
+
+
+class _CountingSeries:
+    """A read-only (t, v) series that counts element reads, to pin the cost of the
+    forward fill without timing anything."""
+
+    def __init__(self, pairs):
+        self._p = list(pairs)
+        self.reads = 0
+
+    def __len__(self):
+        return len(self._p)
+
+    def __getitem__(self, i):
+        self.reads += 1
+        return self._p[i]
+
+    def __iter__(self):
+        for p in self._p:
+            self.reads += 1
+            yield p
+
+    def __bool__(self):
+        return bool(self._p)
+
+
+def test_build_samples_forward_fill_is_linear_not_quadratic():
+    # v3.20.52 fix: _value_at rebuilt the whole timestamp list for EVERY grid point, so
+    # a 10-day recorder window cost grid × states (22 s per 15-s pass at 436k states).
+    # A forward-walking cursor reads each element a bounded number of times.
+    n = 3000
+    temp = _CountingSeries((i * 10.0, 20.0 + (i % 7) * 0.1) for i in range(n))
+    blower = _CountingSeries((i * 300.0, float(i % 3) * 50.0) for i in range(n // 30))
+    samples = build_samples({"temperature": temp}, {"blower": blower}, step_s=60.0)
+    grid = len(samples)
+    assert grid > 400
+    assert temp.reads < 5 * (n + grid), temp.reads           # was ~grid × n (≈ 1.5 M)
+    assert blower.reads < 5 * (len(blower) + grid), blower.reads
+    # Same values as the one-off lookup.
+    from custom_components.sf.ai_history import _value_at
+    plain = list(temp._p)
+    for s in samples[::37]:
+        assert s.metrics["temperature"] == _value_at(plain, s.t)
+
+
+def test_gear_effort_series_is_linear_not_quadratic():
+    from custom_components.sf.ai_learn import device_effort_series
+    n = 2000
+    active = _CountingSeries((i * 30.0, "on" if i % 2 else "off") for i in range(n))
+    level = _CountingSeries((i * 30.0 + 15.0, str(1 + i % 10)) for i in range(n))
+    spec = {"effort": "gear", "active": "a", "level": "l", "max": 10}
+    out = device_effort_series(spec, {"a": active, "l": level})
+    assert out[:2] == [(0.0, 0.0), (30.0, 10.0)]    # off, then on at level 1/10
+    assert active.reads < 10 * n and level.reads < 10 * n, (active.reads, level.reads)

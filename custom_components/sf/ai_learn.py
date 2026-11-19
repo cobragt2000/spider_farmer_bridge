@@ -18,17 +18,17 @@ and publish are the thin HA wrappers at the bottom.
 
 from __future__ import annotations
 
-import bisect
+import math
 from dataclasses import replace
 from typing import Mapping, Optional, Sequence
 
 import re
 
 from .ai_climate import (
-    DENOISE_FRAMES, DENOISE_HALF_SEC, FULL_SAMPLES,
-    fit_models, overall_confidence, split_day_night,
+    DENOISE_FRAMES, DENOISE_HALF_SEC, FULL_SAMPLES, FULL_SPAN_S, IncrementalFit,
+    fit_models, overall_confidence, regime_samples, split_day_night,
 )
-from .ai_history import build_samples, gear_effort, speed_effort
+from .ai_history import _Cursor, build_samples, gear_effort, speed_effort
 from .ai_readiness import (
     forecast_selftest, penalised_confidence, step_responses,
 )
@@ -232,19 +232,15 @@ def classify_zone(entity_ids: Sequence[str], zone: dict, get_state=None,
 
 # ── pure: effort encoding from raw history ───────────────────────────────────
 
-def _ffill(series: Series, t: float):
-    if not series:
-        return None
-    times = [p[0] for p in series]
-    i = bisect.bisect_right(times, t) - 1
-    return series[i][1] if i >= 0 else None
-
-
 def _num(v) -> Optional[float]:
+    """A state as a finite number, else None (missing). "nan"/"inf" states parse as floats
+    but are not readings: they crashed the capture tick (int(nan) in the gear encoding)
+    and would poison a fit, so they count as missing like "unknown"."""
     try:
-        return float(v)
+        n = float(v)
     except (TypeError, ValueError):
         return None
+    return n if math.isfinite(n) else None
 
 
 def _row_ts(when) -> Optional[float]:
@@ -284,9 +280,12 @@ def device_effort_series(spec: dict, raw: Mapping[str, Series]) -> list[tuple[fl
     level_s = raw.get(spec["level"], [])
     times = sorted({t for t, _ in active_s} | {t for t, _ in level_s})
     out = []
+    # Walk both series forward once (O(n)); a bisect per timestamp that rebuilt the
+    # timestamp list each time was quadratic.
+    a_cur, l_cur = _Cursor(active_s), _Cursor(level_s)
     for t in times:
-        on = str(_ffill(active_s, t)).lower() == "on"
-        lvl = _ffill(level_s, t)
+        on = str(a_cur.at(t)).lower() == "on"
+        lvl = l_cur.at(t)
         if spec["effort"] == "gear":
             n = _num(lvl)
             eff = gear_effort(on, int(n), spec["max"]) if n is not None else 0.0
@@ -341,19 +340,27 @@ def _summarize(models, nsamples: int) -> dict:
     }
 
 
-def _light_keys(devices) -> list:
-    """Device keys that are grow lights (light_1/light_2, possibly panel-prefixed in
-    a zone). Used to split samples into day (lights on) vs night."""
-    return [d for d in devices if re.search(r"(^|:)light_\d", str(d))]
+def _light_keys(devices, specs: Optional[Mapping[str, dict]] = None) -> list:
+    """Device keys that are grow lights: the controller light channels (light_1/light_2,
+    possibly panel-prefixed in a zone) and — when the classified `specs` are given — any
+    outlet or external entity whose learning role is "light" (a grow light on a plug
+    outlet or switched by HA). Used to split samples into day (lights on) vs night."""
+    specs = specs or {}
+    return [d for d in devices
+            if re.search(r"(^|:)light_\d", str(d))
+            or str((specs.get(d) or {}).get("role") or "").lower() == "light"]
 
 
 def _result(samples, metrics, devices, full_samples=FULL_SAMPLES,
-            denoise_sec=DENOISE_HALF_SEC, slow=None) -> dict:
+            denoise_sec=DENOISE_HALF_SEC, slow=None, light_keys=None,
+            full_span_s=None) -> dict:
     """Fit the COMBINED model (all samples) plus separate DAY and NIGHT models when
     grow lights are present — day and night are different regimes, so learning them
     apart keeps night data from biasing the daytime response (and vice-versa).
     `full_samples` = the confidence 'enough data' bar, set by the learning-speed window.
     `denoise_sec` = the cadence-scaled smoothing half-window for noise-limited metrics.
+    `light_keys` = the grow-light devices (default: the controller light channels by name).
+    `full_span_s` = a covered-time 'enough data' bar instead of `full_samples` (store path).
 
     Control-readiness (v3.20.39, see ai_readiness):
       - `slow` carries the step responses + forecast self-test from a recent pass; when None
@@ -361,27 +368,37 @@ def _result(samples, metrics, devices, full_samples=FULL_SAMPLES,
         self-test halves that model's learning %."""
     metrics = list(metrics)
     devices = list(devices)
-    lights = _light_keys(devices)                 # day/night split uses the light keys
-    regimes = {"all": (samples, full_samples)}
+    lights = (_light_keys(devices) if light_keys is None      # day/night split uses the
+              else [d for d in light_keys if d in devices])    # light keys
+    regimes = {"all": (samples, full_samples, full_span_s)}
     if lights:
         day, night = split_day_night(samples, lights)
         # Day/night each see about half the window, so their 'enough' bar is halved too.
         half = max(1.0, full_samples / 2.0)
-        regimes["day"] = (day, half)
-        regimes["night"] = (night, half)
+        half_span = full_span_s / 2.0 if full_span_s else None
+        regimes["day"] = (day, half, half_span)
+        regimes["night"] = (night, half, half_span)
     fresh = slow is None
     if fresh:
         slow = {"steps": step_responses(samples, metrics, devices), "selftest": {}}
-        for reg, (rs, fs) in regimes.items():
+        for reg, (rs, fs, fsp) in regimes.items():
             slow["selftest"][reg] = forecast_selftest(
                 rs, metrics, devices,
-                lambda s, m, d, fs=fs: fit_models(s, m, d, fs, denoise_sec))
+                lambda s, m, d, fs=fs, fsp=fsp: fit_models(s, m, d, fs, denoise_sec, fsp))
+    fitted = {reg: (fit_models(rs, metrics, devices, fs, denoise_sec, fsp), len(rs))
+              for reg, (rs, fs, fsp) in regimes.items()}
+    return _assemble(fitted, slow, fresh)
+
+
+def _assemble(fitted: Mapping[str, tuple], slow: dict, fresh: bool) -> dict:
+    """Result dict from {regime: (models, sample count)} plus the slow analyses: the forecast
+    self-test rides inside each model and a FAILED test halves that model's learning %."""
     out: dict = {}
-    for reg, (rs, fs) in regimes.items():
+    for reg, (fit, nsamples) in fitted.items():
         tests = (slow.get("selftest") or {}).get(reg) or {}
         models = {m: replace(md, confidence=penalised_confidence(md.confidence, tests.get(m)))
-                  for m, md in fit_models(rs, metrics, devices, fs, denoise_sec).items()}
-        summ = _summarize(models, len(rs))
+                  for m, md in fit.items()}
+        summ = _summarize(models, nsamples)
         for m, t in tests.items():
             if m in summ["models"]:
                 summ["models"][m]["forecast"] = t
@@ -395,17 +412,66 @@ def _result(samples, metrics, devices, full_samples=FULL_SAMPLES,
     return out
 
 
-def learn(metric_series, output_series, *, step_s: float = 120.0, slow=None) -> dict:
+# The switch-on response and the forecast self-test (recomputed every SLOW_ANALYSIS_EVERY_S)
+# look at the most recent stretch of the store on the 'all data' level. Over a whole year
+# they read every sample each time; this keeps them to the newest 10 days — the same span the
+# confidence bar counts as 'enough' (stores up to 10 days are analysed in full, as before).
+READINESS_SPAN_S = 10 * 86400.0
+
+
+def learn_incremental(inc: IncrementalFit, totals: Mapping, readiness: Sequence,
+                      slow=None, full_span_s: float = FULL_SPAN_S) -> dict:
+    """Store path on the Slow ('all data') level: the models come from the IncrementalFit
+    totals (exactly the fit over every stored sample, without re-reading them). The slow
+    analyses use `readiness` — the newest READINESS_SPAN_S of samples; the self-test still
+    trains on EVERYTHING before its held-back stretch (the totals minus that stretch's rows)
+    and replays the stretch. Same result shape as `learn_samples`."""
+    metrics, devices = inc.metrics, inc.devices
+    fresh = slow is None
+    if fresh:
+        slow = {"steps": step_responses(readiness, metrics, devices), "selftest": {}}
+        rsets = regime_samples(readiness, inc.lights)
+        for reg in inc.regimes:
+            rs = rsets.get(reg, [])
+            span = full_span_s if reg == "all" else full_span_s / 2.0
+
+            def _train_models(train, _m, _d, reg=reg, rs=rs, span=span):
+                t_split = rs[len(train)].t if len(train) < len(rs) else float("inf")
+                hold = inc.scan(readiness, t_split, float("inf"), None, float("-inf"), reg)
+                return {m: inc.model(totals[(reg, m)] - hold[(reg, m)], m, span)
+                        for m in metrics}
+
+            slow["selftest"][reg] = forecast_selftest(rs, metrics, devices, _train_models)
+    fitted = {}
+    for reg in inc.regimes:
+        span = full_span_s if reg == "all" else full_span_s / 2.0
+        fitted[reg] = ({m: inc.model(totals[(reg, m)], m, span) for m in metrics},
+                       totals[(reg, metrics[0])].ns if metrics else 0)
+    return _assemble(fitted, slow, fresh)
+
+
+def learn(metric_series, output_series, *, step_s: float = 120.0, slow=None,
+          light_keys=None) -> dict:
     """Fit all metric models from raw series (recorder path), with day/night split.
-    Returns {confidence, models, samples, [day], [night], steps}."""
-    samples = build_samples(metric_series, output_series, step_s=step_s)
-    return _result(samples, list(metric_series.keys()), list(output_series.keys()), slow=slow)
+    Returns {confidence, models, samples, [day], [night], steps}.
+
+    The grid sits on whole multiples of `step_s` (from the first moment every series has
+    started), so a window that slides by a few seconds per live pass keeps the same grid
+    points: the result changes when a new point is reached, not on every pass."""
+    import math as _m
+    firsts = [s[0][0] for s in (*metric_series.values(), *output_series.values()) if s]
+    t0 = _m.ceil(max(firsts) / step_s) * step_s if firsts else None
+    samples = build_samples(metric_series, output_series, step_s=step_s, t0=t0)
+    return _result(samples, list(metric_series.keys()), list(output_series.keys()), slow=slow,
+                   light_keys=light_keys)
 
 
 def learn_samples(samples, metrics, devices, full_samples=FULL_SAMPLES,
-                  denoise_sec=DENOISE_HALF_SEC, slow=None) -> dict:
+                  denoise_sec=DENOISE_HALF_SEC, slow=None, light_keys=None,
+                  full_span_s=None) -> dict:
     """Fit from pre-built Samples (the durable-store path), with day/night split."""
-    return _result(samples, metrics, devices, full_samples, denoise_sec, slow)
+    return _result(samples, metrics, devices, full_samples, denoise_sec, slow, light_keys,
+                   full_span_s)
 
 
 # ── pure: live snapshot encoding (for the durable capture tick) ───────────────
@@ -439,7 +505,6 @@ def encode_snapshot(classified: dict, get_state) -> dict:
 
 # ── HA glue (thin; imports kept local so the pure core tests without HA) ──────
 
-STORE_VERSION = 1
 BACKFILL_DAYS = 10          # states-history reach (the recorder's purge window)
 CAPTURE_STEP_S = 120.0      # recorder-path synthetic step (dormant backfill only)
 # Event-driven capture (v3.20.32). We poll fast but only STORE a snapshot when something
@@ -451,11 +516,14 @@ CAPTURE_STEP_S = 120.0      # recorder-path synthetic step (dormant backfill onl
 CAPTURE_POLL_S = 5.0        # how often we LOOK (cheap in-memory compare; writes only on change)
 CAPTURE_FRAME_S = 6.0       # measured SF live-frame cadence — the capture resolution floor
 CAPTURE_IDLE_S = 300.0      # force a snapshot at least this often even when nothing moved
-CAPTURE_EFFECTIVE_S = 60.0  # nominal avg sample spacing (active+idle) for the confidence bar
+CAPTURE_EFFECTIVE_S = 60.0  # nominal avg sample spacing (active+idle); the confidence bar
+                            # now uses covered time instead (ai_climate.FULL_SPAN_S)
 # A metric counts as "moved" (worth storing) only past these absolute deltas — above the
 # per-frame sensor jitter, so a genuinely steady tent stays sparse. A real swing blows past
 # them. Any DEVICE on/off/level change always stores (that transition is the key event).
-CAPTURE_EPS = {"temperature": 0.15, "humidity": 0.6, "vpd": 0.04}
+# Temperatures are captured in °C (see to_celsius); the temperature step is the 0.15 °F it
+# was tuned at in 3.20.32 (the gate compared display units then, so °C installs used 0.15 °C).
+CAPTURE_EPS = {"temperature": 0.15 * 5.0 / 9.0, "humidity": 0.6, "vpd": 0.04}
 CAPTURE_EPS_DEFAULT = 0.1
 # Step responses + the forecast self-test are heavier than a fit, so the live loop reuses
 # them for this long before recomputing (a user action — clean, profile load — forces it).
@@ -469,11 +537,6 @@ DENSE_MAX_S = 600.0         # max gap still counted as "dense" forward/fine data
 # they're seeded from states history (10 days) and accrue full-res going forward.
 STATS_BACKFILL_DAYS = 400   # grab everything available; HA returns only what exists
 SEED_STEP_S = 3600.0        # seed grid = hourly (matches the statistics period)
-
-
-def _store(hass, panel: str):
-    from homeassistant.helpers.storage import Store
-    return Store(hass, STORE_VERSION, f"sf_ai_model_{panel}")
 
 
 # ── durable SF data store: capture, one-shot seed, purge ──────────────────────
@@ -511,6 +574,45 @@ def read_outlet_roles(hass, sensor_slot: str) -> dict:
         except (ValueError, TypeError):
             raw = {}
     return raw if isinstance(raw, dict) else {}
+
+
+def to_celsius(value: Optional[float], unit) -> Optional[float]:
+    """An absolute temperature in `unit` (as Home Assistant displays it) → °C. The durable
+    store and the learning work in °C, so a °C/°F switch (or an intake sensor shown in the
+    other unit) can't mix units in the training data. Unknown/None unit = °C."""
+    if value is None:
+        return None
+    u = str(unit or "").strip().upper()
+    if u.endswith("F"):
+        return (float(value) - 32.0) * 5.0 / 9.0
+    if u == "K":
+        return float(value) - 273.15
+    return float(value)
+
+
+def temperature_unit(hass, eid: Optional[str]) -> Optional[str]:
+    st = hass.states.get(eid) if eid else None
+    return st.attributes.get("unit_of_measurement") if st is not None else None
+
+
+def to_display_units(result: dict, unit) -> dict:
+    """Store-path results are learned in °C; give the temperature model in the unit the tent
+    sensor is shown in (as the card expects — it labels the rates with that unit). Drift and
+    gains are °/min rates (×9/5 for °F); the ventilation gains are per degree of intake gap
+    per degree, so they don't change; switch-on responses are temperature changes (×9/5)."""
+    if not str(unit or "").strip().upper().endswith("F"):
+        return result
+    k = 9.0 / 5.0
+    for part in (result, result.get("day"), result.get("night")):
+        md = ((part or {}).get("models") or {}).get("temperature")
+        if not md:
+            continue
+        md["drift"] = round(md["drift"] * k, 5)
+        md["gains"] = {d: round(g * k, 5) for d, g in md["gains"].items()}
+    for st in ((result.get("steps") or {}).get("temperature") or {}).values():
+        if isinstance(st, dict) and st.get("change") is not None:
+            st["change"] = round(st["change"] * k, 3)
+    return result
 
 
 def snapshot_changed(prev: Optional[dict], vals: dict, metrics) -> bool:
@@ -605,6 +707,10 @@ async def async_capture_bus(hass, bus, store) -> None:
         if not classified["metrics"] or not classified["devices"]:
             continue
         vals = encode_snapshot(classified, _get)
+        if "temperature" in vals:          # store °C whatever unit HA shows
+            vals["temperature"] = to_celsius(
+                vals["temperature"],
+                temperature_unit(hass, classified["metrics"].get("temperature")))
         if any(m in vals for m in classified["metrics"]):
             # Capture the optional intake-air reference alongside the tent sample (keys
             # ambient_*). Not a metric/device today — it just accumulates aligned history
@@ -614,6 +720,8 @@ async def async_capture_bus(hass, bus, store) -> None:
                 if eid:
                     av = _num(_get(eid))
                     if av is not None:
+                        if key == "ambient_temperature":
+                            av = to_celsius(av, temperature_unit(hass, eid))
                         vals[key] = av
             # Event-driven gate: store only on a real change, or once the idle floor lapses.
             idle_due = (now - last_write.get(slot, 0.0)) >= CAPTURE_IDLE_S
@@ -623,7 +731,7 @@ async def async_capture_bus(hass, bus, store) -> None:
             rows.append((slot, vals))   # store key = the (sensor) panel's slot
             last_vals[slot] = vals
             last_write[slot] = now
-    if not rows:
+    if not rows or getattr(store, "closed", False):
         return
 
     def _write():
@@ -676,6 +784,13 @@ async def async_backfill_panel(hass, bus, store, panel: str, days: float = BACKF
     stats_raw = (await async_fetch_statistics(hass, eids, STATS_BACKFILL_DAYS)
                  if include_stats else {})
 
+    t_unit = temperature_unit(hass, classified["metrics"].get("temperature"))
+
+    def _celsius(vals: dict) -> dict:
+        if vals.get("temperature") is not None:
+            vals["temperature"] = to_celsius(vals["temperature"], t_unit)
+        return vals
+
     def _sync():
         earliest = store.stats(panel)["first"]
         written = 0
@@ -688,7 +803,7 @@ async def async_backfill_panel(hass, bus, store, panel: str, days: float = BACKF
         rt0 = min(rstarts) if rstarts else None
         for s in build_samples(ms, os_, step_s=CAPTURE_STEP_S, t0=rt0):
             if s.t >= cutoff:
-                store.append(panel, s.t, {**s.metrics, **s.outputs})
+                store.append(panel, s.t, _celsius({**s.metrics, **s.outputs}))
                 written += 1
         # OLDER: hourly statistics — only when explicitly requested (device-blind; off by
         # default). Appended only where the store doesn't already reach, so re-runs stay
@@ -700,7 +815,7 @@ async def async_backfill_panel(hass, bus, store, panel: str, days: float = BACKF
             t0 = min(starts) if starts else None
             for s in build_samples(ms2, os2, step_s=SEED_STEP_S, t0=t0):
                 if s.t < older_bound:
-                    store.append(panel, s.t, {**s.metrics, **s.outputs})
+                    store.append(panel, s.t, _celsius({**s.metrics, **s.outputs}))
                     written += 1
         else:
             # Trim any device-blind rows a previous stats backfill left behind, by sample
@@ -769,11 +884,18 @@ async def async_fetch_history(hass, entity_ids: Sequence[str], days: float):
     """Pull recorder history for the given entities over the last `days`,
     returned as {entity_id: [(epoch, state_str), ...]} sorted ascending."""
     from datetime import timedelta
-    from homeassistant.components.recorder import get_instance, history
     from homeassistant.util import dt as dt_util
 
     end = dt_util.utcnow()
-    start = end - timedelta(days=days)
+    return await _async_fetch_window(hass, entity_ids, end - timedelta(days=days), end, True)
+
+
+async def _async_fetch_window(hass, entity_ids: Sequence[str], start, end,
+                              include_start_state: bool):
+    """Recorder states for `entity_ids` in (start, end), as {eid: [(epoch, state), ...]}
+    ascending. With `include_start_state` the state in effect at `start` leads each series,
+    stamped at `start` (the recorder's own convention)."""
+    from homeassistant.components.recorder import get_instance, history
 
     def _run():
         # Query AND parse inside the executor so neither the DB read nor the
@@ -781,11 +903,13 @@ async def async_fetch_history(hass, entity_ids: Sequence[str], days: float):
         # event loop. (loop-safety)
         states = history.get_significant_states(
             hass, start, end, list(entity_ids),
+            include_start_time_state=include_start_state,
             minimal_response=True, no_attributes=True,
         )
         out: dict[str, list[tuple[float, object]]] = {}
         for eid, rows in (states or {}).items():
             series: list[tuple[float, object]] = []
+            pool: dict = {}             # share repeated state strings (the cache keeps them)
             for st in rows:
                 # get_significant_states rows are State objects (or minimal dicts).
                 when = getattr(st, "last_updated", None) or getattr(st, "last_changed", None)
@@ -796,12 +920,86 @@ async def async_fetch_history(hass, entity_ids: Sequence[str], days: float):
                 ts = _row_ts(when)
                 if ts is None:
                     continue
-                series.append((ts, val))
+                series.append((ts, pool.setdefault(val, val)))
             series.sort(key=lambda p: p[0])
             out[eid] = series
         return out
 
     return await get_instance(hass).async_add_executor_job(_run)
+
+
+# Recorder-path history cache (store off — the default). Re-reading the whole 10-day window
+# on every 15-s live pass was the expensive part of that path, so each panel keeps the last
+# window in memory and only asks the recorder for what is new since the previous read.
+HISTORY_OVERLAP_S = 600.0             # re-read this much before the last read (late commits)
+HISTORY_FULL_REFRESH_S = 6 * 3600.0   # …and re-read the whole window this often anyway
+
+
+def merge_history(cached: Mapping[str, Series], new: Mapping[str, Series],
+                  window_start: float) -> dict:
+    """Pure: extend a cached recorder window with newly read rows and slide its start, giving
+    what a fresh full read of (window_start, now) returns — each series led by the state in
+    effect at `window_start` (stamped there), then every change after it, with no two
+    consecutive rows holding the same state (the recorder's minimal-response form). `new`
+    holds rows read from shortly before the previous read's end; rows not newer than the
+    cached tail are ignored, so the overlap is harmless. Inputs are not modified."""
+    out: dict[str, list] = {}
+    for eid in set(cached) | set(new):
+        old = list(cached.get(eid) or [])
+        last_t = old[-1][0] if old else float("-inf")
+        for t, v in new.get(eid) or ():
+            if t <= last_t:
+                continue
+            if not old or old[-1][1] != v:
+                old.append((t, v))
+            last_t = t
+        if not old:
+            continue
+        # Slide the window start: the state in effect at window_start leads the series
+        # (like the recorder: last row before the start, stamped at the start; a row
+        # exactly at the start belongs to neither side).
+        j = 0
+        while j < len(old) and old[j][0] < window_start:
+            j += 1
+        k = j
+        while k < len(old) and old[k][0] == window_start:
+            k += 1
+        if j:
+            head = (window_start, old[j - 1][1])
+            rest = old[k:]
+            if rest and rest[0][1] == head[1]:
+                rest = rest[1:]
+            old = [head] + rest
+        out[eid] = old
+    return out
+
+
+async def async_fetch_history_cached(hass, bus, panel: str, entity_ids: Sequence[str],
+                                     days: float) -> dict:
+    """`async_fetch_history` for the live learning loop: the first call (and any change of
+    entities or window, and every HISTORY_FULL_REFRESH_S) reads the full window; the calls in
+    between read only the last few minutes and merge them into the cached window."""
+    import time as _t
+    from datetime import timedelta
+    from homeassistant.util import dt as dt_util
+
+    cache = getattr(bus, "_ai_hist", None)
+    if cache is None:
+        cache = bus._ai_hist = {}
+    key = (tuple(sorted(entity_ids)), float(days))
+    end = dt_util.utcnow()
+    mono = _t.monotonic()
+    ent = cache.get(panel)
+    if ent is None or ent["key"] != key or mono - ent["full_at"] >= HISTORY_FULL_REFRESH_S:
+        raw = await _async_fetch_window(hass, entity_ids, end - timedelta(days=days), end, True)
+        cache[panel] = {"key": key, "end": end, "full_at": mono, "raw": raw}
+        return raw
+    since = ent["end"] - timedelta(seconds=HISTORY_OVERLAP_S)
+    new = await _async_fetch_window(hass, entity_ids, since, end, False)
+    window_start = (end - timedelta(days=days)).timestamp()
+    raw = await hass.async_add_executor_job(merge_history, ent["raw"], new, window_start)
+    ent["end"], ent["raw"] = end, raw
+    return raw
 
 
 async def async_fetch_statistics(hass, entity_ids: Sequence[str], days: float):
@@ -851,6 +1049,29 @@ def resolve_panel(panel: str, zones) -> tuple[str, Optional[dict]]:
     return ("panel", None)
 
 
+def learnable_panels(hass, slots: Sequence[str], zones) -> list[str]:
+    """The panels the learner actually trains, in sorted slot order: each non-absorbed slot
+    whose panel (or zone) has climate metrics AND at least one learnable device — the same
+    test the learn pass uses. Lights, strips without sensors and absorbed controllers are
+    not in it."""
+    def _gs(eid):
+        st = hass.states.get(eid)
+        return st.state if st is not None else None
+
+    eids = list(hass.states.async_entity_ids())
+    out = []
+    for slot in sorted(set(slots)):
+        kind, z = resolve_panel(slot, zones)
+        if kind == "absorbed":
+            continue
+        roles = read_outlet_roles(hass, slot)
+        c = (classify_zone(eids, z, get_state=_gs, roles=roles) if kind == "zone"
+             else classify_panel(eids, slot, get_state=_gs, roles=roles_for_slot(roles, slot)))
+        if c["metrics"] and c["devices"]:
+            out.append(slot)
+    return out
+
+
 def _slow_cached(bus, panel: str):
     """Recent step-response + self-test results for this panel, or None when they're
     missing or older than SLOW_ANALYSIS_EVERY_S (→ recompute this pass)."""
@@ -888,6 +1109,7 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
     classified = (classify_zone(eids_all, zone, get_state=_gs, roles=_roles) if zone
                   else classify_panel(eids_all, panel, get_state=_gs,
                                       roles=roles_for_slot(_roles, panel)))
+    lights = _light_keys(classified["devices"].keys(), classified["devices"])
     if not classified["metrics"] or not classified["devices"]:
         result = {"confidence": 0.0, "models": {}, "samples": 0}
     elif store is not None:
@@ -903,11 +1125,12 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
         import time as _t
         _win = read_learn_window(hass, panel)
         since = max(0.0, _t.time() - _win * 86400.0) if _win > 0 else 0.0
-        # Capture is event-driven (variable rate), so the confidence "enough data" bar for a
-        # windowed level is set from a NOMINAL average spacing (CAPTURE_EFFECTIVE_S) — a
-        # window reaches full confidence once it holds ~that density; a dynamic tent fills
-        # faster. Slow (all data) keeps the fixed FULL_SAMPLES bar.
-        full = (_win * 86400.0 / CAPTURE_EFFECTIVE_S) if _win > 0 else FULL_SAMPLES
+        # Capture is event-driven (variable rate: a row per ~6 s in a swing, one per 300 s
+        # when steady), so the confidence "enough data" bar is the TIME the usable intervals
+        # cover: a windowed level is full once its window is covered, Slow (all data) after
+        # FULL_SPAN_S (~10 days, what the old 7200-row bar meant at 2-min capture). A row
+        # count reached "full" after half a day of swings, or only after weeks of calm.
+        span = _win * 86400.0 if _win > 0 else FULL_SPAN_S
         # Denoise half-window tracks the hardware frame rate (a couple of frames), so it
         # de-jitters without flattening the seconds-scale swings a small tent actually has.
         denoise = min(DENOISE_HALF_SEC, DENOISE_FRAMES * CAPTURE_FRAME_S)
@@ -915,10 +1138,33 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
         recent_win = 300.0                             # 5-min rolling window → live rows/hr
         recent_since = _t.time() - recent_win
         slow = _slow_cached(bus, panel)
+        fits = getattr(bus, "_ai_fit", None)
+        if fits is None:
+            fits = bus._ai_fit = {}
 
         def _fit():
-            samples = store.samples(panel, metrics, since)
-            res = learn_samples(samples, metrics, devices, full, denoise, slow=slow)
+            if _win > 0:
+                # Windowed levels (≤ 7 days) refit their window each pass.
+                samples = store.samples(panel, metrics, since)
+                res = learn_samples(samples, metrics, devices, FULL_SAMPLES, denoise,
+                                    slow=slow, light_keys=lights, full_span_s=span)
+            else:
+                # Slow = all data, kept exact by folding settled rows once (IncrementalFit):
+                # each pass reads about the last hour instead of the whole store.
+                key = (id(store), store.generation, tuple(metrics), tuple(devices),
+                       tuple(lights), denoise)
+                ent = fits.get(panel)
+                if ent is None or ent[0] != key:
+                    ent = fits[panel] = (key, IncrementalFit(metrics, devices, lights, denoise))
+                inc = ent[1]
+                cov = store.stats(panel)
+                totals = inc.update(lambda a, b: store.samples(panel, metrics, a, b),
+                                    cov["first"], cov["last"])
+                readiness = []
+                if slow is None and cov["last"] is not None:
+                    readiness = store.samples(
+                        panel, metrics, max(float(cov["first"]), cov["last"] - READINESS_SPAN_S))
+                res = learn_incremental(inc, totals, readiness, slow=slow, full_span_s=span)
             res["_store_stats"] = store.stats(panel)   # rows + distinct-ts samples + range
             res["_store_bytes"] = store.size_bytes()   # whole-DB file size
             res["_store_recent"] = store.recent_samples(panel, recent_since)  # count in window
@@ -926,6 +1172,7 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
             return res
 
         result = await hass.async_add_executor_job(_fit)
+        to_display_units(result, temperature_unit(hass, classified["metrics"].get("temperature")))
         # Surface the durable store's actual coverage so the card can show the real
         # training span + size instead of a recorder-window knob (moot once seeded).
         st = result.pop("_store_stats", {}) or {}
@@ -949,11 +1196,11 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
         eids = list(classified["metrics"].values())
         for spec in classified["devices"].values():
             eids += [v for k, v in spec.items() if isinstance(v, str) and "." in v]
-        raw = await async_fetch_history(hass, eids, days)
+        raw = await async_fetch_history_cached(hass, bus, panel, eids, days)
         # Series-building + the OLS fit are pure CPU — keep them off the loop too.
         slow = _slow_cached(bus, panel)
         result = await hass.async_add_executor_job(
-            lambda: learn(*build_panel_series(raw, classified), slow=slow)
+            lambda: learn(*build_panel_series(raw, classified), slow=slow, light_keys=lights)
         )
         result["store_enabled"] = False
     if "_slow" in result:
@@ -1006,19 +1253,26 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
             meta[name] = m
     if meta:
         result["device_meta"] = meta
-    # Wall-clock stamp of THIS fit, so the card's "next update" countdown resets
-    # exactly on the mark at each pass. Needed because HA only bumps the sensor's
-    # last_updated when the payload changes — an identical re-fit (common once a
-    # model settles) left last_updated stale and the countdown stuck at "due now".
-    # A fresh last_fit every pass also guarantees last_updated advances. (v3.20.22)
-    import time as _time
-    result["last_fit"] = _time.time()
-    try:
-        await _store(hass, panel).async_save(result)
-    except Exception:  # noqa: BLE001 — cache is best-effort
-        pass
-    # Publish onto the bus so sensor.sf_<panel>_ai_confidence picks it up.
+    # Publish onto the bus so sensor.sf_<panel>_ai_confidence picks it up — but only when
+    # the result changed. A pass that learned nothing new (common once a model settles, or
+    # between captures) used to be published anyway with a fresh `last_fit`, so the sensor
+    # wrote a new state + ~3 KB attributes row to the recorder every 15 s. `last_fit` is
+    # now the wall-clock time of the last pass that changed the result. (The card's
+    # countdown that needed a fresh stamp each pass was replaced by "Updating live" in
+    # 3.20.38.) Nothing is cached in .storage any more: the per-panel sf_ai_model_<slot>
+    # files were rewritten every pass for every slot and never read. (v3.20.52)
     import json
+    import time as _time
+    body = json.dumps(result, sort_keys=True)
+    published = getattr(bus, "_ai_published", None)
+    if published is None:
+        published = bus._ai_published = {}
+    prev = published.get(mac)
+    if prev is not None and prev[0] == body:
+        result["last_fit"] = prev[1]
+        return result
+    result["last_fit"] = _time.time()
+    published[mac] = (body, result["last_fit"])
     bus.publish(f"ggs/ha/{mac}/ai_confidence/state", json.dumps(result), retain=True)
     return result
 
@@ -1032,28 +1286,38 @@ async def async_learn_bus(hass, bus, days: float = BACKFILL_DAYS, store=None,
     Re-entrancy guarded: if a pass is already running (e.g. a scheduled tick fires
     while a manual sf.ai_learn is still going), skip rather than pile up overlapping
     recorder reads — keeps the integration from hogging the executor / lagging HA.
-    `force=True` bypasses that skip and also resets the cadence stamp, so a user action
-    (clean, load/save/delete a profile) refreshes the card NOW rather than waiting for
-    the next throttled tick."""
+    `force=True` (a user action: clean, load/save/delete a profile) does not skip: it WAITS
+    for a running pass to finish and then runs, so the card refreshes right after the
+    action without two passes ever running at once. It also resets the cadence stamp.
+    The guard is one asyncio.Lock per bus, held by whichever pass is running — a pass can
+    only release its own hold (the old boolean flag was cleared by whichever pass finished
+    first, letting a third pass start alongside a forced one)."""
+    import asyncio
     import logging
     log = logging.getLogger(__name__)
-    if getattr(bus, "_ai_learning", False) and not force:
+    lock = getattr(bus, "_ai_learn_lock", None)
+    if lock is None:
+        lock = bus._ai_learn_lock = asyncio.Lock()
+    if lock.locked() and not force:
         log.debug("sf ai_learn: a pass is already running — skipping this trigger")
         return
-    bus._ai_learning = True
-    if force:
-        bus._ai_last_fit = 0.0          # let the next heartbeat fire promptly too
-        bus._ai_slow = {}               # data changed — recompute step responses + self-test
-    zones = getattr(bus, "_ai_zones", []) or []
-    try:
-        for mac, slot in dict(getattr(bus, "_slot_cache", {})).items():
-            kind, z = resolve_panel(slot, zones)
-            if kind == "absorbed":
-                continue        # learned as part of its zone's sensor panel
-            try:
-                await async_learn_panel(hass, bus, slot, mac, days, store=store,
-                                        zone=z if kind == "zone" else None)
-            except Exception:  # noqa: BLE001 — one panel's failure is isolated
-                log.exception("sf ai_learn: pass failed for panel %s (%s)", slot, mac)
-    finally:
-        bus._ai_learning = False
+    async with lock:
+        bus._ai_learning = True         # informational; set/cleared only by the lock holder
+        if force:
+            bus._ai_last_fit = 0.0      # let the next heartbeat fire promptly too
+            bus._ai_slow = {}           # data changed — recompute step responses + self-test
+        zones = getattr(bus, "_ai_zones", []) or []
+        try:
+            for mac, slot in dict(getattr(bus, "_slot_cache", {})).items():
+                if getattr(store, "closed", False):
+                    return          # entry unloaded while this pass waited
+                kind, z = resolve_panel(slot, zones)
+                if kind == "absorbed":
+                    continue        # learned as part of its zone's sensor panel
+                try:
+                    await async_learn_panel(hass, bus, slot, mac, days, store=store,
+                                            zone=z if kind == "zone" else None)
+                except Exception:  # noqa: BLE001 — one panel's failure is isolated
+                    log.exception("sf ai_learn: pass failed for panel %s (%s)", slot, mac)
+        finally:
+            bus._ai_learning = False

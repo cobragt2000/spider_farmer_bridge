@@ -384,3 +384,115 @@ def test_seed_gridding_hourly_stats_plus_sparse_gear():
     assert samples[4].outputs["heater"] == 50.0    # on, 5/10, once states cover it
     assert samples[5].outputs["heater"] == 50.0
     assert all(s.outputs["blower"] == 40.0 for s in samples)
+
+
+# ── recorder path: incremental history window (v3.20.52) ────────────────
+
+def _recorder_read(rows, start, end, include_start=True):
+    """What the recorder returns for get_significant_states(minimal_response=True):
+    the state at `start` (stamped `start`) when asked for, then each change in
+    (start, end), with consecutive duplicates dropped."""
+    out = {}
+    for eid, series in rows.items():
+        res = []
+        if include_start:
+            before = [r for r in series if r[0] < start]
+            if before:
+                res.append((start, before[-1][1]))
+        for t, v in series:
+            if start < t < end and (not res or res[-1][1] != v):
+                res.append((t, v))
+        if res:
+            out[eid] = res
+    return out
+
+
+def test_merge_history_equals_a_full_read():
+    from custom_components.sf.ai_learn import merge_history
+    rng = np.random.default_rng(4)
+    rows = {
+        "sensor.t": [(float(t), f"{20 + rng.integers(0, 4) * 0.1:.1f}") for t in range(0, 20000, 7)],
+        "sensor.b": [(float(t), str(int(rng.choice([0, 50])))) for t in range(0, 20000, 900)],
+        "binary_sensor.h": [(5.0, "off"), (19990.0, "on")],     # changes only at the edges
+        "sensor.late": [(15000.0, "1"), (15500.0, "2")],         # starts inside the window
+    }
+    days_s = 5000.0
+    prev_end = 10000.0
+    cached = _recorder_read(rows, prev_end - days_s, prev_end)
+    for end in (10015.0, 10600.0, 13333.0, 19995.0):
+        # Read only from shortly before the previous read's end (overlap), merge, slide.
+        new = _recorder_read(rows, prev_end - 600.0, end, include_start=False)
+        cached = merge_history(cached, new, end - days_s)
+        assert cached == _recorder_read(rows, end - days_s, end), end
+        prev_end = end
+
+
+async def test_forced_pass_waits_and_never_overlaps(monkeypatch):
+    # v3.20.52 fix: force=True bypassed the running-pass guard and the first pass to
+    # finish cleared it, so a forced pass (profile save/load, clean) ran alongside a
+    # scheduled one and the next tick started a third.
+    import asyncio
+    import types
+    import custom_components.sf.ai_learn as al
+
+    running = peak = 0
+    order: list = []
+
+    async def fake_panel(hass, bus, slot, mac, days, store=None, zone=None):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        order.append(bus._ai_slow == {} and "forced-data" or "tick")
+        await asyncio.sleep(0.05)
+        running -= 1
+
+    monkeypatch.setattr(al, "async_learn_panel", fake_panel)
+    bus = types.SimpleNamespace(_slot_cache={"aa": "dp1"}, _ai_zones=[], _ai_slow={"x": 1})
+    a = asyncio.create_task(al.async_learn_bus(None, bus))               # scheduled tick
+    await asyncio.sleep(0.01)
+    b = asyncio.create_task(al.async_learn_bus(None, bus, force=True))   # user action
+    await asyncio.sleep(0.06)                                            # a done, b running
+    c = asyncio.create_task(al.async_learn_bus(None, bus))               # next tick
+    await asyncio.gather(a, b, c)
+    assert peak == 1
+    assert order == ["tick", "forced-data"]       # the forced pass ran, after the tick
+    assert bus._ai_learning is False
+
+
+def test_non_finite_states_count_as_missing():
+    # v3.20.52 fix: a level state "nan"/"inf" crashed the capture tick (int(nan)) — and a
+    # "nan" reading is no reading. Treat them like "unknown".
+    classified = {
+        "metrics": {"temperature": f"sensor.{P}temperature", "humidity": f"sensor.{P}humidity"},
+        "devices": {
+            "blower": {"effort": "speed", "speed": f"sensor.{P}blower_speed"},
+            "heater": {"effort": "gear", "active": f"binary_sensor.{P}heater_active",
+                       "level": f"sensor.{P}heater_level", "max": 10},
+        },
+    }
+    for bad in ("nan", "inf", "-inf", "NaN"):
+        state = {f"sensor.{P}temperature": bad, f"sensor.{P}humidity": "55",
+                 f"sensor.{P}blower_speed": bad,
+                 f"binary_sensor.{P}heater_active": "on", f"sensor.{P}heater_level": bad}
+        vals = encode_snapshot(classified, state.get)
+        assert vals == {"humidity": 55.0, "heater": 0.0}, (bad, vals)
+    spec = classified["devices"]["heater"]
+    raw = {spec["active"]: [(0, "on")], spec["level"]: [(0, "inf"), (60, "5")]}
+    assert device_effort_series(spec, raw) == [(0, 0.0), (60, 50.0)]
+
+
+async def test_closed_store_stops_learning_and_capture_quietly(monkeypatch):
+    import types
+    import custom_components.sf.ai_learn as al
+    from custom_components.sf.ai_store import AiStore
+    store = AiStore(":memory:")
+    store.close()
+    called = []
+
+    async def fake_panel(*a, **k):
+        called.append(1)
+
+    monkeypatch.setattr(al, "async_learn_panel", fake_panel)
+    bus = types.SimpleNamespace(_slot_cache={"aa": "dp1"}, _ai_zones=[])
+    await al.async_learn_bus(None, bus, store=store)
+    assert called == []

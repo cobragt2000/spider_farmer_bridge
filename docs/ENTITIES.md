@@ -185,7 +185,8 @@ learn). Powers the **AI Climate Stats** dashboard card.
 |---|---|---|---|
 | AI Confidence | `ai_confidence` | sensor | Learning confidence 0–100 % (volume × fit quality). Diagnostic. The state is the overall %; the detail lives in attributes. |
 
-The `ai_confidence` sensor's attributes carry the full learned model (read by the card):
+The `ai_confidence` sensor's attributes carry the full learned model (read live by the card;
+they are kept out of the recorder, so history holds only the confidence %):
 
 | Attribute | Description |
 |---|---|

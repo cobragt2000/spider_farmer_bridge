@@ -252,3 +252,144 @@ def test_humidifier_and_dehumidifier_gains():
     temp_model = fit_metric_model(samples, "temperature", HUMID_DEVICES)
     assert abs(temp_model.gains["dehumidifier"] - HUMID_TRUE["temperature"]["dehumidifier"]) < 0.005
     assert abs(temp_model.gains["humidifier"]) < 0.005
+
+
+def _event_capture_sim(jitter, days=3.0, seed=5):
+    """A tent with KNOWN dynamics (dT/dt = 0.03 − 0.001·blower% + 0.0004·light% °/min),
+    read every 6 s with sensor jitter, and stored by the real event-driven capture gate
+    (5-s poll, store on a device change / a move past CAPTURE_EPS / the 300-s idle floor)."""
+    import random
+    from custom_components.sf.ai_learn import snapshot_changed, CAPTURE_IDLE_S
+    rnd = random.Random(seed)
+    frames, t, temp, blower = [], 0.0, 24.0, 40.0
+    while t < days * 86400:
+        light = 100.0 if 5.5 <= (t / 3600) % 24 < 20 else 0.0
+        if temp > 26:
+            blower = 80.0
+        elif temp < 24:
+            blower = 20.0
+        elif rnd.random() < 6.0 / 1800:
+            blower = rnd.choice([20.0, 50.0, 80.0])
+        temp += (0.03 - 0.001 * blower + 0.0004 * light) * 0.1 + rnd.gauss(0, 0.002)
+        frames.append((t, round(temp + rnd.gauss(0, jitter), 2), blower, light))
+        t += 6.0
+    out, last, last_w, fi, tp = [], None, -1e9, 0, 0.0
+    while tp < frames[-1][0]:
+        while fi + 1 < len(frames) and frames[fi + 1][0] <= tp:
+            fi += 1
+        _, x, b, li = frames[fi]
+        vals = {"temperature": x, "blower": b, "light_1": li}
+        if tp - last_w >= CAPTURE_IDLE_S or snapshot_changed(last, vals, ["temperature"]):
+            out.append(Sample(tp, {"temperature": x}, {"blower": b, "light_1": li}))
+            last, last_w = vals, tp
+        tp += 5.0
+    return out
+
+
+def test_event_driven_capture_does_not_bias_gains_toward_zero():
+    # v3.20.52 fix: with sensor noise ≥ 0.05 °, event-driven capture stores short intervals
+    # exactly when noise crossed the epsilon; an equal-weight fit of their rates shrank the
+    # blower gain to about half (−0.0005 vs −0.001). Duration-weighted rows recover it.
+    for jitter in (0.0, 0.05, 0.1):
+        m = fit_metric_model(_event_capture_sim(jitter), "temperature", ["blower", "light_1"],
+                             denoise_sec=12.0)
+        assert abs(m.gains["blower"] - (-0.001)) < 0.00015, (jitter, m.gains)
+        assert abs(m.gains["light_1"] - 0.0004) < 0.00008, (jitter, m.gains)
+        assert abs(m.drift - 0.03) < 0.004, (jitter, m.drift)
+
+
+def test_even_spacing_weighted_fit_equals_plain_least_squares():
+    # Even spacing → equal weights → exactly the old plain OLS (recorder grid, 2-min capture).
+    from custom_components.sf.ai_climate import _rows
+    samples = _synth(n=600, noise=0.02, seed=3)
+    X, y, _ = _rows(samples, "humidity", DEVICES)
+    beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+    m = fit_metric_model(samples, "humidity", DEVICES)
+    assert abs(m.gains["blower"] - beta[0]) < 1e-9 and abs(m.gains["heater"] - beta[1]) < 1e-9
+    assert abs(m.drift - beta[2]) < 1e-9
+
+
+def test_fit_stats_of_parts_add_up_to_the_fit_of_the_whole():
+    # The solver works on additive sufficient statistics, so a long history can be folded
+    # piece by piece: stats(A) + stats(B) give exactly the fit over A + B.
+    from custom_components.sf.ai_climate import FitStats, _rows, model_from_stats
+    samples = _synth(n=900, noise=0.02, seed=4)
+    X, y, _ = _rows(samples, "temperature", DEVICES)
+    dt = np.full(len(y), 60.0)
+    whole = model_from_stats(FitStats.from_rows(X, y, dt), "temperature", DEVICES)
+    parts = (FitStats.from_rows(X[:300], y[:300], dt[:300])
+             + FitStats.from_rows(X[300:], y[300:], dt[300:]))
+    m = model_from_stats(parts, "temperature", DEVICES)
+    assert m.n == whole.n and m.r2 == whole.r2 and m.confidence == whole.confidence
+    assert abs(m.drift - whole.drift) < 1e-12
+    assert all(abs(m.gains[d] - whole.gains[d]) < 1e-12 for d in DEVICES)
+    ref = fit_metric_model(samples, "temperature", DEVICES, denoise_sec=0.0)
+    assert abs(ref.gains["blower"] - m.gains["blower"]) < 1e-9
+
+
+def _store_stream(seed=3, n=3000):
+    """An event-driven-like stream (6 s … 300 s gaps, a few multi-hour outages), with grow
+    light day/night, intake readings that come and go, appended in time order."""
+    import random
+    from custom_components.sf.ai_store import AiStore
+    rnd = random.Random(seed)
+    st = AiStore(":memory:")
+    t, temp, hum = 1.7e9, 24.0, 60.0
+    for step in range(n):
+        t += rnd.choice([6, 6, 6, 12, 60, 300, 300, 5000]) if step % 97 else 20000
+        vals = {"temperature": round(temp, 2), "humidity": round(hum, 1),
+                "blower": rnd.choice([20.0, 50.0, 80.0]), "heater": rnd.choice([0.0, 100.0]),
+                "light_1": 100.0 if (t / 3600) % 24 < 16 else 0.0}
+        if rnd.random() < 0.7:
+            vals["ambient_temperature"] = 10 + rnd.random()
+        if rnd.random() < 0.6:
+            vals["ambient_humidity"] = 40 + rnd.random()
+        temp += rnd.gauss(0, 0.1)
+        hum += rnd.gauss(0, 0.5)
+        yield st, t, vals
+
+
+def test_incremental_fit_equals_a_full_refit_and_reads_only_the_tail():
+    # v3.20.52 fix (store on, Slow = all data): every 15-s pass loaded the whole store and
+    # refitted it (a year of 60-s capture: 4 s and ~600 MB per pass). IncrementalFit folds
+    # settled rows once; the models must equal a full refit over every sample.
+    from custom_components.sf.ai_climate import (
+        FULL_SPAN_S, IncrementalFit, regime_samples)
+    metrics, devices = ["temperature", "humidity"], ["blower", "heater", "light_1"]
+    inc = IncrementalFit(metrics, devices, ["light_1"], 12.0)
+    store = None
+    for i, (store, t, vals) in enumerate(_store_stream()):
+        store.append("dp1", t, vals)
+        if i % 50 == 49:
+            cov = store.stats("dp1")
+            totals = inc.update(lambda a, b, st=store: st.samples("dp1", metrics, a, b),
+                                cov["first"], cov["last"])
+    everything = store.samples("dp1", metrics)
+    assert len(everything) == 3000
+    assert inc.loaded < 300                       # last update read about the last hour only
+    for reg, rs in regime_samples(everything, ["light_1"]).items():
+        span = FULL_SPAN_S if reg == "all" else FULL_SPAN_S / 2
+        ref = fit_models(rs, metrics, devices, FULL_SAMPLES, 12.0, span)
+        for m in metrics:
+            got = inc.model(totals[(reg, m)], m, span)
+            assert got.n == ref[m].n and got.r2 == ref[m].r2, (reg, m)
+            assert got.confidence == ref[m].confidence
+            assert abs(got.drift - ref[m].drift) < 1e-12
+            for d in devices:
+                assert abs(got.gains[d] - ref[m].gains[d]) < 1e-12, (reg, m, d)
+            assert got.vent.keys() == ref[m].vent.keys()
+            for d in got.vent:
+                assert abs(got.vent[d] - ref[m].vent[d]) < 1e-12
+    store.close()
+
+
+def test_confidence_volume_counts_covered_time_not_rows():
+    # The 'enough data' bar (7200 rows) assumed 2-min capture. Event-driven capture stores up
+    # to a row per 6 s, so one busy day already counted as "full" — 10 days in the docs.
+    one_day_dense = _synth(n=14400, noise=0.0)
+    for i, s in enumerate(one_day_dense):          # 6-s spacing → 14400 rows = 1 day
+        one_day_dense[i] = Sample(i * 6.0, s.metrics, s.outputs)
+    from custom_components.sf.ai_climate import FULL_SPAN_S
+    m = fit_metric_model(one_day_dense, "temperature", DEVICES, full_span_s=FULL_SPAN_S)
+    assert m.n > FULL_SAMPLES
+    assert m.confidence <= 0.1 + 1e-9             # 1 of 10 days covered

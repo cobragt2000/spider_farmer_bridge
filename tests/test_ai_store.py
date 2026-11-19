@@ -226,3 +226,281 @@ def test_stats_overall_and_per_panel():
     empty = s.stats("nope")
     assert empty["rows"] == 0 and empty["first"] is None
     s.close()
+
+
+# ── v3.20.52 regressions ──────────────────────────────────────────────────────
+
+def test_concurrent_capture_fit_and_profile_ops_do_not_corrupt_transactions(tmp_path):
+    # One sqlite3 connection is shared by several executor threads (capture every 5 s, fit
+    # every 15 s, profile actions, purge). Without a lock they interleave inside each
+    # other's transactions: "cannot commit - no transaction is active", "cannot start a
+    # transaction within a transaction", SystemError.
+    import threading
+    import time
+    s = AiStore(str(tmp_path / "s.db"))
+    for i in range(300):
+        s.append("dp1", 1000.0 + i, {"temperature": 20.0, "blower": 50.0})
+    errors: list = []
+    stop = time.time() + 1.0
+
+    def reader():
+        while time.time() < stop:
+            try:
+                s.samples("dp1", ["temperature"]); s.stats("dp1"); s.list_profiles()
+            except Exception as e:  # noqa: BLE001
+                errors.append(repr(e))
+
+    def writer():
+        t = 10000.0
+        while time.time() < stop:
+            try:
+                s.append("dp1", t, {"temperature": 21.0, "blower": 40.0})
+                t += 1.0
+            except Exception as e:  # noqa: BLE001
+                errors.append(repr(e))
+
+    def profiler():
+        while time.time() < stop:
+            try:
+                s.save_profile("p", "dp1", {}); s.delete_profile_by_name("p")
+            except Exception as e:  # noqa: BLE001
+                errors.append(repr(e))
+
+    threads = [threading.Thread(target=f) for f in (reader, writer, profiler)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    assert errors == []
+    st = s.stats("dp1")
+    s.close()
+    fresh = AiStore(str(tmp_path / "s.db"))            # cached counts == a real recount
+    assert fresh.stats("dp1") == st
+    fresh.close()
+
+
+def test_close_waits_for_an_inflight_read(tmp_path):
+    import threading
+    import time
+    s = AiStore(str(tmp_path / "s.db"))
+    with s._tx() as db:
+        db.executemany("INSERT INTO samples (panel, ts, k, v) VALUES (?,?,?,?)",
+                       [("dp1", float(i), "temperature", 1.0) for i in range(200000)])
+    out = []
+    reading = threading.Event()
+    conn = s._conn
+
+    def slow_conn():                                   # called with the store lock held
+        reading.set()
+        time.sleep(0.05)
+        return conn()
+
+    s._conn = slow_conn
+    th = threading.Thread(target=lambda: out.append(len(s.samples("dp1", ["temperature"]))))
+    th.start()
+    assert reading.wait(5)
+    s._conn = conn
+    s.close()                                          # must wait, not tear the read apart
+    th.join()
+    assert out == [200000]
+    assert s.closed
+    import sqlite3
+    try:
+        s.stats("dp1")
+        raise AssertionError("closed store answered")
+    except sqlite3.ProgrammingError:
+        pass
+    s.close()                                          # idempotent
+
+
+def test_profile_save_is_atomic():
+    # Save = delete the old same-name profile + insert + copy. A failure part-way used to
+    # leave the old profile deleted and nothing in its place.
+    s = _store()
+    s.append("dp1", 0.0, {"temperature": 20.0})
+    s.save_profile("Grow", "dp1", {"note": "first"})
+    try:
+        s.save_profile("Grow", "dp1", {"bad": object()})    # not JSON-serialisable
+    except TypeError:
+        pass
+    lst = s.list_profiles()
+    assert len(lst) == 1 and lst[0]["meta"] == {"note": "first"} and lst[0]["samples"] == 1
+    s.close()
+
+
+def test_merging_a_profile_twice_does_not_duplicate_rows():
+    s = _store()
+    for t in (0.0, 60.0, 120.0):
+        s.append("dp1", t, {"temperature": 20.0, "blower": 50.0})
+    pid = s.save_profile("Grow", "dp1", {})
+    s.reset(None)
+    assert s.load_profile(pid, "dp1") == 6
+    assert s.load_profile(pid, "dp1") == 0                 # already there → nothing added
+    st = s.stats("dp1")
+    assert st["rows"] == 6 and st["samples"] == 3
+    s.close()
+
+
+def test_retention_purge_keeps_rows_loaded_from_a_profile():
+    # A loaded profile keeps its original (old) timestamps; the time-based purge deleted the
+    # warm start at the next daily run. Loaded rows are exempt; live capture still ages out.
+    s = _store()
+    old = 1000.0
+    for i in range(10):
+        s.append("dp1", old + i * 60, {"temperature": 24.0, "blower": 50.0})
+    pid = s.save_profile("last grow", "dp1", {})
+    s.reset(None)
+    s.load_profile(pid, "dp1")
+    for i in range(5):                                    # old live rows: purgeable
+        s.append("dp1", 500.0 + i, {"temperature": 22.0})
+    for i in range(5):                                    # new live rows
+        s.append("dp1", 1e6 + i, {"temperature": 25.0})
+    removed = s.purge(before_ts=1e5)
+    assert removed == 5
+    ts = [x.t for x in s.samples("dp1", ["temperature"])]
+    assert ts == [old + i * 60 for i in range(10)] + [1e6 + i for i in range(5)]
+    s.reset(None)                                          # "clean" still removes everything
+    assert s.stats("dp1")["rows"] == 0
+    s.close()
+
+
+def test_merge_marks_overlapping_live_rows_as_profile_data():
+    s = _store()
+    for t in (0.0, 60.0):
+        s.append("dp1", t, {"temperature": 20.0})
+    pid = s.save_profile("Grow", "dp1", {})
+    assert s.load_profile(pid, "dp1") == 0                # all rows already present…
+    assert s.purge(before_ts=1e9) == 0                    # …and now kept as the warm start
+    s.close()
+
+
+def test_schema_migration_from_3_20_51_store(tmp_path):
+    # An existing store: old schema and a profile merged twice (duplicate rows).
+    import sqlite3
+    path = str(tmp_path / "old.db")
+    db = sqlite3.connect(path)
+    db.execute("CREATE TABLE samples (panel TEXT, ts REAL, k TEXT, v REAL)")
+    db.execute("CREATE INDEX ix_panel_ts ON samples (panel, ts)")
+    db.execute("CREATE TABLE meta (panel TEXT PRIMARY KEY, seeded INTEGER)")
+    db.execute("CREATE TABLE profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, "
+               "panel TEXT, created REAL, meta TEXT)")
+    db.execute("CREATE TABLE profile_samples (profile_id INTEGER, ts REAL, k TEXT, v REAL)")
+    rows = [("dp1", 0.0, "temperature", 25.0), ("dp1", 0.0, "humidity", 60.0),
+            ("dp1", 0.0, "blower", 40.0)]
+    db.executemany("INSERT INTO samples VALUES (?,?,?,?)", rows + rows)      # duplicated
+    db.commit()
+    db.close()
+
+    s = AiStore(path)
+    got = s.samples("dp1", ["temperature", "humidity"])
+    assert len(got) == 1 and s.stats("dp1")["rows"] == 3                  # duplicates gone
+    assert got[0].metrics == {"temperature": 25.0, "humidity": 60.0}
+    s.append("dp1", 0.0, {"temperature": 25.0})                            # still unique
+    assert s.stats("dp1")["rows"] == 3
+    s.close()
+    again = AiStore(path)                                                   # opens cleanly
+    sql = again._db.execute("SELECT sql FROM sqlite_master WHERE name='samples'").fetchone()[0]
+    assert "WITHOUT ROWID" in sql
+    names = {r[0] for r in again._db.execute("SELECT name FROM sqlite_master")}
+    assert "ix_panel_ts" not in names and "samples_v2" not in names
+    assert again.purge(1.0) == 3                                           # live rows: purgeable
+    again.close()
+
+
+def test_store_is_compact(tmp_path):
+    # Keyed WITHOUT ROWID table: no separate index → about 160 B per 5-value sample here
+    # (the 3.20.51 rowid table + (panel, ts) index took ~280 B).
+    import os
+    path = str(tmp_path / "s.db")
+    s = AiStore(path)
+    with s._tx() as db:
+        db.executemany("INSERT INTO samples (panel, ts, k, v) VALUES (?,?,?,?)",
+                       [("dp1", 1.7e9 + i * 60.0, k, 24.1) for i in range(20000)
+                        for k in ("temperature", "humidity", "vpd", "blower", "light_1")])
+    s.vacuum()
+    s.close()
+    assert os.path.getsize(path) / 20000 < 200
+
+
+def test_rows_without_a_value_are_skipped():
+    # SQLite stores NaN as NULL; such rows (from an old 'nan' state) must not reach the fit.
+    s = _store()
+    s.append("dp1", 0.0, {"temperature": 20.0, "blower": 50.0})
+    s._db.execute("INSERT INTO samples (panel, ts, k, v) VALUES ('dp1', 0.0, 'heater', NULL)")
+    got = s.samples("dp1", ["temperature"])
+    assert got[0].outputs == {"blower": 50.0}
+    s.close()
+
+
+def test_cached_coverage_and_profile_list_stay_exact():
+    # stats() and list_profiles() ran a COUNT(DISTINCT) over the whole store on every 15-s
+    # pass; they are now counted once and kept current. They must always equal a recount.
+    s = _store()
+
+    def recount(panel):
+        s._stats_cache.clear()
+        return s.stats(panel)
+
+    def check():
+        for p in ("dp1", "dp2", None):
+            cached = s.stats(p)
+            assert cached == recount(p), p
+
+    gen = s.generation
+    for t in (10.0, 20.0, 30.0):
+        s.append("dp1", t, {"temperature": 20.0, "blower": 1.0})
+        s.append("dp2", t, {"temperature": 21.0})
+        check()
+    assert s.generation == gen                       # appends don't invalidate a fold
+    s.append("dp1", 15.0, {"temperature": 20.5})     # out of order
+    check()
+    s.append("dp1", 30.0, {"temperature": 20.0})     # duplicate → ignored
+    check()
+    pid = s.save_profile("p", "dp1", {})
+    assert [p["name"] for p in s.list_profiles()] == ["p"]
+    s.purge(16.0)
+    check()
+    assert s.generation > gen
+    s.load_profile(pid, "dp2")
+    check()
+    s.reset("dp1")
+    check()
+    s.delete_profile(pid)
+    assert s.list_profiles() == []
+    s.close()
+
+
+def test_legacy_fahrenheit_store_is_converted_to_celsius_once(tmp_path):
+    # Capture used to store HA's display unit, so a °F install's store held °F and a °C/°F
+    # switch mixed units. Stores are °C now; older ones are converted once on open.
+    import sqlite3
+    path = str(tmp_path / "old.db")
+    db = sqlite3.connect(path)
+    db.execute("CREATE TABLE samples (panel TEXT, ts REAL, k TEXT, v REAL)")
+    db.execute("CREATE INDEX ix_panel_ts ON samples (panel, ts)")
+    db.execute("CREATE TABLE profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, "
+               "panel TEXT, created REAL, meta TEXT)")
+    db.execute("CREATE TABLE profile_samples (profile_id INTEGER, ts REAL, k TEXT, v REAL)")
+    db.executemany("INSERT INTO samples VALUES (?,?,?,?)", [
+        ("dp1", 0.0, "temperature", 77.0), ("dp1", 0.0, "ambient_temperature", 50.0),
+        ("dp1", 0.0, "humidity", 60.0), ("dp1", 0.0, "blower", 40.0)])
+    db.execute("INSERT INTO profiles (name, panel, created, meta) VALUES ('g', 'dp1', 0, '{}')")
+    db.execute("INSERT INTO profile_samples VALUES (1, 60.0, 'temperature', 68.0)")
+    db.commit()
+    db.close()
+    s = AiStore(path, legacy_temp_unit="°F")
+    got = s.samples("dp1", ["temperature", "humidity"])[0]
+    assert abs(got.metrics["temperature"] - 25.0) < 1e-9            # 77 °F
+    assert abs(got.outputs["ambient_temperature"] - 10.0) < 1e-9    # 50 °F
+    assert got.metrics["humidity"] == 60.0 and got.outputs["blower"] == 40.0
+    s.load_profile(1, "dp1")
+    assert abs(s.samples("dp1", ["temperature"])[1].metrics["temperature"] - 20.0) < 1e-9
+    s.close()
+    again = AiStore(path, legacy_temp_unit="°F")                     # no second conversion
+    assert abs(again.samples("dp1", ["temperature"])[0].metrics["temperature"] - 25.0) < 1e-9
+    again.close()
+    metric = AiStore(str(tmp_path / "new.db"), legacy_temp_unit="°F")  # new store: nothing to do
+    metric.append("dp1", 0.0, {"temperature": 25.0})
+    metric.close()
+    assert AiStore(str(tmp_path / "new.db"), "°F").samples("dp1", ["temperature"])[0].metrics == {
+        "temperature": 25.0}

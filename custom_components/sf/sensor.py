@@ -332,6 +332,35 @@ class SfAiSensor(SfSensor):
     (drift, gains, confidence, n) + sample count — the seed for the AI Stats card.
     Payload is the JSON the ai_learn task publishes. No device is actuated."""
 
+    # The model summary is ~3 KB and changes with almost every live pass; the recorder
+    # stored all of it as a new attributes row each time (~17 MB/day per panel at one
+    # pass per 15 s). History graphs only need the state, so keep these out of the
+    # recorder — the card reads them live from the state machine. (v3.20.52)
+    _unrecorded_attributes = frozenset({
+        "models", "samples", "day", "night", "history_days", "store_rows", "store_recent",
+        "store_recent_s", "store_days", "store_bytes", "store_first", "store_last",
+        "device_meta", "steps", "zone", "last_fit", "profiles",
+    })
+    # Attribute names that are also payload keys (what _restore rebuilds the payload from).
+    _PAYLOAD_KEYS = ("models", "samples", "day", "night", "history_days", "store_enabled",
+                     "store_rows", "store_recent", "store_recent_s", "store_days",
+                     "store_bytes", "store_first", "store_last", "device_meta", "steps",
+                     "zone", "last_fit", "profiles")
+
+    @callback
+    def _restore(self, last) -> None:
+        """The restore cache holds the published STATE (e.g. "47.3") and the attributes,
+        not the JSON payload the handler expects — feeding "47.3" through it left the
+        sensor unknown with empty attributes after every restart. Rebuild the payload."""
+        import json
+        try:
+            conf = float(last.state)
+        except (TypeError, ValueError):
+            conf = None
+        data = {k: last.attributes[k] for k in self._PAYLOAD_KEYS if k in last.attributes}
+        data["confidence"] = conf
+        self._handle_payload(self.d.state_topic, json.dumps(data))
+
     @callback
     def _handle_payload(self, topic: str, payload: str) -> None:
         import json

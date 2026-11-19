@@ -14013,10 +14013,17 @@ export class SpiderAiStatsCard extends LitElement {
     }
     return out.sort((a, b) => a.panel.localeCompare(b.panel));
   }
+  // The configured panel, even when it has no learning sensor (then the card says so
+  // rather than showing — and writing — another panel's data); unset = first found.
   private _activePanel(): string {
+    if (this._panel) return this._panel;
     const list = this._sensors();
-    if (this._panel && list.some((s) => s.panel === this._panel)) return this._panel;
     return list.length ? list[0].panel : "";
+  }
+  // A configured panel without a learning sensor while other panels have one.
+  private _noPanelData(): boolean {
+    const list = this._sensors();
+    return !!this._panel && list.length > 0 && !list.some((s) => s.panel === this._panel);
   }
   private _entity() {
     const p = this._activePanel();
@@ -14181,6 +14188,7 @@ export class SpiderAiStatsCard extends LitElement {
 
   private _overview() {
     const e = this._entity();
+    if (this._noPanelData()) return this._noPanelDataNote();
     if (!e || e.state === "unknown" || e.state === "unavailable") {
       return html`<div class="empty">
         <ha-icon icon="mdi:brain"></ha-icon>
@@ -14272,6 +14280,14 @@ export class SpiderAiStatsCard extends LitElement {
               })}`)}
           </div>` : nothing}
       </div>`;
+  }
+
+  private _noPanelDataNote() {
+    return html`<div class="empty">
+      <ha-icon icon="mdi:brain"></ha-icon>
+      <div class="empty-t">${loc("No adaptive-climate data for this panel")}</div>
+      <div class="empty-s">${loc("Panel {panel} has no learning sensor. Learning runs per panel or zone — a panel whose devices belong to a zone is learned on the zone's sensor panel.", { panel: this._panel })}</div>
+    </div>`;
   }
 
   // Durable store on for this panel? (published by the integration on the sensor.)
@@ -14450,13 +14466,21 @@ export class SpiderAiStatsCard extends LitElement {
   private _settings() {
     const list = this._sensors();
     const active = this._activePanel();
+    const noData = this._noPanelData();
+    const panels = list.map((s) => s.panel);
+    if (noData) panels.unshift(active);          // keep the configured panel selectable/shown
     return html`<div class="set">
-      ${list.length > 1 ? html`
+      ${panels.length > 1 ? html`
         <div class="toggle-row"><span>${loc("Panel")}</span>
           <select @change=${(e: Event) => (this._panel = (e.target as HTMLSelectElement).value)}>
-            ${list.map((s) => html`<option value=${s.panel} ?selected=${s.panel === active}>${s.panel}</option>`)}
+            ${panels.map((p) => html`<option value=${p} ?selected=${p === active}>${p}</option>`)}
           </select>
         </div>` : nothing}
+      ${noData ? this._noPanelDataNote() : this._settingsBody()}
+    </div>`;
+  }
+  private _settingsBody() {
+    return html`
       <div class="sec-h">${loc("Learning data")}</div>
       ${this._storeOn()
         ? html`<div class="note">${loc("Learns only from live capture once adaptive climate is on — stored the moment a device switches or the air moves, no HA history imported. Read-only.")}</div>
@@ -14495,8 +14519,7 @@ export class SpiderAiStatsCard extends LitElement {
           @click=${() => this._stageHideTabs()}></button>
       </div>
       ${commitBar(this.accent(), this._settingsDirty(),
-        () => this._applySettings(), () => this._discardSettings(), "apply-bar")}
-    </div>`;
+        () => this._applySettings(), () => this._discardSettings(), "apply-bar")}`;
   }
 
   render() {

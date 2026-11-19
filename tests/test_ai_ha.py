@@ -3,6 +3,7 @@
 These run the real HA glue (options listener, timers, services, sensor) with the durable
 store and recorder mocked or in a temp dir. Nothing here talks to a real controller."""
 
+import asyncio
 import time
 from datetime import timedelta
 from types import SimpleNamespace
@@ -392,4 +393,58 @@ async def test_store_path_slow_level_reads_only_new_rows(hass: HomeAssistant):
         hass, SimpleNamespace(publish=lambda *a, **k: None), "dp1", "aa", store=store)
     assert fourth["samples"] == fresh["samples"] < second["samples"]
     assert fitted(fourth) == fitted(fresh)
+    store.close()
+
+
+def test_to_celsius():
+    assert ai_learn.to_celsius(77.0, "°F") == 25.0
+    assert ai_learn.to_celsius(25.0, "°C") == 25.0
+    assert ai_learn.to_celsius(25.0, None) == 25.0
+    assert abs(ai_learn.to_celsius(298.15, "K") - 25.0) < 1e-9
+    assert ai_learn.to_celsius(None, "°F") is None
+
+
+async def test_capture_stores_celsius_whatever_ha_displays(hass: HomeAssistant):
+    from custom_components.sf.ai_store import AiStore
+    store = AiStore(":memory:")
+    bus = SimpleNamespace(_slot_cache={"aa": "dp1"}, _ai_zones=[])
+    hass.states.async_set("sensor.sf_dp1_blower_speed", "40")
+    hass.states.async_set("sensor.intake", "50.0", {"unit_of_measurement": "°F"})
+    hass.states.async_set("sensor.sf_dp1_alarm_settings", "ok",
+                          {"card_options": {"ai_ambient_temp": "sensor.intake"}})
+    hass.states.async_set("sensor.sf_dp1_temperature", "77.0", {"unit_of_measurement": "°F"})
+    await ai_learn.async_capture_bus(hass, bus, store)
+    # The user switches HA to °C: same air, other numbers on screen.
+    bus._ai_last_write.clear()
+    hass.states.async_set("sensor.sf_dp1_temperature", "25.1", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.intake", "10.0", {"unit_of_measurement": "°C"})
+    await asyncio.sleep(0.01)
+    await ai_learn.async_capture_bus(hass, bus, store)
+    got = store.samples("dp1", ["temperature"])
+    assert [round(s.metrics["temperature"], 3) for s in got] == [25.0, 25.1]
+    assert [round(s.outputs["ambient_temperature"], 3) for s in got] == [10.0, 10.0]
+    store.close()
+
+
+async def test_store_results_are_shown_in_the_display_unit(hass: HomeAssistant):
+    # Learned in °C; a °F install sees °F rates (the card labels them with the sensor unit).
+    from custom_components.sf.ai_store import AiStore
+    store = AiStore(":memory:")
+    now, temp = time.time(), 24.0
+    for i in range(3000):
+        blower = 80.0 if (i // 40) % 2 else 20.0
+        store.append("dp1", now - 3000 * 60 + i * 60, {"temperature": temp, "blower": blower})
+        temp += (0.05 - 0.001 * blower) * 1.0           # °C per 1-min step
+    hass.states.async_set("sensor.sf_dp1_blower_speed", "40")
+    results = {}
+    for unit in ("°C", "°F"):
+        hass.states.async_set("sensor.sf_dp1_temperature", "24", {"unit_of_measurement": unit})
+        bus = SimpleNamespace(publish=lambda *a, **k: None)
+        results[unit] = (await ai_learn.async_learn_panel(
+            hass, bus, "dp1", "aa", store=store))["models"]["temperature"]
+    c, f = results["°C"], results["°F"]
+    assert abs(c["gains"]["blower"] - (-0.001)) < 2e-5
+    assert abs(f["gains"]["blower"] - c["gains"]["blower"] * 1.8) < 2e-5
+    assert abs(f["drift"] - c["drift"] * 1.8) < 2e-4
+    assert f["r2"] == c["r2"] and f["confidence"] == c["confidence"]
     store.close()

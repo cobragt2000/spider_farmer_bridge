@@ -521,7 +521,9 @@ CAPTURE_EFFECTIVE_S = 60.0  # nominal avg sample spacing (active+idle); the conf
 # A metric counts as "moved" (worth storing) only past these absolute deltas — above the
 # per-frame sensor jitter, so a genuinely steady tent stays sparse. A real swing blows past
 # them. Any DEVICE on/off/level change always stores (that transition is the key event).
-CAPTURE_EPS = {"temperature": 0.15, "humidity": 0.6, "vpd": 0.04}
+# Temperatures are captured in °C (see to_celsius); the temperature step is the 0.15 °F it
+# was tuned at in 3.20.32 (the gate compared display units then, so °C installs used 0.15 °C).
+CAPTURE_EPS = {"temperature": 0.15 * 5.0 / 9.0, "humidity": 0.6, "vpd": 0.04}
 CAPTURE_EPS_DEFAULT = 0.1
 # Step responses + the forecast self-test are heavier than a fit, so the live loop reuses
 # them for this long before recomputing (a user action — clean, profile load — forces it).
@@ -572,6 +574,45 @@ def read_outlet_roles(hass, sensor_slot: str) -> dict:
         except (ValueError, TypeError):
             raw = {}
     return raw if isinstance(raw, dict) else {}
+
+
+def to_celsius(value: Optional[float], unit) -> Optional[float]:
+    """An absolute temperature in `unit` (as Home Assistant displays it) → °C. The durable
+    store and the learning work in °C, so a °C/°F switch (or an intake sensor shown in the
+    other unit) can't mix units in the training data. Unknown/None unit = °C."""
+    if value is None:
+        return None
+    u = str(unit or "").strip().upper()
+    if u.endswith("F"):
+        return (float(value) - 32.0) * 5.0 / 9.0
+    if u == "K":
+        return float(value) - 273.15
+    return float(value)
+
+
+def temperature_unit(hass, eid: Optional[str]) -> Optional[str]:
+    st = hass.states.get(eid) if eid else None
+    return st.attributes.get("unit_of_measurement") if st is not None else None
+
+
+def to_display_units(result: dict, unit) -> dict:
+    """Store-path results are learned in °C; give the temperature model in the unit the tent
+    sensor is shown in (as the card expects — it labels the rates with that unit). Drift and
+    gains are °/min rates (×9/5 for °F); the ventilation gains are per degree of intake gap
+    per degree, so they don't change; switch-on responses are temperature changes (×9/5)."""
+    if not str(unit or "").strip().upper().endswith("F"):
+        return result
+    k = 9.0 / 5.0
+    for part in (result, result.get("day"), result.get("night")):
+        md = ((part or {}).get("models") or {}).get("temperature")
+        if not md:
+            continue
+        md["drift"] = round(md["drift"] * k, 5)
+        md["gains"] = {d: round(g * k, 5) for d, g in md["gains"].items()}
+    for st in ((result.get("steps") or {}).get("temperature") or {}).values():
+        if isinstance(st, dict) and st.get("change") is not None:
+            st["change"] = round(st["change"] * k, 3)
+    return result
 
 
 def snapshot_changed(prev: Optional[dict], vals: dict, metrics) -> bool:
@@ -666,6 +707,10 @@ async def async_capture_bus(hass, bus, store) -> None:
         if not classified["metrics"] or not classified["devices"]:
             continue
         vals = encode_snapshot(classified, _get)
+        if "temperature" in vals:          # store °C whatever unit HA shows
+            vals["temperature"] = to_celsius(
+                vals["temperature"],
+                temperature_unit(hass, classified["metrics"].get("temperature")))
         if any(m in vals for m in classified["metrics"]):
             # Capture the optional intake-air reference alongside the tent sample (keys
             # ambient_*). Not a metric/device today — it just accumulates aligned history
@@ -675,6 +720,8 @@ async def async_capture_bus(hass, bus, store) -> None:
                 if eid:
                     av = _num(_get(eid))
                     if av is not None:
+                        if key == "ambient_temperature":
+                            av = to_celsius(av, temperature_unit(hass, eid))
                         vals[key] = av
             # Event-driven gate: store only on a real change, or once the idle floor lapses.
             idle_due = (now - last_write.get(slot, 0.0)) >= CAPTURE_IDLE_S
@@ -737,6 +784,13 @@ async def async_backfill_panel(hass, bus, store, panel: str, days: float = BACKF
     stats_raw = (await async_fetch_statistics(hass, eids, STATS_BACKFILL_DAYS)
                  if include_stats else {})
 
+    t_unit = temperature_unit(hass, classified["metrics"].get("temperature"))
+
+    def _celsius(vals: dict) -> dict:
+        if vals.get("temperature") is not None:
+            vals["temperature"] = to_celsius(vals["temperature"], t_unit)
+        return vals
+
     def _sync():
         earliest = store.stats(panel)["first"]
         written = 0
@@ -749,7 +803,7 @@ async def async_backfill_panel(hass, bus, store, panel: str, days: float = BACKF
         rt0 = min(rstarts) if rstarts else None
         for s in build_samples(ms, os_, step_s=CAPTURE_STEP_S, t0=rt0):
             if s.t >= cutoff:
-                store.append(panel, s.t, {**s.metrics, **s.outputs})
+                store.append(panel, s.t, _celsius({**s.metrics, **s.outputs}))
                 written += 1
         # OLDER: hourly statistics — only when explicitly requested (device-blind; off by
         # default). Appended only where the store doesn't already reach, so re-runs stay
@@ -761,7 +815,7 @@ async def async_backfill_panel(hass, bus, store, panel: str, days: float = BACKF
             t0 = min(starts) if starts else None
             for s in build_samples(ms2, os2, step_s=SEED_STEP_S, t0=t0):
                 if s.t < older_bound:
-                    store.append(panel, s.t, {**s.metrics, **s.outputs})
+                    store.append(panel, s.t, _celsius({**s.metrics, **s.outputs}))
                     written += 1
         else:
             # Trim any device-blind rows a previous stats backfill left behind, by sample
@@ -1118,6 +1172,7 @@ async def async_learn_panel(hass, bus, panel: str, mac: str, days: float = BACKF
             return res
 
         result = await hass.async_add_executor_job(_fit)
+        to_display_units(result, temperature_unit(hass, classified["metrics"].get("temperature")))
         # Surface the durable store's actual coverage so the card can show the real
         # training span + size instead of a recorder-window knob (moot once seeded).
         st = result.pop("_store_stats", {}) or {}

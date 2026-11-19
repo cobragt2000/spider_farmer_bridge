@@ -16,6 +16,9 @@ marks rows copied in from a saved learning profile: the retention purge keeps th
 (they are the warm start the user asked for); only "clean" or a replacing load
 removes them.
 
+Temperatures are stored in °C whatever unit Home Assistant displays (stores written
+before schema 3 held the display unit and are converted once on open).
+
 **Sync SQLite** — every method here does blocking DB I/O, so callers MUST run them
 via `hass.async_add_executor_job(...)`, never on the event loop (see CLAUDE.md
 "HA event-loop safety"). Several executor threads use the one connection (capture,
@@ -41,7 +44,10 @@ from .ai_climate import Sample
 #   0 — ≤ 3.20.51: samples(panel, ts, k, v) + index (panel, ts); values in HA's display unit.
 #   1 — (development only) samples.loaded flag + UNIQUE (panel, ts, k) index.
 #   2 — samples rebuilt as a WITHOUT ROWID table keyed (panel, ts, k), with `loaded`.
-SCHEMA_VERSION = 2
+#   3 — temperatures in °C (converted once from the unit HA displayed until then).
+SCHEMA_VERSION = 3
+# Keys holding an absolute temperature.
+TEMP_KEYS = ("temperature", "ambient_temperature")
 _CREATE_SAMPLES = (
     "CREATE TABLE IF NOT EXISTS {name} (panel TEXT NOT NULL, ts REAL NOT NULL, "
     "k TEXT NOT NULL, v REAL, loaded INTEGER NOT NULL DEFAULT 0, "
@@ -51,7 +57,9 @@ _CREATE_SAMPLES = (
 class AiStore:
     """SQLite-backed time-series for one integration instance (all panels)."""
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, legacy_temp_unit: str = "°C"):
+        """`legacy_temp_unit`: the temperature unit Home Assistant displayed while an older
+        (schema < 3) store was written — its temperatures are converted to °C once."""
         self._path = path
         self._lock = threading.RLock()
         # check_same_thread=False: the store is only ever touched from executor threads;
@@ -84,13 +92,13 @@ class AiStore:
                 "CREATE TABLE IF NOT EXISTS profile_samples (profile_id INTEGER, ts REAL, k TEXT, v REAL)")
             db.execute(
                 "CREATE INDEX IF NOT EXISTS ix_profsamp ON profile_samples (profile_id, ts)")
-            self._migrate(db)
+            self._migrate(db, legacy_temp_unit)
         if self._rebuilt:
             # Hand the old table's pages back to the file system (one-time, after a rebuild).
             with self._lock:
                 self._conn().execute("VACUUM")
 
-    def _migrate(self, db) -> None:
+    def _migrate(self, db, legacy_temp_unit: str = "°C") -> None:
         """Bring an older store up to SCHEMA_VERSION (inside the opening transaction)."""
         version = db.execute("PRAGMA user_version").fetchone()[0]
         if version >= SCHEMA_VERSION:
@@ -108,6 +116,13 @@ class AiStore:
             db.execute("DROP TABLE samples")                 # drops its indexes too
             db.execute("ALTER TABLE samples_v2 RENAME TO samples")
             self._rebuilt = True
+        if version < 3 and str(legacy_temp_unit or "").strip().upper().endswith("F"):
+            # Until now capture stored HA's display unit; in °F → °C (learning and the
+            # capture thresholds work in °C; results are converted back for display).
+            keys = ",".join("?" * len(TEMP_KEYS))
+            for table in ("samples", "profile_samples"):
+                db.execute(f"UPDATE {table} SET v = (v - 32.0) * 5.0 / 9.0 "  # noqa: S608
+                           f"WHERE k IN ({keys})", TEMP_KEYS)
         db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     # ── connection plumbing ──────────────────────────────────────────────────

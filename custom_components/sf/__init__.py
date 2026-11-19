@@ -286,9 +286,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             db_dir = hass.config.path("sf")      # /config/sf — survives integration updates
             db_path = hass.config.path("sf", "ai_store.db")
 
+            # Stores written before schema 3 hold temperatures in the unit HA showed then;
+            # assume the current one (they are converted to °C once).
+            legacy_unit = hass.config.units.temperature_unit
+
             def _open_store():
                 _os.makedirs(db_dir, exist_ok=True)
-                return AiStore(db_path)
+                return AiStore(db_path, legacy_temp_unit=legacy_unit)
 
             try:
                 ai_store = await hass.async_add_executor_job(_open_store)

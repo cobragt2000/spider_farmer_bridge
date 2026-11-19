@@ -468,3 +468,39 @@ def test_cached_coverage_and_profile_list_stay_exact():
     s.delete_profile(pid)
     assert s.list_profiles() == []
     s.close()
+
+
+def test_legacy_fahrenheit_store_is_converted_to_celsius_once(tmp_path):
+    # Capture used to store HA's display unit, so a °F install's store held °F and a °C/°F
+    # switch mixed units. Stores are °C now; older ones are converted once on open.
+    import sqlite3
+    path = str(tmp_path / "old.db")
+    db = sqlite3.connect(path)
+    db.execute("CREATE TABLE samples (panel TEXT, ts REAL, k TEXT, v REAL)")
+    db.execute("CREATE INDEX ix_panel_ts ON samples (panel, ts)")
+    db.execute("CREATE TABLE profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, "
+               "panel TEXT, created REAL, meta TEXT)")
+    db.execute("CREATE TABLE profile_samples (profile_id INTEGER, ts REAL, k TEXT, v REAL)")
+    db.executemany("INSERT INTO samples VALUES (?,?,?,?)", [
+        ("dp1", 0.0, "temperature", 77.0), ("dp1", 0.0, "ambient_temperature", 50.0),
+        ("dp1", 0.0, "humidity", 60.0), ("dp1", 0.0, "blower", 40.0)])
+    db.execute("INSERT INTO profiles (name, panel, created, meta) VALUES ('g', 'dp1', 0, '{}')")
+    db.execute("INSERT INTO profile_samples VALUES (1, 60.0, 'temperature', 68.0)")
+    db.commit()
+    db.close()
+    s = AiStore(path, legacy_temp_unit="°F")
+    got = s.samples("dp1", ["temperature", "humidity"])[0]
+    assert abs(got.metrics["temperature"] - 25.0) < 1e-9            # 77 °F
+    assert abs(got.outputs["ambient_temperature"] - 10.0) < 1e-9    # 50 °F
+    assert got.metrics["humidity"] == 60.0 and got.outputs["blower"] == 40.0
+    s.load_profile(1, "dp1")
+    assert abs(s.samples("dp1", ["temperature"])[1].metrics["temperature"] - 20.0) < 1e-9
+    s.close()
+    again = AiStore(path, legacy_temp_unit="°F")                     # no second conversion
+    assert abs(again.samples("dp1", ["temperature"])[0].metrics["temperature"] - 25.0) < 1e-9
+    again.close()
+    metric = AiStore(str(tmp_path / "new.db"), legacy_temp_unit="°F")  # new store: nothing to do
+    metric.append("dp1", 0.0, {"temperature": 25.0})
+    metric.close()
+    assert AiStore(str(tmp_path / "new.db"), "°F").samples("dp1", ["temperature"])[0].metrics == {
+        "temperature": 25.0}

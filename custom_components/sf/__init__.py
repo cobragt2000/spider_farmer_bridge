@@ -348,6 +348,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entry.async_on_unload(
                 _track_interval(hass, _ai_capture, _td(seconds=_AI_CAPTURE_POLL_S)))
             if retention_days > 0:
+                # Once shortly after setup (before the first fit at 20 s), then daily. The
+                # daily timer alone never fired when HA restarted or the entry reloaded more
+                # often than every 24 h, so retention was never enforced.
+                entry.async_on_unload(_call_later(hass, 10, _ai_purge))
                 entry.async_on_unload(
                     _track_interval(hass, _ai_purge, _td(hours=24)))
 

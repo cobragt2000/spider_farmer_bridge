@@ -4,6 +4,7 @@ These run the real HA glue (options listener, timers, services, sensor) with the
 store and recorder mocked or in a temp dir. Nothing here talks to a real controller."""
 
 import time
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -14,6 +15,12 @@ from homeassistant.util import dt as dt_util
 
 from custom_components.sf import ai_learn
 from custom_components.sf.const import DATA_BUS, DOMAIN
+
+try:
+    from pytest_homeassistant.common import async_fire_time_changed
+except ImportError:  # older cores: community plugin
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
 
 def _rec_rows(series):
     """[(epoch, state)] → the dict rows get_significant_states(minimal_response) yields."""
@@ -130,3 +137,19 @@ async def test_store_that_failed_to_open_does_not_reload_on_every_write(hass, _c
     await hass.async_block_till_done()
     assert hass.data[DOMAIN][entry.entry_id][DATA_BUS] is bus
     await _unload(hass, entry)
+
+
+async def test_retention_purge_runs_shortly_after_setup(hass, _custom):
+    # The purge was only a 24-h interval timer, so with restarts/reloads more often than
+    # daily it never ran.
+    with patch("custom_components.sf.ai_learn.async_learn_bus"):
+        entry = await _setup_entry(
+            hass, 19304, {"ai_learn": True, "ai_store": True, "ai_retention_days": 1})
+        st = hass.data[DOMAIN][entry.entry_id]["ai_store"]
+        await hass.async_add_executor_job(
+            st.append, "dp1", time.time() - 30 * 86400, {"temperature": 20.0})
+        await hass.async_add_executor_job(st.append, "dp1", time.time(), {"temperature": 21.0})
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=30))
+        await hass.async_block_till_done()
+        assert (await hass.async_add_executor_job(st.stats, "dp1"))["rows"] == 1
+        await _unload(hass, entry)

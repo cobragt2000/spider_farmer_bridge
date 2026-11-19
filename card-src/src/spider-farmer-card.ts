@@ -13886,6 +13886,9 @@ export class SpiderAiStatsCard extends LitElement {
     const p = this._activePanel();
     if (p === this._optsPanel) return;
     this._optsPanel = p;
+    // Staged Settings edits belong to the panel they were made on: Apply must never
+    // write them (outlet roles, intake sensors, learning speed …) to another panel.
+    this._draft = null;
     const co = p ? (this.hass?.states[`sensor.sf_${p}_alarm_settings`]
       ?.attributes?.card_options as Record<string, string> | undefined) : undefined;
     this._hideTabs = (co?.["ai_hide_tabs"] ?? co?.["dev_ai_hide_tabs"]) === "1";

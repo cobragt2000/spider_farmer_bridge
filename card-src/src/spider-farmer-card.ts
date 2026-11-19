@@ -13636,6 +13636,7 @@ export class SpiderAiStatsCardEditor extends LitElement {
       .filter(Boolean).sort();
   }
   render() {
+    setLanguage(this.hass);
     const c = this._config || {};
     const panels = this._panels();
     return html`<div class="ped">
@@ -14523,6 +14524,7 @@ export class SpiderAiStatsCard extends LitElement {
   }
 
   render() {
+    setLanguage(this.hass);
     if (!this.hass) return nothing;
     const title = this._config.title || loc("AI Climate Stats");
     const hasTabs = this._tabsShown();

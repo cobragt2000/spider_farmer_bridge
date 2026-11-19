@@ -11407,6 +11407,12 @@ function ppfdColor(v: number, mx: number): [number, number, number] {
   return [r, g, b];
 }
 
+// Deep copy of the custom plant positions ([x, z] fractions of the tent; a missing
+// entry stays missing, plantPositions() puts that plant in the centre).
+function ppfdCopyPos(a: [number, number][] | undefined): [number, number][] {
+  return (a || []).map((p) => (Array.isArray(p) ? [p[0], p[1]] : p) as [number, number]);
+}
+
 const PLACE_LABEL: Record<string, string> = { row: "Row", grid: "Grid", perimeter: "Perimeter", custom: "Custom" };
 function ppfdZone(avg: number): { label: string; color: string } {
   if (avg < 200) return { label: "Too dim", color: "#4488dd" };
@@ -11474,7 +11480,7 @@ export class SpiderPpfdCard extends LitElement {
     this.s.margin = (d as any).plant_margin ?? 0.14;
     this.s.cal = (d as any).ppfd_cal ?? 1;
     this.s.calRef = (d as any).ppfd_cal_ref ?? "";
-    this.s.custom = Array.isArray((d as any).plant_positions) ? (d as any).plant_positions : [];
+    this.s.custom = Array.isArray((d as any).plant_positions) ? ppfdCopyPos((d as any).plant_positions) : [];
     this.s.dim = d.dimmer_percent ?? 100;
     this.manualDim = this.s.dim;
     this.s.photo = d.photoperiod_hours ?? 18;
@@ -11572,7 +11578,9 @@ export class SpiderPpfdCard extends LitElement {
       model: this.s.model, hin: this.s.hin, plantIn: this.s.plantIn,
       numPlants: this.s.numPlants, photo: this.s.photo, dim: this.manualDim,
       placement: this.s.placement, rows: this.s.rows, cols: this.s.cols,
-      margin: this.s.margin, cal: this.s.cal, calRef: this.s.calRef, custom: this.s.custom,
+      // Copy, never alias: the drag map edits this.s.custom in place, and a shared
+      // array would make the saved snapshot follow the drag (no Apply, no Discard).
+      margin: this.s.margin, cal: this.s.cal, calRef: this.s.calRef, custom: ppfdCopyPos(this.s.custom),
       tW: this.s.tW, tL: this.s.tL, tH: this.s.tH,
       auto: !!this.auto, src: this.brightSrc || "",
     };
@@ -11650,7 +11658,7 @@ export class SpiderPpfdCard extends LitElement {
     this.s.placement = this.saved.placement ?? "row";
     this.s.rows = this.saved.rows ?? 1; this.s.cols = this.saved.cols ?? 2;
     this.s.margin = this.saved.margin ?? 0.14;
-    this.s.custom = Array.isArray(this.saved.custom) ? this.saved.custom : [];
+    this.s.custom = Array.isArray(this.saved.custom) ? ppfdCopyPos(this.saved.custom) : [];
     this.s.photo = this.saved.photo ?? this.s.photo;
     this.s.tW = this.saved.tW; this.s.tL = this.saved.tL; this.s.tH = this.saved.tH;
     if (this.auto) this.readLive(); else this.s.dim = this.manualDim;

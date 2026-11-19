@@ -12146,7 +12146,9 @@ export class SpiderPpfdCard extends LitElement {
     const { tW, tL, tH, model, hin, plantIn, dim } = this.s;
     const light = PPFD_LIGHTS[model] || PPFD_LIGHTS.SE4500;
     const effectiveH = Math.max(1, hin - plantIn);
-    const ppfd = ppfdAt(light, effectiveH, dim);
+    // Calibrated like the stat tiles, so the 3D labels and heat map match them.
+    const raw = ppfdAt(light, effectiveH, dim), cal = this.s.cal || 1;
+    const ppfd = { center: Math.round(raw.center * cal), avg: Math.round(raw.avg * cal), edge: Math.round(raw.edge * cal) };
     const pY = plantIn * 0.0254, y = hin * 0.0254;
     const hw = tW / 2, hl = tL / 2;
     // A real fixture's long axis runs along the tent's longer horizontal side.

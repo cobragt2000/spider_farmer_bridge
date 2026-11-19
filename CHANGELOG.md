@@ -3,6 +3,102 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.20.52 — Review fixes: Grow Alerts, adaptive climate, cards, German
+
+A review of everything since 3.19.425 before the 3.20 release. Every fix has a
+regression test that fails on 3.20.51 and passes now (suite: 480 → 556 tests).
+
+### Fixed — Grow Alerts blueprint
+- **No alert was ever sent with the default settings.** `renotify_after.days | int(0)`
+  raised on the duration selector's value (it has no `days`), so every run stopped at
+  "Error rendering variables". Durations now also accept "HH:MM:SS" or plain seconds.
+- **The day/night settle time dropped alerts instead of delaying them.** A crossing inside
+  the settle window is now held until it ends and alerts if still out of range.
+- **Readings already out of range now alert:** on Home Assistant start, when this
+  automation is created or edited, when a day/night change moves the limit past the
+  reading, and for a leak sensor that is already wet.
+- **Repeats re-read the value and the day/night limit** and stop as soon as the reading is
+  back in range, so flapping readings can't stack repeat loops (`max` 100, overflow logged).
+- **Night limits fall back to the day limits** when left unset — setting a day sensor no
+  longer removes all night protection.
+- **Controller alarms are relayed from the integration's `sf_alarm` event** (once per new
+  log entry): no fake "Device: alarm" when the sensor goes unavailable, no re-sent old
+  alarms after a reload or backfill, and two alarms in one frame are both relayed. A clear
+  ("Restoring normal") is sorted under the type of the alarm it clears.
+- **Notification channels are independent:** a deleted phone or a missing notify service
+  no longer stops TTS, the extra actions or the repeats. The phone's notify service is
+  named exactly as Home Assistant names it.
+- **Temperature, humidity and VPD sensors are optional**, so leak-, soil- or alarm-only
+  automations work.
+- "Device can't keep up" uses the day or night limit, needs the switch still on and names it.
+- Soil EC limits step in 0.01 mS/cm; `source_url` points at the blueprint file, so
+  "Re-import blueprint" works.
+
+### Fixed — blueprint installer
+- **An edited blueprint is no longer overwritten on every start.** The installer records
+  the checksum of what it wrote and only replaces an unchanged copy (unedited 3.20.49–51
+  copies are recognised); an edited one is kept and logged once. Writes are atomic.
+
+### Fixed — adaptive climate (AI)
+- **Store off: each 15-s pass re-read 10 days of recorder history and rebuilt it in
+  quadratic time** (2–22 s of CPU per pass, blocking the event loop). The history is now
+  forward-filled in linear time and only new rows are read each pass: 0.04–0.06 s.
+- **Store on: cost grew with the store.** The fit now works on additive statistics — on
+  "Slow" the settled part is folded in once, so a pass takes ~1 ms instead of 4 s for a
+  year of data (618 → 20 MB peak memory), with identical results. The store table is
+  keyed (WITHOUT ROWID), ~40 % smaller; existing stores are migrated once on open.
+- **Event-driven capture biased the learned gains towards zero** when the sensor is noisy:
+  each interval is now weighted by its duration (blower gain at 0.05° noise: −0.00058 →
+  −0.00097 against a true −0.00100). Evenly spaced data gives exactly the old result.
+- **With device control off, every options write (card settings, PPFD auto-save) reloaded
+  the whole integration** and dropped the controller connections. Setup and the options
+  listener now use the same AI settings; saving a zone reloads once, not twice; a store
+  that fails to open no longer causes a reload loop.
+- **The AI sensor wrote ~3 KB to the recorder every 15 s (~17 MB/day).** It now publishes
+  only real changes and keeps the model attributes out of the recorder. The unused
+  `.storage/sf_ai_model_*` files are no longer written. After a restart the sensor comes
+  back with its value instead of unknown.
+- **The SQLite store is thread-safe** (one lock, explicit transactions); profile save,
+  load, clean and capture can no longer collide.
+- **Learning profiles** are saved to/loaded into the panel shown on the card (before:
+  the first slot, possibly a light); loading twice no longer duplicates rows, and the
+  retention purge keeps profile data. The purge also runs shortly after setup.
+- Forced passes (clean, profile actions) wait for a running pass instead of overlapping.
+- Grow lights on outlets or external entities (role "light") get the day/night split.
+- Temperatures are stored and learned in °C and shown in the display unit; `nan`/`inf`
+  states count as missing; the "enough data" bar counts covered time, not rows.
+- `numpy` is declared in the manifest requirements.
+
+### Fixed — cards
+- **S-Station "Device Type" could not be changed in German** (the translated label was sent
+  as the value; a "Light Env" socket was left half-changed). Apply now resolves the type
+  before writing anything.
+- PPFD: dragging a plant enables Apply and Discard undoes it; calibration applies to the
+  3D labels and heat map; the 3D view works again after a tab switch or HA view
+  navigation; listeners and GPU objects are released; the plant map follows the pointer
+  exactly; leaving Grid clamps to 12 plants.
+- Climate AI: profiles and settings stay on the shown panel (no staged settings carried to
+  another panel); a panel without a learning sensor says so instead of showing another
+  panel's data; the cards follow the HA language.
+- Performance: the Spider card no longer re-renders on every Home Assistant state change
+  while the PPFD or Climate AI tab is open, and the AI card caches its sensor scan
+  (~7.5 ms → 0.4 ms per unrelated update at 3,000 entities).
+
+### Changed — translations
+- All remaining raw English card texts are translatable; German is complete again, uses
+  one term for the learning confidence ("Lernsicherheit"), and a few wordings are fixed.
+- The calibration reference is stored neutrally (source + distance) instead of display text.
+- New tests catch translated text used as a data value and dynamic labels without a
+  translation.
+
+### Notes
+- Behaviour changes: Grow Alerts adds `homeassistant: min_version: 2024.10.0` (its trigger
+  syntax already needed it) and uses two internal events (`sf_grow_alerts_recheck`,
+  `sf_grow_alerts_phone`); a night limit left at its default now means "use the day limit".
+- AI: learned gains/R² on event-driven stores change because of the weighting; the
+  temperature capture threshold is 0.083 °C (0.15 °F) for everyone; stores are migrated
+  once (°F → °C if HA displays °F).
+
 ## 3.20.51 — Grow Alerts blueprint: day/night air limits, phone picker, per-type alarms
 
 ### Added

@@ -307,3 +307,22 @@ def test_even_spacing_weighted_fit_equals_plain_least_squares():
     m = fit_metric_model(samples, "humidity", DEVICES)
     assert abs(m.gains["blower"] - beta[0]) < 1e-9 and abs(m.gains["heater"] - beta[1]) < 1e-9
     assert abs(m.drift - beta[2]) < 1e-9
+
+
+
+def test_fit_stats_of_parts_add_up_to_the_fit_of_the_whole():
+    # The solver works on additive sufficient statistics, so a long history can be folded
+    # piece by piece: stats(A) + stats(B) give exactly the fit over A + B.
+    from custom_components.sf.ai_climate import FitStats, _rows, model_from_stats
+    samples = _synth(n=900, noise=0.02, seed=4)
+    X, y, _ = _rows(samples, "temperature", DEVICES)
+    dt = np.full(len(y), 60.0)
+    whole = model_from_stats(FitStats.from_rows(X, y, dt), "temperature", DEVICES)
+    parts = (FitStats.from_rows(X[:300], y[:300], dt[:300])
+             + FitStats.from_rows(X[300:], y[300:], dt[300:]))
+    m = model_from_stats(parts, "temperature", DEVICES)
+    assert m.n == whole.n and m.r2 == whole.r2 and m.confidence == whole.confidence
+    assert abs(m.drift - whole.drift) < 1e-12
+    assert all(abs(m.gains[d] - whole.gains[d]) < 1e-12 for d in DEVICES)
+    ref = fit_metric_model(samples, "temperature", DEVICES, denoise_sec=0.0)
+    assert abs(ref.gains["blower"] - m.gains["blower"]) < 1e-9

@@ -2,19 +2,22 @@ blueprint:
   name: Spider Farmer - Grow Alerts
   description: >
     One blueprint for every common grow alert. Turn on only the checks you
-    want by setting a threshold — anything left at its default is OFF and never
-    fires. Covers air Temperature, Humidity and VPD (high & low, with optional
-    separate day / night limits that switch on a lights-on sensor), Soil moisture,
-    temperature and EC (high & low) across any number of probes, "device can't
-    keep up" for the humidifier / dehumidifier / heater, third-party water-leak
-    sensors (any brand), and a relay of the controller's own alarms (tank full,
-    tank empty, device offline, light-temp, faults). Each alert waits a
-    sustained time before firing (no flapping), can repeat on an interval while
-    still out of range, and notifies by any mix of: a persistent notification,
-    your phone (mobile app), a spoken announcement (TTS on a media player), plus
-    any extra actions you drop in. Defaults target the dp1 display panel; change
-    the sensors to use another panel (ac5, etc.) or your own sensors.
+    want by picking a sensor and setting a threshold — anything left at its
+    default is OFF and never fires. Covers air Temperature, Humidity and VPD
+    (high & low, with optional separate day / night limits that switch on a
+    lights-on sensor), Soil moisture, temperature and EC (high & low) across any
+    number of probes, "device can't keep up" for the humidifier / dehumidifier /
+    heater, third-party water-leak sensors (any brand), and a relay of the
+    controller's own alarms (tank full, tank empty, device offline, light-temp,
+    faults). Each alert waits a sustained time before firing (no flapping), can
+    repeat on an interval while still out of range, and notifies by any mix of:
+    a persistent notification, your phone (mobile app), a spoken announcement
+    (TTS on a media player), plus any extra actions you drop in. Pick your
+    panel's sensors (e.g. sensor.sf_dp1_temperature for the dp1 display panel,
+    or ac5, etc.) or your own sensors.
   domain: automation
+  homeassistant:
+    min_version: 2024.10.0
   source_url: https://github.com/cobragt2000/spider_farmer_bridge/blob/main/custom_components/sf/blueprints/grow_alerts.yaml
   input:
     general:
@@ -44,7 +47,7 @@ blueprint:
           description: >
             While a reading is still out of range, send the alert again this
             often (minutes and seconds). Leave at 0 to alert only once each time
-            it crosses.
+            it goes out of range.
           default:
             hours: 0
             minutes: 0
@@ -57,19 +60,21 @@ blueprint:
             A sensor that is ON during the day / lights-on (e.g.
             binary_sensor.sf_<panel>_daytime_schedule, or a grow-light switch).
             When set, the air metrics below use their DAY thresholds while it's on
-            and their NIGHT thresholds while it's off. Leave empty to use the day
-            thresholds around the clock.
+            and their NIGHT thresholds while it's off (a night threshold left
+            empty uses the day one). Leave empty to use the day thresholds around
+            the clock.
           default: ""
           selector:
             entity: {}
         settle_after_flip:
           name: Settle time after day↔night change
           description: >
-            After the day/lights-on sensor flips, pause the air (temp/RH/VPD)
+            After the day/lights-on sensor flips, hold back the air (temp/RH/VPD)
             alerts for this long so the tent can stabilize — prevents a false
             "too hot at night" the moment the lights go off while the temperature
-            is still coming down. Alerts fire on CROSSINGS, so this is usually a
-            light safety margin. Ignored when no day sensor is set.
+            is still coming down. A reading that is still out of range when the
+            time is up alerts then; one that has recovered doesn't. Ignored when
+            no day sensor is set.
           default:
             hours: 0
             minutes: 15
@@ -84,7 +89,10 @@ blueprint:
       input:
         temp_sensor:
           name: Temperature sensor
-          description: Your tent's air-temperature sensor (e.g. sensor.sf_<panel>_temperature).
+          description: >
+            Your tent's air-temperature sensor (e.g. sensor.sf_<panel>_temperature).
+            Leave empty to skip the temperature checks.
+          default: ""
           selector:
             entity:
               filter:
@@ -107,14 +115,16 @@ blueprint:
         temp_night_high:
           name: Night — alert when temp rises ABOVE
           description: >
-            Used while the day sensor is OFF. Leave at 999 to skip the night high
-            alert. Example lights-off 78.
+            Used while the day sensor is OFF. Leave at 999 to use the day high at
+            night too. Example lights-off 78.
           default: 999
           selector:
             number: { min: -50, max: 999, step: 0.5, mode: box, unit_of_measurement: "°" }
         temp_night_low:
           name: Night — alert when temp drops BELOW
-          description: Used while the day sensor is OFF. Leave at -999 to skip. Example 62.
+          description: >
+            Used while the day sensor is OFF. Leave at -999 to use the day low at
+            night too. Example 62.
           default: -999
           selector:
             number: { min: -999, max: 150, step: 0.5, mode: box, unit_of_measurement: "°" }
@@ -126,7 +136,10 @@ blueprint:
       input:
         humidity_sensor:
           name: Humidity sensor
-          description: Your tent's RH sensor (e.g. sensor.sf_<panel>_humidity).
+          description: >
+            Your tent's RH sensor (e.g. sensor.sf_<panel>_humidity). Leave empty
+            to skip the humidity checks.
+          default: ""
           selector:
             entity:
               filter:
@@ -148,13 +161,17 @@ blueprint:
             number: { min: -999, max: 100, step: 1, mode: box, unit_of_measurement: "%" }
         hum_night_high:
           name: Night — alert when RH rises ABOVE (%)
-          description: Used while the day sensor is OFF. Leave at 999 to skip. Example 70.
+          description: >
+            Used while the day sensor is OFF. Leave at 999 to use the day high at
+            night too. Example 70.
           default: 999
           selector:
             number: { min: 0, max: 999, step: 1, mode: box, unit_of_measurement: "%" }
         hum_night_low:
           name: Night — alert when RH drops BELOW (%)
-          description: Used while the day sensor is OFF. Leave at -999 to skip. Example 45.
+          description: >
+            Used while the day sensor is OFF. Leave at -999 to use the day low at
+            night too. Example 45.
           default: -999
           selector:
             number: { min: -999, max: 100, step: 1, mode: box, unit_of_measurement: "%" }
@@ -166,7 +183,10 @@ blueprint:
       input:
         vpd_sensor:
           name: VPD sensor
-          description: Your tent's VPD sensor (e.g. sensor.sf_<panel>_vpd).
+          description: >
+            Your tent's VPD sensor (e.g. sensor.sf_<panel>_vpd). Leave empty to
+            skip the VPD checks.
+          default: ""
           selector:
             entity:
               filter:
@@ -187,13 +207,17 @@ blueprint:
             number: { min: -999, max: 10, step: 0.05, mode: box, unit_of_measurement: kPa }
         vpd_night_high:
           name: Night — alert when VPD rises ABOVE (kPa)
-          description: Used while the day sensor is OFF. Leave at 999 to skip. Example 1.4.
+          description: >
+            Used while the day sensor is OFF. Leave at 999 to use the day high at
+            night too. Example 1.4.
           default: 999
           selector:
             number: { min: 0, max: 999, step: 0.05, mode: box, unit_of_measurement: kPa }
         vpd_night_low:
           name: Night — alert when VPD drops BELOW (kPa)
-          description: Used while the day sensor is OFF. Leave at -999 to skip. Example 0.9.
+          description: >
+            Used while the day sensor is OFF. Leave at -999 to use the day low at
+            night too. Example 0.9.
           default: -999
           selector:
             number: { min: -999, max: 10, step: 0.05, mode: box, unit_of_measurement: kPa }
@@ -279,10 +303,11 @@ blueprint:
           name: Running continuously for (minutes)
           description: >
             If a device runs this long AND its metric is STILL out of range
-            (using the Humidity / Temperature thresholds above), alert that it
-            can't keep up — undersized, blocked, or an empty water tank. Set the
-            matching Humidity-low / Humidity-high / Temperature-low threshold for
-            these to work.
+            (using the Humidity / Temperature thresholds above — day or night,
+            whichever applies right now), alert that it can't keep up —
+            undersized, blocked, or an empty water tank. Set the matching
+            Humidity-low / Humidity-high / Temperature-low threshold for these to
+            work.
           default: 45
           selector:
             number: { min: 1, max: 600, step: 1, mode: box, unit_of_measurement: min }
@@ -429,107 +454,176 @@ blueprint:
           selector:
             action: {}
 
+# Each run handles one alert; the repeat loop of a run ends as soon as its reading
+# is back in range, so runs can't pile up. Runs beyond `max` are logged.
 mode: parallel
-max: 30
-max_exceeded: silent
+max: 100
+
+# How the pieces fit together:
+#   * Air checks are template triggers that compare the reading with the limit
+#     that applies RIGHT NOW (day or night), so a day/night change that moves the
+#     limit past the reading counts like a crossing.
+#   * Soil / leak / "can't keep up" use numeric_state / state triggers as before.
+#   * Controller alarms are relayed from the alarm-log sensor.
+#   * "catchup" (Home Assistant start, or this automation being (re)loaded) asks
+#     for a re-check of everything already out of range: it fires one
+#     `sf_grow_alerts_recheck` event per affected sensor, and each re-check runs
+#     like a fresh crossing (sustain, settle, re-notify).
+#   * The phone is notified from a separate run (`sf_grow_alerts_phone` event) so
+#     a missing notify service can't stop the other channels or the repeats.
+trigger_variables:
+  tv_day: !input day_sensor
+  tv_temp: !input temp_sensor
+  tv_hum: !input humidity_sensor
+  tv_vpd: !input vpd_sensor
+  tv_temp_high: !input temp_high
+  tv_temp_low: !input temp_low
+  tv_temp_night_high: !input temp_night_high
+  tv_temp_night_low: !input temp_night_low
+  tv_hum_high: !input hum_high
+  tv_hum_low: !input hum_low
+  tv_hum_night_high: !input hum_night_high
+  tv_hum_night_low: !input hum_night_low
+  tv_vpd_high: !input vpd_high
+  tv_vpd_low: !input vpd_low
+  tv_vpd_night_high: !input vpd_night_high
+  tv_vpd_night_low: !input vpd_night_low
 
 variables:
   tent_name: !input tent_name
   temp_sensor: !input temp_sensor
   humidity_sensor: !input humidity_sensor
+  vpd_sensor: !input vpd_sensor
   temp_high: !input temp_high
   temp_low: !input temp_low
   hum_high: !input hum_high
   hum_low: !input hum_low
   vpd_high: !input vpd_high
   vpd_low: !input vpd_low
-  soil_moisture_high: !input soil_moisture_high
-  soil_moisture_low: !input soil_moisture_low
-  soil_temp_high: !input soil_temp_high
-  soil_temp_low: !input soil_temp_low
-  soil_ec_high: !input soil_ec_high
-  soil_ec_low: !input soil_ec_low
-  renotify_after: !input renotify_after
-  # The duration selector (and the default) send {hours, minutes, seconds} — no
-  # `days`, so every part needs a default.
-  renotify_secs: >-
-    {{ (renotify_after.days | default(0) | int(0)) * 86400 + (renotify_after.hours | default(0) | int(0)) * 3600
-       + (renotify_after.minutes | default(0) | int(0)) * 60 + (renotify_after.seconds | default(0) | int(0)) }}
-  enable_persistent: !input enable_persistent
-  mobile_notify_device: !input mobile_notify_device
-  # Build the phone's notify service from the picked device:
-  # notify.mobile_app_<slugified device name> (verified to match the services HA
-  # creates for each Companion-app device). Empty when no phone is picked.
-  mobile_service: >-
-    {% if (mobile_notify_device | default('')) %}notify.mobile_app_{{ device_attr(mobile_notify_device, 'name') | slugify }}{% endif %}
-  voice_enable: !input voice_enable
-  voice_tts_entity: !input voice_tts_entity
-  voice_media_player: !input voice_media_player
-  alarm_scope: !input alarm_scope
-  alarm_include_clears: !input alarm_include_clears
-  day_sensor: !input day_sensor
-  settle_after_flip: !input settle_after_flip
   temp_night_high: !input temp_night_high
   temp_night_low: !input temp_night_low
   hum_night_high: !input hum_night_high
   hum_night_low: !input hum_night_low
   vpd_night_high: !input vpd_night_high
   vpd_night_low: !input vpd_night_low
-  # Day/night regime (air metrics). No day sensor => always "day" (day thresholds
-  # apply around the clock; night entries never fire). `settled` suppresses air
-  # alerts for a bit after the lights flip so the tent can stabilize.
-  has_day_sensor: "{{ (day_sensor | default('') | trim) | length > 0 }}"
-  is_day: "{{ (not (has_day_sensor | bool)) or is_state(day_sensor, 'on') }}"
-  settle_secs: >-
-    {{ (settle_after_flip.hours | int(0)) * 3600 + (settle_after_flip.minutes | int(0)) * 60
-       + (settle_after_flip.seconds | int(0)) }}
-  settled: >-
-    {% if not (has_day_sensor | bool) %}true{% else %}{% set lc = states[day_sensor].last_changed if states[day_sensor] is not none else none %}{{ (lc is none) or ((as_timestamp(now()) - as_timestamp(lc)) >= (settle_secs | int(0))) }}{% endif %}
-  # Per-trigger metadata. `kind` picks how the alert is evaluated/worded:
-  #   numeric = compare the crossing entity to a threshold (reads trigger.entity_id,
-  #             so one soil/leak entry covers every picked sensor)
-  #   state   = alert while a binary/enum entity sits on a "bad" value (leak = on)
-  #   alarm   = relay the controller's own alarm log (device + condition text)
+  soil_moisture_sensors: !input soil_moisture_sensors
+  soil_temp_sensors: !input soil_temp_sensors
+  soil_ec_sensors: !input soil_ec_sensors
+  water_sensors: !input water_sensors
+  soil_moisture_high: !input soil_moisture_high
+  soil_moisture_low: !input soil_moisture_low
+  soil_temp_high: !input soil_temp_high
+  soil_temp_low: !input soil_temp_low
+  soil_ec_high: !input soil_ec_high
+  soil_ec_low: !input soil_ec_low
+  sustain_for: !input sustain_for
+  renotify_after: !input renotify_after
+  settle_after_flip: !input settle_after_flip
+  # Durations in seconds [sustain, re-notify, settle]. The duration selector sends
+  # {hours, minutes, seconds} (no `days`); YAML users may also write "HH:MM:SS"
+  # or plain seconds.
+  duration_secs: >-
+    {%- set ns = namespace(out=[]) -%}
+    {%- for d in [sustain_for, renotify_after, settle_after_flip] -%}
+    {%- if d is mapping -%}
+    {%- set s = (d.days | default(0) | float(0)) * 86400 + (d.hours | default(0) | float(0)) * 3600
+          + (d.minutes | default(0) | float(0)) * 60 + (d.seconds | default(0) | float(0))
+          + (d.milliseconds | default(0) | float(0)) / 1000 -%}
+    {%- elif d is number -%}
+    {%- set s = d -%}
+    {%- else -%}
+    {%- set t = as_timedelta(d | string) -%}
+    {%- set s = t.total_seconds() if t is not none else 0 -%}
+    {%- endif -%}
+    {%- set ns.out = ns.out + [[s | round(0, 'ceil') | int, 0] | max] -%}
+    {%- endfor -%}
+    {{ ns.out }}
+  sustain_secs: "{{ duration_secs[0] }}"
+  renotify_secs: "{{ duration_secs[1] }}"
+  settle_secs: "{{ duration_secs[2] }}"
+  enable_persistent: !input enable_persistent
+  mobile_notify_device: !input mobile_notify_device
+  # The phone's notify service, named exactly as Home Assistant names it:
+  # slugify("mobile_app_" + the device's registered name). Empty when no phone is
+  # picked or the picked device no longer exists, so phone alerts are skipped.
+  mobile_service: >-
+    {%- set n = device_attr(mobile_notify_device, 'name') if mobile_notify_device else none -%}
+    {%- if n -%}notify.{{ ('mobile_app_' ~ n) | slugify }}{%- endif -%}
+  voice_enable: !input voice_enable
+  voice_tts_entity: !input voice_tts_entity
+  voice_media_player: !input voice_media_player
+  alarms_sensors: !input alarms_sensors
+  alarm_scope: !input alarm_scope
+  alarm_include_clears: !input alarm_include_clears
+  day_sensor: !input day_sensor
+  has_day_sensor: "{{ (day_sensor | default('') | string | trim) | length > 0 }}"
+  # Per-check metadata.
+  #   kind    numeric (default) = compare a reading with a limit
+  #           state = alert while a binary sensor is on (leak)
+  #           alarm = relay a controller alarm
+  #   air     day/night limits + settle window (temp/RH/VPD)
+  #   stuck   "can't keep up": day/night limits, no settle, the switch must still be on
+  #   day / night   the limits; an unset night limit falls back to the day limit
+  #   on      the check is enabled (used by the catch-up)
   meta:
-    temp_high:        { label: "Temperature high (day)",   dir: above, thr: "{{ temp_high }}",       regime: day }
-    temp_low:         { label: "Temperature low (day)",    dir: below, thr: "{{ temp_low }}",        regime: day }
-    temp_high_night:  { label: "Temperature high (night)", dir: above, thr: "{{ temp_night_high }}", regime: night }
-    temp_low_night:   { label: "Temperature low (night)",  dir: below, thr: "{{ temp_night_low }}",  regime: night }
-    hum_high:         { label: "Humidity high (day)",      dir: above, thr: "{{ hum_high }}",        regime: day }
-    hum_low:          { label: "Humidity low (day)",       dir: below, thr: "{{ hum_low }}",         regime: day }
-    hum_high_night:   { label: "Humidity high (night)",    dir: above, thr: "{{ hum_night_high }}",  regime: night }
-    hum_low_night:    { label: "Humidity low (night)",     dir: below, thr: "{{ hum_night_low }}",   regime: night }
-    vpd_high:         { label: "VPD high (day)",           dir: above, thr: "{{ vpd_high }}",        regime: day }
-    vpd_low:          { label: "VPD low (day)",            dir: below, thr: "{{ vpd_low }}",         regime: day }
-    vpd_high_night:   { label: "VPD high (night)",         dir: above, thr: "{{ vpd_night_high }}",  regime: night }
-    vpd_low_night:    { label: "VPD low (night)",          dir: below, thr: "{{ vpd_night_low }}",   regime: night }
-    soilm_low:   { label: "Soil moisture low (dry)",     dir: below, thr: "{{ soil_moisture_low }}" }
-    soilm_high:  { label: "Soil moisture high (wet)",    dir: above, thr: "{{ soil_moisture_high }}" }
-    soilt_high:  { label: "Soil temperature high",       dir: above, thr: "{{ soil_temp_high }}" }
-    soilt_low:   { label: "Soil temperature low",        dir: below, thr: "{{ soil_temp_low }}" }
-    soilec_high: { label: "Soil EC high",                dir: above, thr: "{{ soil_ec_high }}" }
-    soilec_low:  { label: "Soil EC low",                 dir: below, thr: "{{ soil_ec_low }}" }
-    humidifier_stuck:   { label: "Humidifier can't keep up (RH still low)",  entity: "{{ humidity_sensor }}", dir: below, thr: "{{ hum_low }}" }
-    dehumidifier_stuck: { label: "Dehumidifier can't keep up (RH still high)", entity: "{{ humidity_sensor }}", dir: above, thr: "{{ hum_high }}" }
-    heater_stuck:       { label: "Heater can't keep up (temp still low)",     entity: "{{ temp_sensor }}",     dir: below, thr: "{{ temp_low }}" }
-    water_leak:         { kind: state, label: "Water leak detected", bad: "on" }
-    controller_alarm:   { kind: alarm, label: "Controller alarm" }
-  info: "{{ meta[trigger.id] }}"
-  a_kind: "{{ info.kind | default('numeric') }}"
-  a_regime: "{{ info.regime | default('any') }}"
-  a_label: "{{ info.label }}"
-  a_entity: "{{ info.entity | default(trigger.entity_id, true) }}"
-  a_dir: "{{ info.dir | default('') }}"
-  a_thr: "{{ info.thr | default('') }}"
-  a_bad: "{{ info.bad | default('') }}"
-  a_name: "{{ state_attr(a_entity, 'friendly_name') or a_entity }}"
-  cur: "{{ states(a_entity) }}"
-  cur_unit: "{{ state_attr(a_entity, 'unit_of_measurement') or '' }}"
-  # Is this metric's regime active right now? Air metrics are day/night; everything
-  # else is 'any' (always active). During the post-flip settle window, air is paused.
-  regime_ok: >-
-    {% if a_regime == 'day' %}{{ (is_day | bool) and (settled | bool) }}{% elif a_regime == 'night' %}{{ (has_day_sensor | bool) and (not (is_day | bool)) and (settled | bool) }}{% else %}true{% endif %}
+    temp_high: { label: "Temperature high", air: true, dir: above, entity: "{{ temp_sensor }}", day: "{{ temp_high }}", night: "{{ temp_night_high if (temp_night_high | float(999)) < 999 else temp_high }}", "on": "{{ (temp_high | float(999)) < 999 or (temp_night_high | float(999)) < 999 }}" }
+    temp_low: { label: "Temperature low", air: true, dir: below, entity: "{{ temp_sensor }}", day: "{{ temp_low }}", night: "{{ temp_night_low if (temp_night_low | float(-999)) > -999 else temp_low }}", "on": "{{ (temp_low | float(-999)) > -999 or (temp_night_low | float(-999)) > -999 }}" }
+    hum_high: { label: "Humidity high", air: true, dir: above, entity: "{{ humidity_sensor }}", day: "{{ hum_high }}", night: "{{ hum_night_high if (hum_night_high | float(999)) < 999 else hum_high }}", "on": "{{ (hum_high | float(999)) < 999 or (hum_night_high | float(999)) < 999 }}" }
+    hum_low: { label: "Humidity low", air: true, dir: below, entity: "{{ humidity_sensor }}", day: "{{ hum_low }}", night: "{{ hum_night_low if (hum_night_low | float(-999)) > -999 else hum_low }}", "on": "{{ (hum_low | float(-999)) > -999 or (hum_night_low | float(-999)) > -999 }}" }
+    vpd_high: { label: "VPD high", air: true, dir: above, entity: "{{ vpd_sensor }}", day: "{{ vpd_high }}", night: "{{ vpd_night_high if (vpd_night_high | float(999)) < 999 else vpd_high }}", "on": "{{ (vpd_high | float(999)) < 999 or (vpd_night_high | float(999)) < 999 }}" }
+    vpd_low: { label: "VPD low", air: true, dir: below, entity: "{{ vpd_sensor }}", day: "{{ vpd_low }}", night: "{{ vpd_night_low if (vpd_night_low | float(-999)) > -999 else vpd_low }}", "on": "{{ (vpd_low | float(-999)) > -999 or (vpd_night_low | float(-999)) > -999 }}" }
+    soilm_low: { label: "Soil moisture low (dry)", dir: below, day: "{{ soil_moisture_low }}", "on": "{{ (soil_moisture_low | float(-999)) > -999 }}" }
+    soilm_high: { label: "Soil moisture high (wet)", dir: above, day: "{{ soil_moisture_high }}", "on": "{{ (soil_moisture_high | float(999)) < 999 }}" }
+    soilt_high: { label: "Soil temperature high", dir: above, day: "{{ soil_temp_high }}", "on": "{{ (soil_temp_high | float(999)) < 999 }}" }
+    soilt_low: { label: "Soil temperature low", dir: below, day: "{{ soil_temp_low }}", "on": "{{ (soil_temp_low | float(-999)) > -999 }}" }
+    soilec_high: { label: "Soil EC high", dir: above, day: "{{ soil_ec_high }}", "on": "{{ (soil_ec_high | float(9999)) < 9999 }}" }
+    soilec_low: { label: "Soil EC low", dir: below, day: "{{ soil_ec_low }}", "on": "{{ (soil_ec_low | float(-999)) > -999 }}" }
+    humidifier_stuck: { label: "Humidifier can't keep up (RH still low)", stuck: true, dir: below, entity: "{{ humidity_sensor }}", day: "{{ hum_low }}", night: "{{ hum_night_low if (hum_night_low | float(-999)) > -999 else hum_low }}" }
+    dehumidifier_stuck: { label: "Dehumidifier can't keep up (RH still high)", stuck: true, dir: above, entity: "{{ humidity_sensor }}", day: "{{ hum_high }}", night: "{{ hum_night_high if (hum_night_high | float(999)) < 999 else hum_high }}" }
+    heater_stuck: { label: "Heater can't keep up (temp still low)", stuck: true, dir: below, entity: "{{ temp_sensor }}", day: "{{ temp_low }}", night: "{{ temp_night_low if (temp_night_low | float(-999)) > -999 else temp_low }}" }
+    water_leak: { kind: state, label: "Water leak detected", bad: "on", "on": true }
+    controller_alarm: { kind: alarm, label: "Controller alarm" }
+  # Which check this run is about: the trigger id, or for a re-check the check named
+  # in the event.
+  check: "{{ (trigger.event.data.check | default('')) if trigger.id == 'recheck' else trigger.id }}"
+  info: "{{ meta.get(check, {}) }}"
+  a_kind: &a_kind "{{ info.kind | default('numeric') }}"
+  a_air: &a_air "{{ info.air | default(false) }}"
+  a_regime: &a_regime "{{ (info.air | default(false)) or (info.stuck | default(false)) }}"
+  a_dir: &a_dir "{{ info.dir | default('') }}"
+  a_day: &a_day "{{ info.day | default(none) }}"
+  a_night: &a_night "{{ info.night | default(info.day | default(none)) }}"
+  a_bad: &a_bad "{{ info.bad | default('on') }}"
+  a_entity: >-
+    {%- if info.entity is defined -%}{{ info.entity }}
+    {%- elif trigger.id == 'recheck' -%}{{ trigger.event.data.entity | default('') }}
+    {%- else -%}{{ trigger.entity_id | default('') }}{%- endif -%}
+  # "Can't keep up": the switch that has been running.
+  a_switch: "{{ (trigger.entity_id | default('')) if (info.stuck | default(false)) else '' }}"
+  # Is the alert's condition true right now? Live: the reading, the limit that
+  # applies now (day or night) and, for "can't keep up", the switch still on.
+  # Re-used (YAML anchors) wherever the condition is re-checked.
+  bad_now: &still_bad >-
+    {%- if a_kind == 'state' -%}
+    {{- a_entity != '' and is_state(a_entity, a_bad) -}}
+    {%- elif a_kind == 'numeric' and a_entity != '' -%}
+    {%- set v = states(a_entity) | float(none) -%}
+    {%- set lim = (a_night if (a_regime and has_day_sensor and not is_state(day_sensor, 'on')) else a_day) | float(none) -%}
+    {{- v is not none and lim is not none and (a_switch == '' or is_state(a_switch, 'on'))
+        and ((a_dir == 'above' and v > lim) or (a_dir == 'below' and v < lim)) -}}
+    {%- else -%}False{%- endif -%}
+  # The exact opposite of bad_now, for the waits below (kept next to it on purpose).
+  back_in_range: &recovered >-
+    {%- if a_kind == 'state' -%}
+    {{- not (a_entity != '' and is_state(a_entity, a_bad)) -}}
+    {%- elif a_kind == 'numeric' and a_entity != '' -%}
+    {%- set v = states(a_entity) | float(none) -%}
+    {%- set lim = (a_night if (a_regime and has_day_sensor and not is_state(day_sensor, 'on')) else a_day) | float(none) -%}
+    {{- not (v is not none and lim is not none and (a_switch == '' or is_state(a_switch, 'on'))
+        and ((a_dir == 'above' and v > lim) or (a_dir == 'below' and v < lim))) -}}
+    {%- else -%}True{%- endif -%}
   # Controller-alarm fields (only meaningful when a_kind == 'alarm').
+  alarm_entity: "{{ a_entity if a_kind == 'alarm' else '' }}"
   alarm_ev: "{{ (state_attr(a_entity, 'events') or [{}])[0] if a_kind == 'alarm' else {} }}"
   alarm_device: "{{ alarm_ev.device | default('Device') }}"
   alarm_text: "{{ alarm_ev.alarm | default('alarm') }}"
@@ -553,26 +647,89 @@ variables:
     {% if is_thresh and ('Above / below threshold' in sel) %}{% set ns.ok = true %}{% endif %}
     {% if is_other and ('Other faults' in sel) %}{% set ns.ok = true %}{% endif %}
     {{ ns.ok }}
-  alert_title: >-
-    {% if a_kind == 'alarm' %}{{ tent_name }} alarm — {{ alarm_device }}{% else %}{{ tent_name }} alert — {{ a_label }}{% endif %}
-  alert_message: >-
-    {% if a_kind == 'alarm' %}{{ alarm_device }}: {{ alarm_text }}{% elif a_kind == 'state' %}{{ a_label }} on {{ a_name }}{% else %}{{ a_label }} on {{ a_name }}: now {{ cur }}{{ cur_unit }} (alerts when {{ a_dir }} {{ a_thr }}{{ cur_unit }}){% endif %}
-  notif_id: >-
-    sf_grow_alert_{{ trigger.id }}_{{ (a_entity ~ (('_' ~ alarm_device) if a_kind == 'alarm' else '')) | replace('.', '_') | replace(' ', '_') }}
+  # Catch-up after a Home Assistant start or a (re)load of this automation: every
+  # enabled check and sensor (it is re-checked below; only those out of range alert).
+  catchup_pairs: >-
+    {%- set ns = namespace(p=[]) -%}
+    {%- if trigger.id == 'catchup' -%}
+    {%- for c in ['temp_high', 'temp_low', 'hum_high', 'hum_low', 'vpd_high', 'vpd_low'] -%}
+    {%- if meta[c].entity and meta[c].on -%}{%- set ns.p = ns.p + [[c, meta[c].entity]] -%}{%- endif -%}
+    {%- endfor -%}
+    {%- for c, ents in [['soilm_low', soil_moisture_sensors], ['soilm_high', soil_moisture_sensors],
+          ['soilt_high', soil_temp_sensors], ['soilt_low', soil_temp_sensors],
+          ['soilec_high', soil_ec_sensors], ['soilec_low', soil_ec_sensors], ['water_leak', water_sensors]] -%}
+    {%- if meta[c].on -%}
+    {%- for e in ((ents if ents is not string else [ents]) if ents else []) if e -%}{%- set ns.p = ns.p + [[c, e]] -%}{%- endfor -%}
+    {%- endif -%}
+    {%- endfor -%}
+    {%- endif -%}{{ ns.p }}
+  # Should this run go ahead at all?
+  #   alarm     a ticked type, clears only if wanted
+  #   catchup   always on start; on automation_reloaded only if THIS automation was
+  #             just (re)created and hasn't run since — the event fires for every
+  #             reload, also of other automations
+  #   recheck / phone   only the events this automation fired (and still out of range)
+  run_ok: >-
+    {%- if trigger.id == 'controller_alarm' -%}
+    {{- (alarm_allowed | bool) and (alarm_include_clears or not alarm_cleared) -}}
+    {%- elif trigger.id == 'catchup' -%}
+    {%- set lc = as_timestamp(this.last_changed, 0) -%}
+    {%- set lt = as_timestamp(this.attributes.last_triggered, 0) if this.attributes.last_triggered else 0 -%}
+    {{- (catchup_pairs | count > 0) and (trigger.platform == 'homeassistant' or ((as_timestamp(now()) - lc) < 60 and lt < lc)) -}}
+    {%- elif trigger.id in ['recheck', 'phone'] -%}
+    {{- (trigger.event.data.automation | default('')) == this.entity_id and (trigger.id == 'phone' or bad_now) -}}
+    {%- else -%}True{%- endif -%}
 
 triggers:
-  - { trigger: numeric_state, id: temp_high,   entity_id: !input temp_sensor,            above: !input temp_high,          for: !input sustain_for }
-  - { trigger: numeric_state, id: temp_low,    entity_id: !input temp_sensor,            below: !input temp_low,           for: !input sustain_for }
-  - { trigger: numeric_state, id: hum_high,    entity_id: !input humidity_sensor,        above: !input hum_high,           for: !input sustain_for }
-  - { trigger: numeric_state, id: hum_low,     entity_id: !input humidity_sensor,        below: !input hum_low,            for: !input sustain_for }
-  - { trigger: numeric_state, id: vpd_high,    entity_id: !input vpd_sensor,             above: !input vpd_high,           for: !input sustain_for }
-  - { trigger: numeric_state, id: vpd_low,     entity_id: !input vpd_sensor,             below: !input vpd_low,            for: !input sustain_for }
-  - { trigger: numeric_state, id: temp_high_night, entity_id: !input temp_sensor,        above: !input temp_night_high,    for: !input sustain_for }
-  - { trigger: numeric_state, id: temp_low_night,  entity_id: !input temp_sensor,        below: !input temp_night_low,     for: !input sustain_for }
-  - { trigger: numeric_state, id: hum_high_night,  entity_id: !input humidity_sensor,    above: !input hum_night_high,     for: !input sustain_for }
-  - { trigger: numeric_state, id: hum_low_night,   entity_id: !input humidity_sensor,    below: !input hum_night_low,      for: !input sustain_for }
-  - { trigger: numeric_state, id: vpd_high_night,  entity_id: !input vpd_sensor,         above: !input vpd_night_high,     for: !input sustain_for }
-  - { trigger: numeric_state, id: vpd_low_night,   entity_id: !input vpd_sensor,         below: !input vpd_night_low,      for: !input sustain_for }
+  # Air: the limit that applies right now (day, or night — falling back to day).
+  - trigger: template
+    id: temp_high
+    value_template: >-
+      {%- set v = (states(tv_temp) | float(none)) if tv_temp else none -%}
+      {%- set n = tv_temp_night_high | float(999) -%}
+      {%- set lim = n if (tv_day and n < 999 and not is_state(tv_day, 'on')) else (tv_temp_high | float(999)) -%}
+      {{ v is not none and v > lim }}
+    for: !input sustain_for
+  - trigger: template
+    id: temp_low
+    value_template: >-
+      {%- set v = (states(tv_temp) | float(none)) if tv_temp else none -%}
+      {%- set n = tv_temp_night_low | float(-999) -%}
+      {%- set lim = n if (tv_day and n > -999 and not is_state(tv_day, 'on')) else (tv_temp_low | float(-999)) -%}
+      {{ v is not none and v < lim }}
+    for: !input sustain_for
+  - trigger: template
+    id: hum_high
+    value_template: >-
+      {%- set v = (states(tv_hum) | float(none)) if tv_hum else none -%}
+      {%- set n = tv_hum_night_high | float(999) -%}
+      {%- set lim = n if (tv_day and n < 999 and not is_state(tv_day, 'on')) else (tv_hum_high | float(999)) -%}
+      {{ v is not none and v > lim }}
+    for: !input sustain_for
+  - trigger: template
+    id: hum_low
+    value_template: >-
+      {%- set v = (states(tv_hum) | float(none)) if tv_hum else none -%}
+      {%- set n = tv_hum_night_low | float(-999) -%}
+      {%- set lim = n if (tv_day and n > -999 and not is_state(tv_day, 'on')) else (tv_hum_low | float(-999)) -%}
+      {{ v is not none and v < lim }}
+    for: !input sustain_for
+  - trigger: template
+    id: vpd_high
+    value_template: >-
+      {%- set v = (states(tv_vpd) | float(none)) if tv_vpd else none -%}
+      {%- set n = tv_vpd_night_high | float(999) -%}
+      {%- set lim = n if (tv_day and n < 999 and not is_state(tv_day, 'on')) else (tv_vpd_high | float(999)) -%}
+      {{ v is not none and v > lim }}
+    for: !input sustain_for
+  - trigger: template
+    id: vpd_low
+    value_template: >-
+      {%- set v = (states(tv_vpd) | float(none)) if tv_vpd else none -%}
+      {%- set n = tv_vpd_night_low | float(-999) -%}
+      {%- set lim = n if (tv_day and n > -999 and not is_state(tv_day, 'on')) else (tv_vpd_low | float(-999)) -%}
+      {{ v is not none and v < lim }}
+    for: !input sustain_for
   - { trigger: numeric_state, id: soilm_low,   entity_id: !input soil_moisture_sensors,  below: !input soil_moisture_low,  for: !input sustain_for }
   - { trigger: numeric_state, id: soilm_high,  entity_id: !input soil_moisture_sensors,  above: !input soil_moisture_high, for: !input sustain_for }
   - { trigger: numeric_state, id: soilt_high,  entity_id: !input soil_temp_sensors,      above: !input soil_temp_high,     for: !input sustain_for }
@@ -584,55 +741,162 @@ triggers:
   - { trigger: state, id: heater_stuck,        entity_id: !input heater_switch,          to: "on", for: { minutes: !input device_runtime_minutes } }
   - { trigger: state, id: water_leak,          entity_id: !input water_sensors,          to: "on" }
   - { trigger: state, id: controller_alarm,    entity_id: !input alarms_sensors }
+  - { trigger: event, id: recheck,             event_type: sf_grow_alerts_recheck }
+  - { trigger: event, id: phone,               event_type: sf_grow_alerts_phone }
+  # Keep these last: on some Home Assistant versions (e.g. 2024.12) the start
+  # trigger fires while the triggers are still being attached, and the catch-up
+  # needs the re-check trigger above to be listening already.
+  - { trigger: homeassistant, id: catchup,     event: start }
+  - { trigger: event, id: catchup,             event_type: automation_reloaded }
 
-conditions: []
+conditions:
+  - condition: template
+    value_template: "{{ run_ok }}"
 
 actions:
-  - alias: Alert while the reading is still out of range (repeats if re-notify set)
+  - alias: Catch-up — ask for a re-check of each sensor that is already out of range
+    if: "{{ trigger.id == 'catchup' }}"
+    then:
+      - repeat:
+          for_each: "{{ catchup_pairs }}"
+          sequence:
+            - variables:
+                info: "{{ meta[repeat.item[0]] }}"
+                a_kind: *a_kind
+                a_air: *a_air
+                a_regime: *a_regime
+                a_dir: *a_dir
+                a_day: *a_day
+                a_night: *a_night
+                a_bad: *a_bad
+                a_entity: "{{ repeat.item[1] }}"
+                a_switch: ""
+                bad_now: *still_bad
+            - if: "{{ bad_now }}"
+              then:
+                - event: sf_grow_alerts_recheck
+                  event_data:
+                    automation: "{{ this.entity_id }}"
+                    check: "{{ repeat.item[0] }}"
+                    entity: "{{ repeat.item[1] }}"
+      - stop: Catch-up done
+
+  - alias: Phone notification (own run, so a missing notify service can't stop the rest)
+    if: "{{ trigger.id == 'phone' }}"
+    then:
+      - if: "{{ mobile_service != '' }}"
+        then:
+          - action: "{{ mobile_service }}"
+            continue_on_error: true
+            data:
+              title: "{{ trigger.event.data.title | default('') }}"
+              message: "{{ trigger.event.data.message | default('') }}"
+              data:
+                importance: high
+                priority: high
+                ttl: 0
+                car_ui: true
+      - stop: Phone notification sent
+
+  - alias: Re-check — must stay out of range for the sustain time, like a crossing
+    if: "{{ trigger.id == 'recheck' and a_kind == 'numeric' and sustain_secs > 0 }}"
+    then:
+      - wait_template: *recovered
+        timeout: "{{ sustain_secs }}"
+        continue_on_timeout: true
+      - if: "{{ wait.completed }}"
+        then:
+          - stop: Back in range within the sustain time
+
+  - alias: Hold air alerts until the tent has settled after a day/night change
     repeat:
       while:
         - condition: template
           value_template: >-
-            {% if a_kind == 'alarm' %}{{ (alarm_include_clears or not alarm_cleared) and (alarm_allowed | bool) }}{% elif a_kind == 'state' %}{{ states(a_entity) == a_bad }}{% else %}{% set v = states(a_entity) | float(none) %}{{ v is not none and (regime_ok | bool) and ((a_dir == 'above' and v > (a_thr | float(999999))) or (a_dir == 'below' and v < (a_thr | float(-999999)))) }}{% endif %}
+            {%- set s = states[day_sensor] if (a_air and has_day_sensor) else none -%}
+            {{ s is not none and (as_timestamp(now()) - as_timestamp(s.last_changed)) < settle_secs }}
+        - condition: template
+          value_template: *still_bad
       sequence:
+        - wait_template: *recovered
+          timeout: >-
+            {%- set s = states[day_sensor] if has_day_sensor else none -%}
+            {{ (([settle_secs - (as_timestamp(now()) - as_timestamp(s.last_changed)), 0] | max | round(0, 'ceil') | int) + 1) if s is not none else 1 }}
+          continue_on_timeout: true
+
+  - alias: Alert, then repeat every re-notify interval while still out of range
+    repeat:
+      while:
+        - condition: template
+          value_template: "{{ true }}"
+      sequence:
+        - alias: Read the current value, limit and wording
+          variables:
+            bad_now: *still_bad
+            is_night: "{{ a_regime and has_day_sensor and not is_state(day_sensor, 'on') }}"
+            a_thr: "{{ a_night if is_night else a_day }}"
+            a_label: "{{ (info.label | default('Alert')) ~ ((' (night)' if is_night else ' (day)') if a_air else '') }}"
+            a_name: "{{ (state_attr(a_entity, 'friendly_name') or a_entity) if a_entity else '' }}"
+            cur: "{{ states(a_entity) if a_entity else '' }}"
+            cur_unit: "{{ (state_attr(a_entity, 'unit_of_measurement') or '') if a_entity else '' }}"
+            switch_note: >-
+              {%- set s = states[a_switch] if a_switch else none -%}
+              {%- if s is not none -%}{{ s.name }} has been on for {{ ((as_timestamp(now()) - as_timestamp(s.last_changed)) / 60) | round(0) | int }} min{%- endif -%}
+            alert_title: >-
+              {%- if a_kind == 'alarm' -%}{{ tent_name }} alarm — {{ alarm_device }}{%- else -%}{{ tent_name }} alert — {{ a_label }}{%- endif -%}
+            alert_message: >-
+              {%- if a_kind == 'alarm' -%}{{ alarm_device }}: {{ alarm_text }}
+              {%- elif a_kind == 'state' -%}{{ a_label }} on {{ a_name }}
+              {%- else -%}{{ a_label }} on {{ a_name }}: now {{ cur }}{{ cur_unit }} (alerts when {{ a_dir }} {{ a_thr }}{{ cur_unit }}){{ (' — ' ~ switch_note) if switch_note else '' }}{%- endif -%}
+            notif_id: >-
+              sf_grow_alert_{{ check }}_{{ ((alarm_entity ~ '_' ~ alarm_device) if a_kind == 'alarm' else a_entity) | replace('.', '_') | replace(' ', '_') }}
+        - if: "{{ a_kind != 'alarm' and not bad_now }}"
+          then:
+            - stop: Back in range
         - alias: Persistent notification
           if: "{{ enable_persistent }}"
           then:
             - action: persistent_notification.create
+              continue_on_error: true
               data:
                 notification_id: "{{ notif_id }}"
                 title: "{{ alert_title }}"
                 message: "{{ alert_message }}"
-        - alias: Mobile app notification
-          if: "{{ (mobile_service | default('') | trim) | length > 0 }}"
+        - alias: Mobile app notification (sent by its own run)
+          if: "{{ mobile_service != '' }}"
           then:
-            - action: "{{ mobile_service }}"
-              data:
+            - event: sf_grow_alerts_phone
+              event_data:
+                automation: "{{ this.entity_id }}"
                 title: "{{ alert_title }}"
                 message: "{{ alert_message }}"
-                data:
-                  importance: high
-                  priority: high
-                  ttl: 0
-                  car_ui: true
         - alias: Spoken announcement
           if: >-
             {{ voice_enable
                and (voice_tts_entity | default('') | length > 0)
-               and (voice_media_player | default('') | length > 0) }}
+               and (voice_media_player | default('') | length > 0)
+               and states[voice_tts_entity] is not none
+               and states[voice_media_player] is not none }}
           then:
             - action: tts.speak
+              continue_on_error: true
               target:
                 entity_id: "{{ voice_tts_entity }}"
               data:
                 media_player_entity_id: "{{ voice_media_player }}"
                 message: "{{ alert_message }}"
         - alias: Extra user actions
+          continue_on_error: true
           choose: []
           default: !input extra_actions
         - alias: Stop here if not re-notifying (always one-shot for controller alarms)
-          if: "{{ a_kind == 'alarm' or (renotify_secs | int(0)) <= 0 }}"
+          if: "{{ a_kind == 'alarm' or renotify_secs <= 0 }}"
           then:
             - stop: One-shot alert sent
-          else:
-            - delay: !input renotify_after
+        - alias: Wait for the next reminder — or end as soon as it's back in range
+          wait_template: *recovered
+          timeout: "{{ renotify_secs }}"
+          continue_on_timeout: true
+        - if: "{{ wait.completed }}"
+          then:
+            - stop: Back in range

@@ -340,9 +340,10 @@ off:
 Every alert waits a sustained time before firing (minutes **and** seconds, so a door
 opening or a mister pulse doesn't trip it), can re-notify on an interval while still out of
 range (re-reading the value each time, and stopping as soon as it's back in range), and
-sends by any mix of a **persistent notification**, your **phone** (picked from a dropdown of
-your Companion-app devices), a **spoken TTS announcement** on a media player, plus an
-**Extra actions** slot for anything else (a second phone, a siren, a webhook). A reading
+sends by any mix of a **persistent notification**, a **device** (picked from a dropdown of
+your Companion-app devices), a **browser / other notify service** (HTML5 push, browser_mod,
+Telegram, …) or any **notify entities**, a **spoken TTS announcement** on a media player,
+plus an **Extra actions** slot for anything else (a second phone, a siren, a webhook). A reading
 that is already out of range when Home Assistant starts or the automation is (re)loaded
 alerts too, after the same sustained time.
 

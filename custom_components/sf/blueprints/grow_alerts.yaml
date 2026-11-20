@@ -11,8 +11,9 @@ blueprint:
     controller's own alarms (tank full, tank empty, device offline, light-temp,
     faults). Each alert waits a sustained time before firing (no flapping), can
     repeat on an interval while still out of range, and notifies by any mix of:
-    a persistent notification, your phone (mobile app), a spoken announcement
-    (TTS on a media player), plus any extra actions you drop in. Pick your
+    a persistent notification, your device (mobile app), a browser / other
+    notify service or notify entities, a spoken announcement (TTS on a media
+    player), plus any extra actions you drop in. Pick your
     panel's sensors (e.g. sensor.sf_dp1_temperature for the dp1 display panel,
     or ac5, etc.) or your own sensors.
   domain: automation
@@ -419,14 +420,36 @@ blueprint:
           selector:
             boolean: {}
         mobile_notify_device:
-          name: Phone to notify
+          name: Device to notify
           description: >
-            Pick the phone / tablet running the Home Assistant Companion app.
-            Leave empty to skip phone alerts. (Add more phones in Extra actions.)
+            Pick the device running the Home Assistant Companion app. Leave empty
+            to skip device alerts. (Add more devices in Extra actions.)
           default: ""
           selector:
             device:
               integration: mobile_app
+        browser_notify_service:
+          name: Browser / other notify service
+          description: >
+            A notify.* service to also call — e.g. a browser push service
+            (notify.html5), browser_mod, Alexa, Telegram, etc. For a real browser
+            popup you need HTML5 push or the browser_mod add-on set up first; the
+            Persistent notification above already shows in the HA web UI. Leave
+            blank to skip.
+          default: ""
+          selector:
+            text: {}
+        extra_notify_entities:
+          name: Notify entities (dropdown)
+          description: >
+            Pick any notify.* entities to also message (e.g. a browser/desktop
+            notifier you've added). Leave empty to skip.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: notify
         voice_enable:
           name: Speak the alert (TTS)
           default: false
@@ -556,6 +579,8 @@ variables:
   voice_enable: !input voice_enable
   voice_tts_entity: !input voice_tts_entity
   voice_media_player: !input voice_media_player
+  browser_notify_service: !input browser_notify_service
+  extra_notify_entities: !input extra_notify_entities
   alarms_sensors: !input alarms_sensors
   alarm_scope: !input alarm_scope
   alarm_include_clears: !input alarm_include_clears
@@ -812,7 +837,7 @@ actions:
                     entity: "{{ repeat.item[1] }}"
       - stop: Catch-up done
 
-  - alias: Phone notification (own run, so a missing notify service can't stop the rest)
+  - alias: External notify run (own run, so a missing notify service can't stop the rest)
     if: "{{ trigger.id == 'phone' }}"
     then:
       - if: "{{ mobile_service != '' }}"
@@ -827,7 +852,23 @@ actions:
                 priority: high
                 ttl: 0
                 car_ui: true
-      - stop: Phone notification sent
+      - if: "{{ (browser_notify_service | default('') | trim) != '' }}"
+        then:
+          - action: "{{ browser_notify_service }}"
+            continue_on_error: true
+            data:
+              title: "{{ trigger.event.data.title | default('') }}"
+              message: "{{ trigger.event.data.message | default('') }}"
+      - if: "{{ (extra_notify_entities | default([]) | length) > 0 }}"
+        then:
+          - action: notify.send_message
+            continue_on_error: true
+            target:
+              entity_id: !input extra_notify_entities
+            data:
+              title: "{{ trigger.event.data.title | default('') }}"
+              message: "{{ trigger.event.data.message | default('') }}"
+      - stop: External notifications sent
 
   - alias: Re-check — must stay out of range for the sustain time, like a crossing
     if: "{{ trigger.id == 'recheck' and a_kind == 'numeric' and sustain_secs > 0 }}"
@@ -893,8 +934,8 @@ actions:
                 notification_id: "{{ notif_id }}"
                 title: "{{ alert_title }}"
                 message: "{{ alert_message }}"
-        - alias: Mobile app notification (sent by its own run)
-          if: "{{ mobile_service != '' }}"
+        - alias: External notify — device / browser / notify entities (own run)
+          if: "{{ mobile_service != '' or (browser_notify_service | default('') | trim) != '' or (extra_notify_entities | default([]) | length) > 0 }}"
           then:
             - event: sf_grow_alerts_phone
               event_data:

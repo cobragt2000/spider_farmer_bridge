@@ -3,6 +3,19 @@
 All notable changes to the Spider Farmer Bridge integration.
 Each section below is ready to paste into the matching GitHub release.
 
+## 3.20.53 — Grow Alerts: "Device to notify" + browser / notify-entity targets
+
+### Added
+- **Two more notify channels on the Grow Alerts blueprint.** A free-text
+  **"Browser / other notify service"** (point it at `notify.html5`, browser_mod, Telegram,
+  Alexa, or any `notify.*` service) and a dropdown of **notify entities** to also message.
+  Both run in the blueprint's isolated notify run (with `continue_on_error`), so a missing
+  or mistyped service can't stop the other channels or the repeats.
+
+### Changed
+- The mobile notify picker reads **"Device to notify"** (any Companion-app device), not
+  "Phone". Re-applied on top of the 3.20.52 review fixes.
+
 ## 3.20.52 — Review fixes: Grow Alerts, adaptive climate, cards, German
 
 A review of everything since 3.19.425 before the 3.20 release. Every fix has a

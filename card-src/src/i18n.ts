@@ -7,8 +7,9 @@
 // translate the values, add one import + one TABLES entry below, rebuild.
 // tests/test_card_i18n.py checks that every table covers every loc("…") key.
 import de from "./translations/de";
+import es from "./translations/es";
 
-const TABLES: Record<string, Record<string, string>> = { de };
+const TABLES: Record<string, Record<string, string>> = { de, es };
 
 let table: Record<string, string> | undefined;
 let current = "";

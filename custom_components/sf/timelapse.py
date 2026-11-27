@@ -698,6 +698,7 @@ _OVERLAY_LABELS = {"temp": "Temp", "humidity": "RH", "vpd": "VPD",
 # so preview and video match; tests/test_i18n.py checks the two agree.
 _OVERLAY_LABELS_I18N = {
     "de": {"humidity": "rF", "day": "Tag {n}"},
+    "es": {"temp": "Temp.", "humidity": "HR", "day": "Día {n}"},
 }
 
 
